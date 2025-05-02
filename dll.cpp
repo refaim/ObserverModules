@@ -130,7 +130,7 @@ extern "C" int MODULE_EXPORT ExtractItem(HANDLE storage, ExtractOperationParams 
     return SER_SUCCESS;
 }
 
-extern "C" int MODULE_EXPORT __attribute__((visibility("default"))) LoadSubModule(
+extern "C" int MODULE_EXPORT LoadSubModule(
     ModuleLoadParameters *LoadParams) noexcept
 {
     LoadParams->ModuleId = {0x86e7e4c3, 0xbc44, 0x4e8e, {0x90, 0xaf, 0xbd, 0xbd, 0x1c, 0xb6, 0x1a, 0x83}};
@@ -144,6 +144,6 @@ extern "C" int MODULE_EXPORT __attribute__((visibility("default"))) LoadSubModul
     return TRUE;
 }
 
-extern "C" void MODULE_EXPORT __attribute__((visibility("default"))) UnloadSubModule() noexcept
+extern "C" void MODULE_EXPORT UnloadSubModule() noexcept
 {
 }

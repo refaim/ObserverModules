@@ -3,12 +3,13 @@
 
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <span>
 #include <string>
 
 namespace shared
 {
-    class read_error final : std::runtime_error
+    class read_error final : public std::runtime_error
     {
     public:
         read_error(): runtime_error("")
@@ -16,7 +17,7 @@ namespace shared
         }
     };
 
-    class write_error final : std::runtime_error
+    class write_error final : public std::runtime_error
     {
     public:
         write_error(): runtime_error("")
@@ -25,7 +26,7 @@ namespace shared
     };
 
 
-    class user_interrupt final : std::runtime_error
+    class user_interrupt final : public std::runtime_error
     {
     public:
         user_interrupt(): runtime_error("")
