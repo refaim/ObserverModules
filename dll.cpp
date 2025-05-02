@@ -41,19 +41,14 @@ extern "C" int MODULE_EXPORT OpenStorage(StorageOpenParams params, HANDLE *stora
     return SOR_SUCCESS;
 }
 
-std::unique_ptr<shared::archive> as_archive(HANDLE storage)
-{
-    std::unique_ptr<shared::archive> archive(static_cast<shared::archive *>(storage));
-    return archive;
-}
-
 extern "C" void MODULE_EXPORT CloseStorage(HANDLE storage)
 {
     if (storage == nullptr) {
         return;
     }
 
-    as_archive(storage).reset();
+    std::unique_ptr<shared::archive> archive(static_cast<shared::archive *>(storage));
+    archive.reset();
 }
 
 extern "C" int MODULE_EXPORT PrepareFiles(HANDLE storage)
@@ -62,7 +57,7 @@ extern "C" int MODULE_EXPORT PrepareFiles(HANDLE storage)
         return FALSE;
     }
 
-    const auto archive = as_archive(storage);
+    const auto archive = static_cast<shared::archive *>(storage);
     try {
         archive->prepare_files();
     } catch (std::runtime_error &) {
@@ -78,7 +73,7 @@ extern "C" int MODULE_EXPORT GetItem(HANDLE storage, int item_index, StorageItem
         return GET_ITEM_ERROR;
     }
 
-    const auto archive = as_archive(storage);
+    const auto archive = static_cast<shared::archive *>(storage);
     try {
         const auto file = archive->get_file(item_index);
 
@@ -114,7 +109,7 @@ extern "C" int MODULE_EXPORT ExtractItem(HANDLE storage, ExtractOperationParams 
         }
     };
 
-    const auto archive = as_archive(storage);
+    const auto archive = static_cast<shared::archive *>(storage);
     try {
         archive->extract_file(params.ItemIndex, params.DestPath, report_progress);
     } catch (shared::user_interrupt &) {

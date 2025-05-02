@@ -84,10 +84,11 @@ namespace shared
             return;
         }
 
-        files_.reserve(read_positive_int32(*stream_));
+        const size_t files_num = read_positive_int32(*stream_);
+        files_.reserve(files_num);
 
         std::string path;
-        for (size_t i = 0; i < files_.size(); ++i) {
+        for (size_t i = 0; i < files_num; ++i) {
             const auto path_len = read_positive_int32(*stream_);
             path.resize(path_len);
             stream_->read(path.data(), path_len);
