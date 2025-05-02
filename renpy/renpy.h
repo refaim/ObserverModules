@@ -1,5 +1,5 @@
-#ifndef ARCHIVE_H
-#define ARCHIVE_H
+#ifndef RENPY_H
+#define RENPY_H
 
 #include <filesystem>
 #include <fstream>

@@ -1,5 +1,5 @@
-#ifndef MODULE_DEF_H
-#define MODULE_DEF_H
+#ifndef API_H
+#define API_H
 
 // The following macros define the minimum required platform.  The minimum required platform
 // is the earliest version of Windows, Internet Explorer etc. that has the necessary features to run

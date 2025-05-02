@@ -1,0 +1,5 @@
+LIBRARY "zanzarah.so"
+
+EXPORTS
+    LoadSubModule
+    UnloadSubModule

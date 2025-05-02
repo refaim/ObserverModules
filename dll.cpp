@@ -1,10 +1,10 @@
 #include <filesystem>
 #include <memory>
 #include <string>
-#include <sstream>
 
-#include "vendor/ModuleDef.h"
-#include "archive.h"
+#include "api.h"
+
+#include "zanzarah/zanzarah.h"
 
 void copy_string(const std::wstring &source, wchar_t *destination, const std::size_t max_len)
 {
@@ -125,8 +125,7 @@ extern "C" int MODULE_EXPORT ExtractItem(HANDLE storage, ExtractOperationParams 
     return SER_SUCCESS;
 }
 
-extern "C" int MODULE_EXPORT LoadSubModule(
-    ModuleLoadParameters *LoadParams) noexcept
+extern "C" int MODULE_EXPORT LoadSubModule(ModuleLoadParameters *LoadParams) noexcept
 {
     LoadParams->ModuleId = {0x86e7e4c3, 0xbc44, 0x4e8e, {0x90, 0xaf, 0xbd, 0xbd, 0x1c, 0xb6, 0x1a, 0x83}};
     LoadParams->ModuleVersion = MAKEMODULEVERSION(2, 0);

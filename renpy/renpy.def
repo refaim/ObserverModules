@@ -1,0 +1,5 @@
+LIBRARY "renpy.so"
+
+EXPORTS
+    LoadSubModule
+    UnloadSubModule
