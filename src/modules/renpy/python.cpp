@@ -31,7 +31,7 @@ namespace renpy
             object_ = nullptr;
         }
 
-        PyObject *get_object() const noexcept
+        [[nodiscard]] PyObject *get_object() const noexcept
         {
             return object_;
         }
@@ -67,7 +67,7 @@ namespace renpy
             object_ = nullptr;
         }
 
-        PyObject *get_object() const noexcept
+        [[nodiscard]] PyObject *get_object() const noexcept
         {
             return object_;
         }
@@ -87,10 +87,10 @@ namespace renpy
     }
 
     // ReSharper disable once CppMemberFunctionMayBeStatic
-    std::unique_ptr<python_object> python::unpickle(const std::string &pickled_string)
+    std::unique_ptr<python_object> python::unpickle(const std::string &pickled_string) // NOLINT(*-convert-member-functions-to-static)
     {
         const auto pickled_bytes = weak_ref(
-            PyByteArray_FromStringAndSize(pickled_string.c_str(), pickled_string.size()));
+            PyByteArray_FromStringAndSize(pickled_string.c_str(), std::ssize(pickled_string)));
 
         const auto args = weak_ref(PyTuple_New(1));
         if (PyTuple_SetItem(args.get_object(), 0, pickled_bytes.get_object()) != 0) {

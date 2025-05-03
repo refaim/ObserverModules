@@ -54,7 +54,7 @@ namespace extractor
     public:
         static std::vector<std::byte> get_signature() noexcept;
 
-        archive_info get_meta(const std::span<const std::byte> &data) noexcept;
+        archive_info get_archive_info(const std::span<const std::byte> &data) noexcept;
 
         std::vector<std::unique_ptr<file> > list_files(std::ifstream &stream);
     };

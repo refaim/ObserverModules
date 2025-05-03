@@ -34,9 +34,9 @@ namespace archive
             throw std::runtime_error("Failed to open file");
         }
         stream_->exceptions(std::ifstream::failbit | std::ifstream::badbit);
-        stream_->seekg(static_cast<std::streamoff>(signature.size()));
+        stream_->seekg(std::ssize(signature));
 
-        return extractor_->get_meta(data);
+        return extractor_->get_archive_info(data);
     }
 
     archive::~archive()

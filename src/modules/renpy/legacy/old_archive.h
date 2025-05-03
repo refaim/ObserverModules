@@ -1,6 +1,7 @@
 #ifndef RENPY_ARCHIVE_H_
 #define RENPY_ARCHIVE_H_
 
+#include "kriabal.h"
 #include "python.h"
 
 namespace renpy

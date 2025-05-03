@@ -4,10 +4,7 @@
 #include <memory>
 #include <utility>
 
-#include <zlib.h>
-
 #include "old_archive.h"
-#include "python.h"
 
 namespace renpy
 {
@@ -20,21 +17,10 @@ namespace renpy
 
     void Archive::PrepareItems()
     {
-        SkipSignature();
-        stream_->Skip(strlen(" "));
+        // auto index_raw_bytes = std::make_unique<std::string>(); {
+        //     UncompressZlibStream(*index_zlib_bytes.get(), *index_raw_bytes.get());
 
-        const int64_t index_offset = stream_->ReadSignedPositiveInt64FromHexString();
-        const int64_t encryption_key = stream_->ReadSignedPositiveInt64FromHexString();
-
-        auto index_raw_bytes = std::make_unique<std::string>(); {
-            auto index_zlib_bytes = std::make_unique<std::string>(
-                gsl::narrow<size_t>(stream_->GetFileSizeInBytes() - index_offset), '\0');
-
-            stream_->Seek(index_offset);
-            stream_->ReadBytes(*index_zlib_bytes.get(), index_zlib_bytes->size());
-
-            UncompressZlibStream(*index_zlib_bytes.get(), *index_raw_bytes.get());
-        } {
+        {
             auto python_context = python::Context();
             try {
                 ParsePythonIndex(*index_raw_bytes.get(), encryption_key);
@@ -42,31 +28,6 @@ namespace renpy
                 throw kriabal::RuntimeError();
             }
         }
-    }
-
-    void Archive::UncompressZlibStream(const std::string &input_buffer, std::string &output_buffer)
-    {
-        const int32_t kStartingCompressionMultiplier = 4;
-
-        int32_t compression_multiplier = kStartingCompressionMultiplier;
-        uLongf uncompressed_length = 0;
-        int32_t zlib_status = Z_BUF_ERROR;
-        do {
-            uncompressed_length = gsl::narrow<
-                uLongf>(input_buffer.size() * gsl::narrow<size_t>(compression_multiplier));
-            output_buffer.resize(gsl::narrow<size_t>(uncompressed_length));
-
-            zlib_status = uncompress(reinterpret_cast<uint8_t *>(output_buffer.data()), &uncompressed_length,
-                                     reinterpret_cast<const uint8_t *>(input_buffer.c_str()),
-                                     gsl::narrow<uLong>(input_buffer.size()));
-
-            ++compression_multiplier;
-        } while (zlib_status == Z_BUF_ERROR);
-
-        if (zlib_status != Z_OK)
-            throw kriabal::RuntimeError();
-
-        output_buffer.resize(gsl::narrow<size_t>(uncompressed_length));
     }
 
     void Archive::ParsePythonIndex(const std::string &input_buffer, int64_t encryption_key)
