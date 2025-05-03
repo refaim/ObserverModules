@@ -1,13 +1,14 @@
-#ifndef RENPY_H
-#define RENPY_H
+#ifndef ZANZARAH_H
+#define ZANZARAH_H
+
+#include "modules/extractor.h"
 
 #include <filesystem>
 #include <fstream>
 #include <functional>
 #include <span>
-#include <string>
 
-namespace shared
+namespace archive
 {
     class read_error final : public std::runtime_error
     {
@@ -25,7 +26,6 @@ namespace shared
         }
     };
 
-
     class user_interrupt final : public std::runtime_error
     {
     public:
@@ -34,38 +34,26 @@ namespace shared
         }
     };
 
-    struct meta final
-    {
-        std::wstring format;
-        std::wstring compression;
-        std::wstring comment;
-    };
-
-    struct file final
-    {
-        std::string path;
-        int64_t offset;
-        int64_t compressed_size_in_bytes;
-        int64_t uncompressed_size_in_bytes;
-    };
-
     class archive final
     {
     public:
+        explicit archive(std::unique_ptr<extractor::extractor> extractor);
+
         ~archive();
 
-        meta open(const std::filesystem::path &path, const std::span<const std::byte> &data);
+        extractor::archive_info open(const std::filesystem::path &path, const std::span<const std::byte> &data);
 
         void prepare_files();
 
-        [[nodiscard]] const file &get_file(size_t index) const;
+        [[nodiscard]] const extractor::file &get_file(size_t index) const;
 
         void extract_file(size_t index, const std::filesystem::path &path,
                           const std::function<void(int64_t)> &report_progress) const;
 
     private:
+        std::unique_ptr<extractor::extractor> extractor_;
         std::unique_ptr<std::ifstream> stream_;
-        std::vector<std::unique_ptr<file> > files_;
+        std::vector<std::unique_ptr<extractor::file> > files_;
     };
 }
 

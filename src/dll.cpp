@@ -1,10 +1,11 @@
+#include "api.h"
+#include "archive.h"
+#include "modules/extractor.h"
+
 #include <filesystem>
 #include <memory>
+#include <span>
 #include <string>
-
-#include "api.h"
-
-#include "zanzarah/zanzarah.h"
 
 void copy_string(const std::wstring &source, wchar_t *destination, const std::size_t max_len)
 {
@@ -24,7 +25,7 @@ extern "C" int MODULE_EXPORT OpenStorage(StorageOpenParams params, HANDLE *stora
         data = std::span(static_cast<const std::byte *>(params.Data), params.DataSize);
     }
 
-    auto archive = std::make_unique<shared::archive>();
+    auto archive = std::make_unique<archive::archive>(std::make_unique<extractor::extractor>());
     try {
         auto [format, compression, comment] = archive->open(path, data);
 
@@ -47,7 +48,7 @@ extern "C" void MODULE_EXPORT CloseStorage(HANDLE storage)
         return;
     }
 
-    std::unique_ptr<shared::archive> archive(static_cast<shared::archive *>(storage));
+    std::unique_ptr<archive::archive> archive(static_cast<archive::archive *>(storage));
     archive.reset();
 }
 
@@ -57,7 +58,7 @@ extern "C" int MODULE_EXPORT PrepareFiles(HANDLE storage)
         return FALSE;
     }
 
-    const auto archive = static_cast<shared::archive *>(storage);
+    const auto archive = static_cast<archive::archive *>(storage);
     try {
         archive->prepare_files();
     } catch (std::runtime_error &) {
@@ -73,7 +74,7 @@ extern "C" int MODULE_EXPORT GetItem(HANDLE storage, int item_index, StorageItem
         return GET_ITEM_ERROR;
     }
 
-    const auto archive = static_cast<shared::archive *>(storage);
+    const auto archive = static_cast<archive::archive *>(storage);
     try {
         const auto file = archive->get_file(item_index);
 
@@ -105,18 +106,18 @@ extern "C" int MODULE_EXPORT ExtractItem(HANDLE storage, ExtractOperationParams 
     auto report_progress = [callbacks = params.Callbacks](const int64_t bytes_read)
     {
         if (!callbacks.FileProgress(callbacks.signalContext, bytes_read)) {
-            throw shared::user_interrupt();
+            throw archive::user_interrupt();
         }
     };
 
-    const auto archive = static_cast<shared::archive *>(storage);
+    const auto archive = static_cast<archive::archive *>(storage);
     try {
         archive->extract_file(params.ItemIndex, params.DestPath, report_progress);
-    } catch (shared::user_interrupt &) {
+    } catch (archive::user_interrupt &) {
         return SER_USERABORT;
-    } catch (shared::read_error &) {
+    } catch (archive::read_error &) {
         return SER_ERROR_READ;
-    } catch (shared::write_error &) {
+    } catch (archive::write_error &) {
         return SER_ERROR_WRITE;
     } catch (std::runtime_error &) {
         return SER_ERROR_SYSTEM;
@@ -127,8 +128,10 @@ extern "C" int MODULE_EXPORT ExtractItem(HANDLE storage, ExtractOperationParams 
 
 extern "C" int MODULE_EXPORT LoadSubModule(ModuleLoadParameters *LoadParams) noexcept
 {
-    LoadParams->ModuleId = {0x86e7e4c3, 0xbc44, 0x4e8e, {0x90, 0xaf, 0xbd, 0xbd, 0x1c, 0xb6, 0x1a, 0x83}};
-    LoadParams->ModuleVersion = MAKEMODULEVERSION(2, 0);
+    const auto [id, major_version, minor_version] = extractor::get_version_info();
+    const auto [id1, id2, id3, id4] = id;
+    LoadParams->ModuleId = {id1, id2, id3, {id4[0], id4[1], id4[2], id4[3], id4[4], id4[5], id4[6], id4[7]}};
+    LoadParams->ModuleVersion = MAKEMODULEVERSION(major_version, minor_version);
     LoadParams->ApiVersion = ACTUAL_API_VERSION;
     LoadParams->ApiFuncs.OpenStorage = OpenStorage;
     LoadParams->ApiFuncs.CloseStorage = CloseStorage;
