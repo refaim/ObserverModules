@@ -44,9 +44,10 @@ namespace extractor
     struct file final
     {
         std::string path;
+        std::unique_ptr<std::vector<std::byte> > header;
         int64_t offset;
-        int64_t compressed_size_in_bytes;
-        int64_t uncompressed_size_in_bytes;
+        int64_t compressed_body_size_in_bytes;
+        int64_t uncompressed_body_size_in_bytes;
     };
 
     class extractor

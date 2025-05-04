@@ -1,7 +1,6 @@
-#include <algorithm>
-
 #include "../extractor.h"
 
+#include <algorithm>
 #include <fstream>
 
 namespace extractor
@@ -76,8 +75,8 @@ namespace extractor
             new_file->offset = block_offset + header_size;
             // [0x101, data, 0x202], [0x101, data, 0x202], ...
             // No idea why we should subtract next data block header, but apparently that's the right way
-            new_file->compressed_size_in_bytes = block_size - 2 * header_size - footer_size;
-            new_file->uncompressed_size_in_bytes = new_file->compressed_size_in_bytes;
+            new_file->compressed_body_size_in_bytes = block_size - 2 * header_size - footer_size;
+            new_file->uncompressed_body_size_in_bytes = new_file->compressed_body_size_in_bytes;
 
             files.push_back(std::move(new_file));
         }

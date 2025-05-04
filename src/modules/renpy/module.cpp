@@ -1,6 +1,8 @@
 #include "../extractor.h"
+#include "python/python.h"
 
 #include <fstream>
+
 #include <zstr.hpp>
 
 namespace extractor
@@ -59,8 +61,32 @@ namespace extractor
             throw read_error();
         }
 
+        const auto context = python::context();
+        const auto dict = python::dict(context, std::move(context.unpickle(decompressed_data)));
         auto files = std::vector<std::unique_ptr<file> >();
-        // TODO: Разобрать decompressed_data и заполнить files
+        files.reserve(dict.size());
+        for (auto [file_name, value]: dict.iterate()) {
+            const auto props_container = python::list(context, std::move(value));
+            if (props_container.size() != 1) {
+                throw std::logic_error("Not implemented");
+            }
+            const auto props = python::tuple(context, props_container.get_item(0));
+
+            const auto offset = context.as_int64(*props.get_item(0)) ^ encryption_key;
+            const auto body_size = context.as_int64(*props.get_item(1)) ^ encryption_key;
+            auto header = std::make_unique<std::vector<std::byte> >();
+            if (props.size() >= 3) {
+                header = context.as_bytes(*props.get_item(2));
+            }
+
+            auto item = std::make_unique<file>();
+            item->path = std::string(file_name.data(), file_name.size());
+            item->header = std::move(header);
+            item->offset = offset;
+            item->compressed_body_size_in_bytes = body_size;
+            item->uncompressed_body_size_in_bytes = item->compressed_body_size_in_bytes;
+            files.push_back(std::move(item));
+        }
         return files;
     }
 }

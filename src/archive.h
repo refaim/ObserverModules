@@ -39,8 +39,6 @@ namespace archive
     public:
         explicit archive(std::unique_ptr<extractor::extractor> extractor);
 
-        ~archive();
-
         extractor::archive_info open(const std::filesystem::path &path, const std::span<const std::byte> &data);
 
         void prepare_files();

@@ -76,12 +76,13 @@ extern "C" int MODULE_EXPORT GetItem(HANDLE storage, int item_index, StorageItem
 
     const auto archive = static_cast<archive::archive *>(storage);
     try {
-        const auto file = archive->get_file(item_index);
+        const auto &file = archive->get_file(item_index);
+        const auto header_size = std::ssize(*file.header);
 
         std::memset(item_info, 0, sizeof(StorageItemInfo));
         item_info->Attributes = FILE_ATTRIBUTE_NORMAL;
-        item_info->Size = file.uncompressed_size_in_bytes;
-        item_info->PackedSize = file.compressed_size_in_bytes;
+        item_info->Size = header_size + file.uncompressed_body_size_in_bytes;
+        item_info->PackedSize = header_size + file.compressed_body_size_in_bytes;
         const auto chars_written = MultiByteToWideChar(CP_UTF8, 0, file.path.c_str(), -1, item_info->Path,
                                                        static_cast<int>(std::size(item_info->Path)));
         if (chars_written == 0) {

@@ -39,14 +39,6 @@ namespace archive
         return extractor_->get_archive_info(data);
     }
 
-    archive::~archive()
-    {
-        if (stream_ && stream_->is_open()) {
-            stream_->close();
-        }
-        stream_.reset();
-    }
-
     void archive::prepare_files()
     {
         if (!files_.empty()) {
@@ -54,7 +46,7 @@ namespace archive
         }
 
         try {
-            files_ = extractor_->list_files(*stream_.get());
+            files_ = extractor_->list_files(*stream_);
         } catch (extractor::read_error &) {
             throw read_error();
         }
@@ -75,7 +67,7 @@ namespace archive
     void archive::extract_file(const size_t index, const std::filesystem::path &path,
                                const std::function<void(int64_t)> &report_progress) const
     {
-        const extractor::file &item = get_file(index);
+        const extractor::file &file = get_file(index);
         std::ofstream output(path, std::ios::binary);
         if (!output.is_open()) {
             throw write_error();
@@ -85,13 +77,17 @@ namespace archive
         constexpr int64_t buffer_size = 128 * 1024;
         std::vector<char> buffer(buffer_size);
 
+        if (!file.header->empty()) {
+            output.write(reinterpret_cast<const char *>(file.header->data()), std::ssize(*file.header));
+        }
+
         try {
-            stream_->seekg(item.offset);
+            stream_->seekg(file.offset);
         } catch (std::ios_base::failure &) {
             throw read_error();
         }
 
-        int64_t bytes_left = item.compressed_size_in_bytes;
+        int64_t bytes_left = file.compressed_body_size_in_bytes;
         while (bytes_left > 0) {
             const auto chunk_size = static_cast<std::streamsize>(std::min(bytes_left, buffer_size));
 
