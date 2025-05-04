@@ -1,5 +1,5 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="Far Manager" type="CMakeRunConfiguration" factoryName="Application" PROGRAM_PARAMS="-w -s Profile" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="true" EMULATE_TERMINAL="false" WORKING_DIR="file://M:/observer/_far/" PASS_PARENT_ENVS_2="true" CONFIG_NAME="Debug-Visual Studio" RUN_PATH="M:/observer/_far/Far.exe" EXPLICIT_BUILD_TARGET_NAME="all">
+  <configuration default="false" name="Far Manager (Debug)" type="CMakeRunConfiguration" factoryName="Application" PROGRAM_PARAMS="-w -s Profile" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="true" EMULATE_TERMINAL="false" WORKING_DIR="file://M:/observer/_far/" PASS_PARENT_ENVS_2="true" CONFIG_NAME="Debug-Visual Studio" RUN_PATH="M:/observer/_far/Far.exe" EXPLICIT_BUILD_TARGET_NAME="all">
     <envs>
       <env name="DEBUGFARHOME" value="M:\observer\_far\" />
     </envs>

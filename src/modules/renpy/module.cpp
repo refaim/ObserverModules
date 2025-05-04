@@ -74,14 +74,14 @@ namespace extractor
 
             const auto offset = context.as_int64(*props.get_item(0)) ^ encryption_key;
             const auto body_size = context.as_int64(*props.get_item(1)) ^ encryption_key;
-            auto header = std::make_unique<std::vector<std::byte> >();
+            auto header = std::string();
             if (props.size() >= 3) {
                 header = context.as_bytes(*props.get_item(2));
             }
 
             auto item = std::make_unique<file>();
             item->path = std::string(file_name.data(), file_name.size());
-            item->header = std::move(header);
+            item->header = header;
             item->offset = offset;
             item->compressed_body_size_in_bytes = body_size;
             item->uncompressed_body_size_in_bytes = item->compressed_body_size_in_bytes;

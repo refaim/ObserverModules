@@ -1,5 +1,5 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="Copy DLLs to Debug Version of Far Manager" type="BatchConfigurationType" factoryName="Batch">
+  <configuration default="false" name="Copy Release DLLs to Debug Version of Far Manager" type="BatchConfigurationType" factoryName="Batch">
     <module name="zanzarah" />
     <option name="INTERPRETER_OPTIONS" value="" />
     <option name="WORKING_DIRECTORY" value="" />
@@ -7,8 +7,8 @@
     <envs>
       <env name="DEBUGFARHOME" value="M:\observer\_far" />
     </envs>
-    <option name="SCRIPT_NAME" value="./copy_debug.cmd" />
-    <option name="PARAMETERS" value="" />
+    <option name="SCRIPT_NAME" value="./copy_dlls.cmd" />
+    <option name="PARAMETERS" value="release" />
     <method v="2" />
   </configuration>
 </component>

@@ -77,8 +77,8 @@ namespace archive
         constexpr int64_t buffer_size = 128 * 1024;
         std::vector<char> buffer(buffer_size);
 
-        if (!file.header->empty()) {
-            output.write(reinterpret_cast<const char *>(file.header->data()), std::ssize(*file.header));
+        if (!file.header.empty()) {
+            output.write(file.header.data(), std::ssize(file.header));
         }
 
         try {

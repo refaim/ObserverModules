@@ -53,19 +53,16 @@ namespace python
     }
 
     // ReSharper disable once CppMemberFunctionMayBeStatic
-    std::unique_ptr<std::vector<std::byte> > context::as_bytes(const object &unicode) const // NOLINT(*-convert-member-functions-to-static)
+    std::string context::as_bytes(const object &unicode) const // NOLINT(*-convert-member-functions-to-static)
     {
         const auto ansi = std::make_unique<strong_ref>(PyUnicode_AsLatin1String(rawptr(unicode)));
-        auto result = std::make_unique<std::vector<std::byte> >();
+        auto result = std::string();
         if (const auto size = PyBytes_Size(rawptr(*ansi)); size > 0) {
             const auto bytes = PyBytes_AsString(rawptr(*ansi));
             if (bytes == nullptr) {
                 throw std::runtime_error("Unable to convert Python latin1 string to bytes");
             }
-
-            result->reserve(size);
-            std::transform(bytes, bytes + size, std::back_inserter(*result),
-                           [](char c) { return static_cast<std::byte>(c); });
+            result.assign(bytes, size);
         }
         return result;
     }

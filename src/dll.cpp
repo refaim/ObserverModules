@@ -77,7 +77,7 @@ extern "C" int MODULE_EXPORT GetItem(HANDLE storage, int item_index, StorageItem
     const auto archive = static_cast<archive::archive *>(storage);
     try {
         const auto &file = archive->get_file(item_index);
-        const auto header_size = std::ssize(*file.header);
+        const auto header_size = std::ssize(file.header);
 
         std::memset(item_info, 0, sizeof(StorageItemInfo));
         item_info->Attributes = FILE_ATTRIBUTE_NORMAL;
