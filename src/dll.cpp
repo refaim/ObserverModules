@@ -63,6 +63,8 @@ extern "C" int MODULE_EXPORT PrepareFiles(HANDLE storage)
         archive->prepare_files();
     } catch (std::runtime_error &) {
         return FALSE;
+    } catch (std::logic_error &) {
+        return FALSE;
     }
 
     return TRUE;

@@ -1,0 +1,5 @@
+LIBRARY "rpgmaker.so"
+
+EXPORTS
+    LoadSubModule
+    UnloadSubModule
