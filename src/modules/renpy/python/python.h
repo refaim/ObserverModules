@@ -31,7 +31,7 @@ namespace python
 
         [[nodiscard]] int64_t as_int64(const object &value) const;
 
-        [[nodiscard]] std::string as_bytes(const object &unicode) const;
+        [[nodiscard]] std::string as_bytes(const object &value) const;
 
         ~context();
     };
