@@ -62,8 +62,7 @@ jobs:
 
       - name: Release nightly build
         uses: andelf/nightly-release@main
-        # TODO only run on master branch AND NOT ON PULL REQUESTS
-        # if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
         with:
           name: 'Nightly Release $$'
           body: 'This is an automated nightly build. Download the *-dll.zip files if you need Observer modules. Download the *-pdb.zip files if you need debug symbols.'
