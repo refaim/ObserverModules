@@ -17,7 +17,7 @@ namespace extractor
 
     std::vector<std::byte> extractor::get_signature() noexcept
     {
-        const std::string str = "RPA-3.0";
+        const std::string str = "RPA-3.0 ";
         std::vector<std::byte> signature(str.size());
         std::memcpy(signature.data(), str.data(), str.size());
         return signature;
@@ -46,8 +46,6 @@ namespace extractor
     // ReSharper disable once CppMemberFunctionMayBeStatic
     std::vector<std::unique_ptr<file> > extractor::list_files(std::ifstream &stream) // NOLINT(*-convert-member-functions-to-static)
     {
-        stream.seekg(std::string_view(" ").size(), std::ios::cur);
-
         const auto index_offset = read_int64(stream);
         const auto encryption_key = read_int64(stream);
 
