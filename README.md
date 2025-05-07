@@ -1,7 +1,7 @@
 # Refaim's Observer Modules for FAR Manager
 
 [![License: LGPL v3](https://img.shields.io/badge/License-LGPL_v3-blue.svg)](https://www.gnu.org/licenses/lgpl-3.0)
-[![CI](https://github.com/refaim/Observer/actions/workflows/main.yaml/badge.svg?branch=master)](https://github.com/refaim/Observer/actions/workflows/main.yaml)
+[![CI](https://github.com/refaim/ObserverModules/actions/workflows/main.yml/badge.svg)](https://github.com/refaim/ObserverModules/actions/workflows/main.yml)
 
 ## About the Project
 
