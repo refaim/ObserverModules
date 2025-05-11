@@ -1,5 +1,4 @@
-#ifndef ZANZARAH_H
-#define ZANZARAH_H
+#pragma once
 
 #include "modules/extractor.h"
 
@@ -54,5 +53,3 @@ namespace archive
         std::vector<std::unique_ptr<extractor::file> > files_;
     };
 }
-
-#endif

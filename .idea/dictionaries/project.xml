@@ -2,10 +2,12 @@
   <dictionary name="project">
     <words>
       <w>andelf</w>
+      <w>auriemma</w>
       <w>bstatic</w>
       <w>debugfarhome</w>
       <w>dependencygraph</w>
       <w>dest</w>
+      <w>funcs</w>
       <w>makemoduleversion</w>
       <w>nomoreitems</w>
       <w>popd</w>
@@ -18,6 +20,9 @@
       <w>strbuf</w>
       <w>thirdparty</w>
       <w>userabort</w>
+      <w>wstring</w>
+      <w>xxhash</w>
+      <w>zanzapak</w>
       <w>zanzarah</w>
       <w>zstr</w>
     </words>

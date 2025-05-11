@@ -1,5 +1,4 @@
-#ifndef EXTRACTOR_H
-#define EXTRACTOR_H
+#pragma once
 
 #include <memory>
 #include <span>
@@ -60,5 +59,3 @@ namespace extractor
         std::vector<std::unique_ptr<file> > list_files(std::ifstream &stream);
     };
 }
-
-#endif

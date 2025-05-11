@@ -1,5 +1,9 @@
-#ifndef API_H
-#define API_H
+#pragma once
+
+/**
+This file is licensed under the GNU LGPLv3.
+It includes/modifies code originally from Observer (https://github.com/lazyhamster/Observer).
+**/
 
 // The following macros define the minimum required platform.  The minimum required platform
 // is the earliest version of Windows, Internet Explorer etc. that has the necessary features to run
@@ -147,5 +151,3 @@ typedef void (MODULE_EXPORT *UnloadSubModuleFunc)(void);
 #define SER_ERROR_SYSTEM 3
 #define SER_USERABORT 4
 #define SER_PASSWORD_REQUIRED 5
-
-#endif
