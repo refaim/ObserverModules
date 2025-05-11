@@ -16,6 +16,8 @@ set(ZLIB_USE_STATIC_LIBS ON)
 find_package(ZLIB REQUIRED)
 find_path(ZSTR_INCLUDE_DIRS "zstr.hpp")
 find_package(Python3 COMPONENTS Development REQUIRED)
+find_package(nlohmann_json REQUIRED)
+find_package(xxHash CONFIG REQUIRED)
 
 set(ALL_MODULES renpy rpgmaker zanzarah)
 set(RELEASED_MODULES renpy zanzarah)
@@ -40,6 +42,24 @@ add_library(zanzarah SHARED src/dll.cpp src/archive.cpp src/modules/zanzarah/zan
 foreach (module IN LISTS ALL_MODULES)
     set_target_properties(${module} PROPERTIES SUFFIX ".so" PREFIX "" LINK_FLAGS "/DEF:${CMAKE_CURRENT_SOURCE_DIR}/src/modules/${module}/${module}.def")
 endforeach ()
+
+# === CTest ===
+
+find_package(Catch2 REQUIRED)
+add_executable(tests
+        src/tests/framework/observer.cpp
+        src/tests/framework/testcase.cpp
+        src/tests/renpy.cpp
+        src/tests/zanzarah.cpp)
+target_link_libraries(tests PRIVATE Catch2::Catch2WithMain)
+target_link_libraries(tests PRIVATE nlohmann_json::nlohmann_json)
+target_link_libraries(tests PRIVATE xxHash::xxhash)
+target_link_libraries(tests PRIVATE ${ALL_MODULES})
+include(CTest)
+include(Catch)
+catch_discover_tests(tests)
+
+# === CPack ===
 
 file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/docs_temp/thirdparty)
 file(COPY ${CMAKE_SOURCE_DIR}/licenses/ DESTINATION ${CMAKE_BINARY_DIR}/docs_temp/thirdparty)

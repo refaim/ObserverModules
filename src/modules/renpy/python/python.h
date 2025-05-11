@@ -1,5 +1,4 @@
-#ifndef PYTHON_H
-#define PYTHON_H
+#pragma once
 
 #include <generator>
 #include <memory>
@@ -87,5 +86,3 @@ namespace python
         [[nodiscard]] std::generator<std::pair<std::string_view, std::unique_ptr<object> > > iterate() const;
     };
 }
-
-#endif

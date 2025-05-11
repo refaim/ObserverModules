@@ -11,6 +11,15 @@
   }, {
     "name" : "python3",
     "version>=" : "3.12.9"
+  }, {
+    "name" : "catch2",
+    "version>=" : "3.8.1"
+  }, {
+    "name" : "nlohmann-json",
+    "version>=" : "3.12.0"
+  }, {
+    "name" : "xxhash",
+    "version>=" : "0.8.3"
   } ],
   "builtin-baseline" : "2cbe970e2c987a55848ba3c6b1c1d285f220159e"
 }

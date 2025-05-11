@@ -85,6 +85,7 @@ extern "C" int MODULE_EXPORT GetItem(HANDLE storage, int item_index, StorageItem
         item_info->Attributes = FILE_ATTRIBUTE_NORMAL;
         item_info->Size = header_size + file.uncompressed_body_size_in_bytes;
         item_info->PackedSize = header_size + file.compressed_body_size_in_bytes;
+        item_info->NumHardlinks = 0;
         const auto chars_written = MultiByteToWideChar(CP_UTF8, 0, file.path.c_str(), -1, item_info->Path,
                                                        static_cast<int>(std::size(item_info->Path)));
         if (chars_written == 0) {
@@ -123,6 +124,8 @@ extern "C" int MODULE_EXPORT ExtractItem(HANDLE storage, ExtractOperationParams 
     } catch (archive::write_error &) {
         return SER_ERROR_WRITE;
     } catch (std::runtime_error &) {
+        return SER_ERROR_SYSTEM;
+    } catch (std::logic_error &) {
         return SER_ERROR_SYSTEM;
     }
 

@@ -1,5 +1,4 @@
-#ifndef REF_H
-#define REF_H
+#pragma once
 
 #include "python.h"
 
@@ -82,5 +81,3 @@ namespace python
         return dynamic_cast<const ref &>(object).get();
     }
 }
-
-#endif
