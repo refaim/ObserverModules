@@ -56,22 +56,22 @@ specific files as needed without having to unpack the entire archive.
 
 ## Third-party components
 
-| Project                                             | License                             |
-|-----------------------------------------------------|-------------------------------------|
-| [json](https://github.com/nlohmann/json)            | [MIT](licenses/json.txt)            |
-| [Catch2](https://github.com/catchorg/Catch2)        | [BSL-1.0](licenses/Boost.txt)       |
-| [Observer](https://github.com/lazyhamster/Observer) | [LGPL-3.0](licenses/Observer.txt)   |
-| [Python](https://www.python.org)                    | [PSF-2.0](licenses/Python.txt)      |
-| [xxHash](https://github.com/Cyan4973/xxHash)        | [BSD-2-Clause](licenses/xxHash.txt) |
-| [zlib](https://zlib.net)                            | [zlib](licenses/zlib.txt)           |
-| [zstr](https://github.com/mateidavid/zstr)          | [MIT](licenses/zstr.txt)            |
+| Project                                                         | License                             |
+|-----------------------------------------------------------------|-------------------------------------|
+| [nlohmann/json](https://github.com/nlohmann/json)               | [MIT](licenses/json.txt)            |
+| [catchorg/Catch2](https://github.com/catchorg/Catch2)           | [BSL-1.0](licenses/Boost.txt)       |
+| [lazyhamster/Observer](https://github.com/lazyhamster/Observer) | [LGPL-3.0](licenses/Observer.txt)   |
+| [Python](https://www.python.org)                                | [PSF-2.0](licenses/Python.txt)      |
+| [Cyan4973/xxHash](https://github.com/Cyan4973/xxHash)           | [BSD-2-Clause](licenses/xxHash.txt) |
+| [zlib](https://zlib.net)                                        | [zlib](licenses/zlib.txt)           |
+| [mateidavid/zstr](https://github.com/mateidavid/zstr)           | [MIT](licenses/zstr.txt)            |
 
 ## Sources of inspiration
 
 | Project                                                          | License                          |
 |------------------------------------------------------------------|----------------------------------|
-| [rgssad](https://github.com/luxrck/rgssad)                       | [MIT](licenses/rgssad.txt)       |
-| [rpatool](https://github.com/Shizmob/rpatool)                    | [WTFPL](licenses/rpatool.txt)    |
+| [luxrck/rgssad](https://github.com/luxrck/rgssad)                | [MIT](licenses/rgssad.txt)       |
+| [Shizmob/rpatool](https://github.com/Shizmob/rpatool)            | [WTFPL](licenses/rpatool.txt)    |
 | [zanzapak](https://aluigi.altervista.org/papers.htm#others-file) | [GPL-3.0](licenses/zanzapak.txt) |
 
 ## Building from Source
