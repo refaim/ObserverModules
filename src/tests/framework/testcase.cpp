@@ -1,7 +1,6 @@
 #include "observer.h"
 
 #include <fstream>
-#include <iostream>
 
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>
@@ -84,6 +83,9 @@ namespace test
         REQUIRE(actual_listing.is_open());
         actual_listing << std::setw(4) << nlohmann::json(actual_strings) << std::endl;
 
-        REQUIRE(expected_strings == actual_strings);
+        REQUIRE(expected_strings.size() == actual_strings.size());
+        for (auto i = 0; i < expected_strings.size(); i++) {
+            REQUIRE(expected_strings[i] == actual_strings[i]);
+        }
     }
 }
