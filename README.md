@@ -15,7 +15,7 @@ specific files as needed without having to unpack the entire archive.
 ### Ren'Py Visual Novel Engine
 
 - Supported extensions: `.rpa`
-- Compatibility: RPA-3.0
+- Compatibility: RPA-2.0, RPA-3.0
 - Description: Archives used in Ren'Py visual novels to store game resources (graphics, sound, scripts)
 
 ### Zanzarah: The Hidden Portal
