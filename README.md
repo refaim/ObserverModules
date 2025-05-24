@@ -59,20 +59,20 @@ specific files as needed without having to unpack the entire archive.
 | Project                                                         | License                             |
 |-----------------------------------------------------------------|-------------------------------------|
 | [nlohmann/json](https://github.com/nlohmann/json)               | [MIT](licenses/json.txt)            |
-| [catchorg/Catch2](https://github.com/catchorg/Catch2)           | [BSL-1.0](licenses/Boost.txt)       |
+| [catchorg/Catch2](https://github.com/catchorg/Catch2)           | [BSL-1.0](licenses/Catch2.txt)      |
 | [lazyhamster/Observer](https://github.com/lazyhamster/Observer) | [LGPL-3.0](licenses/Observer.txt)   |
-| [Python](https://www.python.org)                                | [PSF-2.0](licenses/Python.txt)      |
 | [Cyan4973/xxHash](https://github.com/Cyan4973/xxHash)           | [BSD-2-Clause](licenses/xxHash.txt) |
 | [zlib](https://zlib.net)                                        | [zlib](licenses/zlib.txt)           |
 | [mateidavid/zstr](https://github.com/mateidavid/zstr)           | [MIT](licenses/zstr.txt)            |
 
 ## Sources of inspiration
 
-| Project                                                          | License                          |
-|------------------------------------------------------------------|----------------------------------|
-| [luxrck/rgssad](https://github.com/luxrck/rgssad)                | [MIT](licenses/rgssad.txt)       |
-| [Shizmob/rpatool](https://github.com/Shizmob/rpatool)            | [WTFPL](licenses/rpatool.txt)    |
-| [zanzapak](https://aluigi.altervista.org/papers.htm#others-file) | [GPL-3.0](licenses/zanzapak.txt) |
+| Project                                                               | License                          |
+|-----------------------------------------------------------------------|----------------------------------|
+| [luxrck/rgssad](https://github.com/luxrck/rgssad)                     | [MIT](licenses/rgssad.txt)       |
+| [birkenfeld/serde-pickle](https://github.com/birkenfeld/serde-pickle) | [MIT](licenses/serde-pickle.txt) |
+| [Shizmob/rpatool](https://github.com/Shizmob/rpatool)                 | [WTFPL](licenses/rpatool.txt)    |
+| [zanzapak](https://aluigi.altervista.org/papers.htm#others-file)      | [GPL-3.0](licenses/zanzapak.txt) |
 
 ## Building from Source
 

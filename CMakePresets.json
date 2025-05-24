@@ -1,0 +1,67 @@
+{
+  "version": 3,
+  "configurePresets": [
+    {
+      "hidden": true,
+      "name": "default",
+      "generator": "Ninja",
+      "vendor": {
+        "jetbrains.com/clion": {
+          "toolchain": "Visual Studio"
+        }
+      }
+    },
+    {
+      "name": "x64-debug",
+      "inherits": "default",
+      "binaryDir": "${sourceDir}/build/x64-debug",
+      "architecture": {
+        "value": "x64",
+        "strategy": "external"
+      },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "OBSERVER_ARCHITECTURE": "x64"
+      }
+    },
+    {
+      "name": "x64-release",
+      "inherits": "default",
+      "binaryDir": "${sourceDir}/build/x64-release",
+      "architecture": {
+        "value": "x64",
+        "strategy": "external"
+      },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "OBSERVER_ARCHITECTURE": "x64"
+      }
+    },
+    {
+      "name": "x86-debug",
+      "inherits": "default",
+      "binaryDir": "${sourceDir}/build/x86-debug",
+      "architecture": {
+        "value": "Win32",
+        "strategy": "external"
+      },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "OBSERVER_ARCHITECTURE": "x86"
+      }
+    },
+    {
+      "name": "x86-release",
+      "inherits": "default",
+      "binaryDir": "${sourceDir}/build/x86-release",
+      "architecture": {
+        "value": "Win32",
+        "strategy": "external"
+      },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "OBSERVER_ARCHITECTURE": "x86"
+      }
+    }
+  ]
+}

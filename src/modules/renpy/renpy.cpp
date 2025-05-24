@@ -1,5 +1,5 @@
 #include "../extractor.h"
-#include "python/python.h"
+#include "pickle.h"
 
 #include <fstream>
 
@@ -59,26 +59,33 @@ namespace extractor
             throw read_error();
         }
 
-        const auto context = python::context();
-        const auto dict = python::dict(context, std::move(context.unpickle(decompressed_data)));
+        auto root = pickle::loads(decompressed_data);
+        const auto &dict = root->as_dict();
         auto files = std::vector<std::unique_ptr<file> >();
         files.reserve(dict.size());
-        for (auto [file_name, value]: dict.iterate()) {
-            const auto props_container = python::list(context, std::move(value));
+
+        for (const auto &[file_name, value]: dict) {
+            const auto &props_container = value->as_list();
             if (props_container.size() != 1) {
                 throw std::logic_error("Not implemented");
             }
-            const auto props = python::tuple(context, props_container.get_item(0));
 
-            const auto offset = context.as_int64(*props.get_item(0)) ^ encryption_key;
-            const auto body_size = context.as_int64(*props.get_item(1)) ^ encryption_key;
+            const auto &props = props_container[0]->as_tuple();
+            if (props.size() < 2) {
+                throw std::logic_error("Expected at least 2 elements in tuple");
+            }
+
+            const auto offset = props[0]->as_int64() ^ encryption_key;
+            const auto body_size = props[1]->as_int64() ^ encryption_key;
             auto header = std::string();
             if (props.size() >= 3) {
-                header = context.as_bytes(*props.get_item(2));
+                if (props[2]->get_type() != pickle::value::type::none) {
+                    header = props[2]->as_string();
+                }
             }
 
             auto item = std::make_unique<file>();
-            item->path = std::string(file_name.data(), file_name.size());
+            item->path = file_name;
             item->header = header;
             item->offset = offset;
             item->compressed_body_size_in_bytes = body_size;
