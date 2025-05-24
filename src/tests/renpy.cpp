@@ -4,6 +4,11 @@
 
 using namespace test;
 
+TEST_CASE("renpy: rpa20_binary_hearts")
+{
+    test_on("renpy\\rpa20_binary_hearts.rpa");
+}
+
 TEST_CASE("renpy: rpa30_army_gals")
 {
     test_on("renpy\\rpa30_army_gals.rpa");
