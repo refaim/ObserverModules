@@ -53,6 +53,8 @@ namespace extractor
     // ReSharper disable once CppMemberFunctionMayBeStatic
     std::vector<std::unique_ptr<file> > extractor::list_files(std::ifstream &stream) // NOLINT(*-convert-member-functions-to-static)
     {
+        stream.seekg(static_cast<std::streamoff>(get_signature().size()));
+
         auto files = std::vector<std::unique_ptr<file> >();
         files.reserve(read_positive_int32(stream));
 

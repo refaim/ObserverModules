@@ -2,6 +2,7 @@
 #include "pickle.h"
 
 #include <fstream>
+#include <functional>
 
 #include <zstr.hpp>
 
@@ -17,7 +18,7 @@ namespace extractor
 
     std::vector<std::byte> extractor::get_signature() noexcept
     {
-        const std::string str = "RPA-3.0 ";
+        const std::string str = "RPA-";
         std::vector<std::byte> signature(str.size());
         std::memcpy(signature.data(), str.data(), str.size());
         return signature;
@@ -43,11 +44,43 @@ namespace extractor
         return result;
     }
 
+    std::pair<int64_t, std::function<std::pair<int64_t, int64_t>(int64_t, int64_t)> > parse_header(
+        std::ifstream &stream)
+    {
+        std::string version_check(3, '\0');
+        stream.seekg(static_cast<std::streamoff>(extractor::get_signature().size()));
+        stream.read(version_check.data(), 3);
+
+        if (version_check == "2.0") {
+            stream.seekg(static_cast<std::streamoff>(std::string("RPA-2.0 ").length()));
+            const auto index_offset = read_int64(stream);
+            return {
+                index_offset, [](int64_t offset, int64_t length)
+                {
+                    return std::make_pair(offset, length);
+                }
+            };
+        }
+
+        if (version_check == "3.0") {
+            stream.seekg(static_cast<std::streamoff>(std::string("RPA-3.0 ").length()));
+            const auto index_offset = read_int64(stream);
+            const auto encryption_key = read_int64(stream);
+            return {
+                index_offset, [encryption_key](int64_t offset, int64_t length)
+                {
+                    return std::make_pair(offset ^ encryption_key, length ^ encryption_key);
+                }
+            };
+        }
+
+        throw std::runtime_error("Unsupported RPA version");
+    }
+
     // ReSharper disable once CppMemberFunctionMayBeStatic
     std::vector<std::unique_ptr<file> > extractor::list_files(std::ifstream &stream) // NOLINT(*-convert-member-functions-to-static)
     {
-        const auto index_offset = read_int64(stream);
-        const auto encryption_key = read_int64(stream);
+        const auto [index_offset, decoder] = parse_header(stream);
 
         stream.seekg(index_offset);
 
@@ -75,8 +108,8 @@ namespace extractor
                 throw std::logic_error("Expected at least 2 elements in tuple");
             }
 
-            const auto offset = props[0]->as_int64() ^ encryption_key;
-            const auto body_size = props[1]->as_int64() ^ encryption_key;
+            const auto [offset, body_size] = decoder(props[0]->as_int64(), props[1]->as_int64());
+
             auto header = std::string();
             if (props.size() >= 3) {
                 if (props[2]->get_type() != pickle::value::type::none) {
