@@ -28,12 +28,12 @@ specific files as needed without having to unpack the entire archive.
 
 ### Prerequisites
 
-- Installed **x64** version of [FAR Manager](https://farmanager.com/download.php?l=en)
-- Installed **x64** version of [Observer](https://github.com/lazyhamster/Observer/releases) plugin
+- [FAR Manager](https://farmanager.com/download.php?l=en) (x86 or x64)
+- [Observer](https://github.com/lazyhamster/Observer/releases) plugin (x86 or x64)
 
 ### Module Installation
 
-1. Download the [latest release](https://github.com/refaim/ObserverModules/releases/tag/nightly) of the module you're
+1. Download the [latest release](https://github.com/refaim/ObserverModules/releases/latest) of the module you're
    interested in
 2. Note that the archive contains an observer_user.ini file. If you're installing multiple modules or already have this
    file in your Observer modules folder, you'll need to manually merge these ini files to ensure all modules work
