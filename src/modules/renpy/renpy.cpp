@@ -88,7 +88,7 @@ namespace extractor
             item->path = file_name;
             item->header = header;
             item->offset = offset;
-            item->compressed_body_size_in_bytes = body_size;
+            item->compressed_body_size_in_bytes = body_size - static_cast<int64_t>(header.size());
             item->uncompressed_body_size_in_bytes = item->compressed_body_size_in_bytes;
             files.push_back(std::move(item));
         }
