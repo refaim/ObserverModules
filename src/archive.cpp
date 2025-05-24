@@ -86,6 +86,7 @@ namespace archive
             throw read_error();
         }
 
+        uint32_t magic = file.magic;
         int64_t bytes_left = file.compressed_body_size_in_bytes;
         while (bytes_left > 0) {
             const auto chunk_size = static_cast<std::streamsize>(std::min(bytes_left, buffer_size));
@@ -96,8 +97,11 @@ namespace archive
                 throw read_error();
             }
 
+            buffer.resize(static_cast<size_t>(chunk_size));
+            magic = extractor_->decrypt(magic, buffer);
+
             try {
-                output.write(buffer.data(), chunk_size);
+                output.write(buffer.data(), buffer.size());
             } catch (std::ios_base::failure &) {
                 throw write_error();
             }

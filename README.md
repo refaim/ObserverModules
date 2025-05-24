@@ -18,9 +18,15 @@ specific files as needed without having to unpack the entire archive.
 - Compatibility: RPA-2.0, RPA-3.0
 - Description: Archives used in Ren'Py visual novels to store game resources (graphics, sound, scripts)
 
+### RPG Maker
+
+- Supported extensions: `.rgss3a`
+- Compatibility: RPG Maker VX Ace (RGSS3)
+- Description: Encrypted archives containing game assets like graphics, audio, and data files
+
 ### Zanzarah: The Hidden Portal
 
-- Supported extension: `.pak`
+- Supported extensions: `.pak`
 - Compatibility: Supports archives from both the original game version and the Steam version
 - Description: Archive used to store all game resources
 

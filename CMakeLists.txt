@@ -26,7 +26,7 @@ find_package(ZLIB REQUIRED)
 find_path(ZSTR_INCLUDE_DIRS "zstr.hpp")
 
 set(ALL_MODULES renpy rpgmaker zanzarah)
-set(RELEASED_MODULES renpy zanzarah)
+set(RELEASED_MODULES renpy rpgmaker zanzarah)
 
 set(RENPY_DIR src/modules/renpy)
 add_library(renpy SHARED
@@ -55,6 +55,7 @@ add_executable(tests
         src/tests/framework/observer.cpp
         src/tests/framework/testcase.cpp
         src/tests/renpy.cpp
+        src/tests/rpgmaker.cpp
         src/tests/zanzarah.cpp
 )
 target_link_libraries(tests PRIVATE Catch2::Catch2WithMain)

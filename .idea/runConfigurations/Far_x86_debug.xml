@@ -1,0 +1,11 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="Far x86-debug" type="CMakeRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="true" EMULATE_TERMINAL="false" WORKING_DIR="file://M:/observer/_FarManager/x86" PASS_PARENT_ENVS_2="true" CONFIG_NAME="x64-debug" RUN_PATH="M:/observer/_FarManager/x86/Far.exe" EXPLICIT_BUILD_TARGET_NAME="all">
+    <envs>
+      <env name="DEBUGFARHOME" value="M:\observer\_FarManager\x86" />
+    </envs>
+    <method v="2">
+      <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
+      <option name="RunConfigurationTask" enabled="true" run_configuration_name="Copy x86-debug to Far" run_configuration_type="BatchConfigurationType" />
+    </method>
+  </configuration>
+</component>

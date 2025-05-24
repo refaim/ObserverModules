@@ -47,15 +47,20 @@ namespace extractor
         int64_t offset;
         int64_t compressed_body_size_in_bytes;
         int64_t uncompressed_body_size_in_bytes;
+        uint32_t magic = 0;
     };
 
     class extractor
     {
     public:
+        virtual ~extractor() = default;
+
         static std::vector<std::byte> get_signature() noexcept;
 
         archive_info get_archive_info(const std::span<const std::byte> &data) noexcept;
 
         std::vector<std::unique_ptr<file> > list_files(std::ifstream &stream);
+
+        uint32_t decrypt(uint32_t magic, std::vector<char> &data) const;
     };
 }

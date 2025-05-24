@@ -87,4 +87,9 @@ namespace extractor
 
         return files;
     }
+
+    uint32_t extractor::decrypt(uint32_t magic, std::vector<char> &data) const
+    {
+        return magic;
+    }
 }
