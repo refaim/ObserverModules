@@ -1,0 +1,14 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="Copy x64-debug to Far" type="BatchConfigurationType" factoryName="Batch">
+    <module name="zanzarah" />
+    <option name="INTERPRETER_OPTIONS" value="" />
+    <option name="WORKING_DIRECTORY" value="" />
+    <option name="PARENT_ENVS" value="true" />
+    <envs>
+      <env name="DEBUGFARHOME" value="M:\observer\_FarManager\x64" />
+    </envs>
+    <option name="SCRIPT_NAME" value="./copy_dlls.cmd" />
+    <option name="PARAMETERS" value="x64-debug" />
+    <method v="2" />
+  </configuration>
+</component>

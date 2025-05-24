@@ -25,12 +25,7 @@ namespace extractor
     // ReSharper disable once CppMemberFunctionMayBeStatic
     archive_info extractor::get_archive_info(const std::span<const std::byte> &data) noexcept // NOLINT(*-convert-member-functions-to-static)
     {
-        // TODO implement: RGSS => RPG Maker XP, 0xDEADCAFE, XOR => zlib
-        // TODO implement: RGSS2 => RPG Maker VX, 0xCAFEDEAD, XOR => zlib
-        // TODO RPG Maker MV
-        // TODO RPG Maker MZ
-        // TODO .rvdata, .rvdata2
-        return archive_info{L"RGSS3", L"DEFLATE", L"RPG Maker VX Ace"};
+        return archive_info{L"RGSS3", L"-", L"RPG Maker VX Ace"};
     }
 
     static uint32_t read_u32(std::ifstream &stream)
@@ -68,8 +63,39 @@ namespace extractor
             new_file->offset = offset;
             new_file->compressed_body_size_in_bytes = size;
             new_file->uncompressed_body_size_in_bytes = size;
+            new_file->magic = file_magic;
             files.push_back(std::move(new_file));
         }
         return files;
+    }
+
+    static uint32_t advance_magic(uint32_t &magic)
+    {
+        const uint32_t old = magic;
+        magic = magic * 7 + 3;
+        return old;
+    }
+
+    // ReSharper disable once CppMemberFunctionMayBeStatic
+    uint32_t extractor::decrypt(uint32_t magic, std::vector<char> &data) const // NOLINT(*-convert-member-functions-to-static)
+    {
+        const size_t size = data.size();
+        size_t i = 0;
+
+        while (i + 4 <= size) {
+            uint32_t value;
+            std::memcpy(&value, &data[i], sizeof(value));
+            value ^= advance_magic(magic);
+            std::memcpy(&data[i], &value, sizeof(value));
+            i += 4;
+        }
+
+        while (i < size) {
+            const auto byte_value = static_cast<uint8_t>(magic >> (i % 4 * 8));
+            data[i] = static_cast<char>(static_cast<uint8_t>(data[i]) ^ byte_value);
+            ++i;
+        }
+
+        return magic;
     }
 }

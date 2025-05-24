@@ -2,7 +2,6 @@
 #include "../../api.h"
 
 #include <fstream>
-#include <iostream>
 
 #include <windows.h>
 #include <catch2/catch_test_macros.hpp>
@@ -143,6 +142,7 @@ namespace test
     observer::observer()
     {
         modules_.push_back(std::make_unique<c_module>("renpy.so"));
+        modules_.push_back(std::make_unique<c_module>("rpgmaker.so"));
         modules_.push_back(std::make_unique<c_module>("zanzarah.so"));
     }
 
