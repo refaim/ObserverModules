@@ -9,9 +9,6 @@
     "name" : "zstr",
     "version>=" : "1.0.7"
   }, {
-    "name" : "python3",
-    "version>=" : "3.12.9"
-  }, {
     "name" : "catch2",
     "version>=" : "3.8.1"
   }, {

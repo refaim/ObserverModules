@@ -47,7 +47,7 @@ namespace test
 
         while (file.good()) {
             file.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
-            REQUIRE(XXH3_64bits_update(state, buffer.data(), file.gcount()) == XXH_OK);
+            REQUIRE(XXH3_64bits_update(state, buffer.data(), static_cast<size_t>(file.gcount())) == XXH_OK);
         }
 
         const auto hash = XXH3_64bits_digest(state);
@@ -84,7 +84,7 @@ namespace test
         actual_listing << std::setw(4) << nlohmann::json(actual_strings) << std::endl;
 
         REQUIRE(expected_strings.size() == actual_strings.size());
-        for (auto i = 0; i < expected_strings.size(); i++) {
+        for (size_t i = 0; i < expected_strings.size(); i++) {
             REQUIRE(expected_strings[i] == actual_strings[i]);
         }
     }

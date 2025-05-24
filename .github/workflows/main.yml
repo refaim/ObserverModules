@@ -6,23 +6,22 @@ on:
   pull_request:
     branches: [ "master" ]
 
-# https://devblogs.microsoft.com/cppblog/vcpkg-integration-with-the-github-dependency-graph/
-permissions:
-  contents: write
-
 env:
-  # https://devblogs.microsoft.com/cppblog/vcpkg-integration-with-the-github-dependency-graph/
-  GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
-  VCPKG_ROOT: "C:/my-vcpkg"
   VCPKG_DEFAULT_BINARY_CACHE: "C:/vcpkg-binary-cache"
-  VCPKG_FEATURE_FLAGS: dependencygraph
-  BUILD_TYPE: RelWithDebInfo
 
 jobs:
   build:
     runs-on: windows-2022
+    strategy:
+      matrix:
+        arch: [ x64, x86 ]
     steps:
       - uses: actions/checkout@v4
+
+      - name: Setup Developer Command Prompt
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: ${{ matrix.arch }}
 
       - name: Get project vcpkg baseline
         shell: pwsh
@@ -33,14 +32,14 @@ jobs:
       - name: Cache vcpkg
         uses: actions/cache@v4
         with:
-          key: vcpkg-${{ hashFiles('vcpkg.json') }}
+          key: vcpkg-${{ matrix.arch }}-${{ hashFiles('vcpkg.json') }}
           path: |
             ${{env.VCPKG_DEFAULT_BINARY_CACHE}}
 
       - name: Setup vcpkg
         run: |
-          New-Item -ItemType Directory -Path ${{env.VCPKG_ROOT}}
-          Set-Location -Path ${{env.VCPKG_ROOT}}
+          New-Item -ItemType Directory -Path C:/my-vcpkg
+          Set-Location -Path C:/my-vcpkg
           git init
           git remote add --no-tags origin https://github.com/microsoft/vcpkg.git
           git fetch --depth 1 --no-write-fetch-head origin ${{env.VCPKG_BASELINE}}
@@ -48,25 +47,49 @@ jobs:
           git checkout
           ./bootstrap-vcpkg.bat
           New-Item -ItemType Directory -Path ${{env.VCPKG_DEFAULT_BINARY_CACHE}} -Force
+          echo "VCPKG_ROOT=C:/my-vcpkg" >> $env:GITHUB_ENV
 
       - name: Configure CMake
-        run: cmake -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} --toolchain ${{env.VCPKG_ROOT}}/scripts/buildsystems/vcpkg.cmake
+        run: cmake --preset ${{ matrix.arch }}-release
 
       - name: Build
-        run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}}
+        run: cmake --build ${{github.workspace}}/build/${{ matrix.arch }}-release
 
       - name: Pack
         run: |
-          cd ${{github.workspace}}/build
-          cpack --config CPackConfig.cmake -C ${{env.BUILD_TYPE}}
+          cd ${{github.workspace}}/build/${{ matrix.arch }}-release
+          cpack --config CPackConfig.cmake -C RelWithDebInfo
 
-      - name: Release nightly build
-        uses: andelf/nightly-release@main
-        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
         with:
-          name: 'Nightly Release $$'
-          body: 'This is an automated nightly build. Download the *-dll.zip files if you need Observer modules. Download the *-pdb.zip files if you need debug symbols.'
-          tag_name: nightly
+          name: observer-modules-${{ matrix.arch }}
+          path: ${{github.workspace}}/build/${{ matrix.arch }}-release/*.zip
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+          path: ./artifacts
+
+      - name: Generate release tag
+        id: tag
+        run: echo "tag=$(date +'%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: release-${{ steps.tag.outputs.tag }}
+          name: 'Release ${{ steps.tag.outputs.tag }}'
+          body: |
+            Automated release from master branch.
+
+            Download the *-dll.zip files if you need Observer modules.
+            Download the *-pdb.zip files if you need debug symbols.
+          files: ./artifacts/*.zip
           prerelease: false
-          files: |
-            ./build/*.zip
