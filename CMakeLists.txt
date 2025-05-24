@@ -24,8 +24,6 @@ set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 set(ZLIB_USE_STATIC_LIBS ON)
 find_package(ZLIB REQUIRED)
 find_path(ZSTR_INCLUDE_DIRS "zstr.hpp")
-find_package(nlohmann_json REQUIRED)
-find_package(xxHash CONFIG REQUIRED)
 
 set(ALL_MODULES renpy rpgmaker zanzarah)
 set(RELEASED_MODULES renpy zanzarah)
@@ -51,6 +49,8 @@ endforeach ()
 # === CTest ===
 
 find_package(Catch2 REQUIRED)
+find_package(nlohmann_json REQUIRED)
+find_package(xxHash CONFIG REQUIRED)
 add_executable(tests
         src/tests/framework/observer.cpp
         src/tests/framework/testcase.cpp
