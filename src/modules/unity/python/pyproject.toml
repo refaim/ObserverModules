@@ -1,0 +1,7 @@
+[project]
+name = "unity-extractor"
+version = "1.0"
+requires-python = ">=3.13"
+dependencies = [
+    "unitypy>=1.23.0",
+]
