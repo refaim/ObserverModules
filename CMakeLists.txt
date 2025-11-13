@@ -38,7 +38,14 @@ add_library(renpy SHARED
 target_link_libraries(renpy PRIVATE ZLIB::ZLIB)
 target_include_directories(renpy PRIVATE ${ZSTR_INCLUDE_DIRS})
 
-add_library(rpgmaker SHARED src/dll.cpp src/archive.cpp src/modules/rpgmaker/rpgmaker.cpp)
+add_library(rpgmaker SHARED 
+    src/dll.cpp 
+    src/archive.cpp 
+    src/modules/rpgmaker/rpgmaker.cpp
+    src/modules/rpgmaker/rgss_parser.cpp
+    src/modules/rpgmaker/rgssad_parser.cpp
+    src/modules/rpgmaker/rgss3a_parser.cpp
+)
 
 add_library(zanzarah SHARED src/dll.cpp src/archive.cpp src/modules/zanzarah/zanzarah.cpp)
 
