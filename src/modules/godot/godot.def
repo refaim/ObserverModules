@@ -1,0 +1,5 @@
+LIBRARY "godot.so"
+
+EXPORTS
+    LoadSubModule
+    UnloadSubModule

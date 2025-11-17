@@ -12,6 +12,12 @@ specific files as needed without having to unpack the entire archive.
 
 ## Supported Formats
 
+### Godot Engine
+
+- Supported extensions: `.pck`
+- Compatibility: Pack format versions 0, 1, 2
+- Description: Package archives used by Godot Engine to store game resources
+
 ### Ren'Py Visual Novel Engine
 
 - Supported extensions: `.rpa`
@@ -73,12 +79,14 @@ specific files as needed without having to unpack the entire archive.
 
 ## Sources of inspiration
 
-| Project                                                               | License                          |
-|-----------------------------------------------------------------------|----------------------------------|
-| [luxrck/rgssad](https://github.com/luxrck/rgssad)                     | [MIT](licenses/rgssad.txt)       |
-| [birkenfeld/serde-pickle](https://github.com/birkenfeld/serde-pickle) | [MIT](licenses/serde-pickle.txt) |
-| [Shizmob/rpatool](https://github.com/Shizmob/rpatool)                 | [WTFPL](licenses/rpatool.txt)    |
-| [zanzapak](https://aluigi.altervista.org/papers.htm#others-file)      | [GPL-3.0](licenses/zanzapak.txt) |
+| Project                                                               | License                               |
+|-----------------------------------------------------------------------|---------------------------------------|
+| [Bioruebe/godotdec](https://github.com/Bioruebe/godotdec)             | [BSD-3-Clause](licenses/godotdec.txt) |             
+| [birkenfeld/serde-pickle](https://github.com/birkenfeld/serde-pickle) | [MIT](licenses/serde-pickle.txt)      |
+| [luxrck/rgssad](https://github.com/luxrck/rgssad)                     | [MIT](licenses/rgssad.txt)            |
+| [Shizmob/rpatool](https://github.com/Shizmob/rpatool)                 | [WTFPL](licenses/rpatool.txt)         |
+| [tehskai/godot-unpacker](https://github.com/tehskai/godot-unpacker)   | [MIT](licenses/godot-unpacker.txt)    |
+| [zanzapak](https://aluigi.altervista.org/papers.htm#others-file)      | [GPL-3.0](licenses/zanzapak.txt)      |
 
 ## Building from Source
 

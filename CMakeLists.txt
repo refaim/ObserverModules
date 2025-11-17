@@ -25,7 +25,7 @@ set(ZLIB_USE_STATIC_LIBS ON)
 find_package(ZLIB REQUIRED)
 find_path(ZSTR_INCLUDE_DIRS "zstr.hpp")
 
-set(ALL_MODULES renpy rpgmaker zanzarah)
+set(ALL_MODULES godot renpy rpgmaker zanzarah)
 set(RELEASED_MODULES renpy rpgmaker zanzarah)
 
 set(RENPY_DIR src/modules/renpy)
@@ -37,6 +37,8 @@ add_library(renpy SHARED
 )
 target_link_libraries(renpy PRIVATE ZLIB::ZLIB)
 target_include_directories(renpy PRIVATE ${ZSTR_INCLUDE_DIRS})
+
+add_library(godot SHARED src/dll.cpp src/archive.cpp src/modules/godot/godot.cpp)
 
 add_library(rpgmaker SHARED src/dll.cpp src/archive.cpp src/modules/rpgmaker/rpgmaker.cpp)
 
@@ -54,6 +56,7 @@ find_package(xxHash CONFIG REQUIRED)
 add_executable(tests
         src/tests/framework/observer.cpp
         src/tests/framework/testcase.cpp
+        src/tests/godot.cpp
         src/tests/renpy.cpp
         src/tests/rpgmaker.cpp
         src/tests/zanzarah.cpp

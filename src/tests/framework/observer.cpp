@@ -97,8 +97,7 @@ namespace test
                 REQUIRE(item.NumHardlinks == 0);
                 REQUIRE(wcslen(item.Path) > 0);
 
-                auto extract = [this, item_index](const std::filesystem::path &path)
-                {
+                auto extract = [this, item_index](const std::filesystem::path &path) {
                     extract_file(item_index, path);
                 };
 
@@ -114,8 +113,7 @@ namespace test
         {
             constexpr ExtractProcessCallbacks callbacks{
                 .signalContext = nullptr,
-                .FileProgress = [](void *context, int64_t bytes_read)
-                {
+                .FileProgress = [](void *context, int64_t bytes_read) {
                     return TRUE;
                 },
             };
@@ -141,6 +139,7 @@ namespace test
 
     observer::observer()
     {
+        modules_.push_back(std::make_unique<c_module>("godot.so"));
         modules_.push_back(std::make_unique<c_module>("renpy.so"));
         modules_.push_back(std::make_unique<c_module>("rpgmaker.so"));
         modules_.push_back(std::make_unique<c_module>("zanzarah.so"));
