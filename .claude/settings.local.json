@@ -1,3 +1,9 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash(find:*)",
+      "Bash(cat:*)"
+    ]
+  },
   "enableAllProjectMcpServers": false
 }

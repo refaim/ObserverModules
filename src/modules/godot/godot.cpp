@@ -1,6 +1,10 @@
 #include "../extractor.h"
 
+#include <algorithm>
 #include <fstream>
+#include <regex>
+#include <unordered_map>
+#include <unordered_set>
 
 namespace extractor
 {
@@ -51,6 +55,47 @@ namespace extractor
             throw read_error();
         }
         return value;
+    }
+
+    static std::string read_file_content(std::ifstream &stream, int64_t offset, int64_t size)
+    {
+        const auto old_pos = stream.tellg();
+        stream.seekg(offset);
+
+        std::string content;
+        content.resize(size);
+        stream.read(content.data(), size);
+
+        stream.seekg(old_pos);
+
+        if (stream.fail()) {
+            throw read_error();
+        }
+
+        return content;
+    }
+
+    static std::string parse_remap_path(const std::string &content)
+    {
+        const std::regex path_regex("path=\"([^\"]+?)\"");
+        std::smatch match;
+
+        if (!std::regex_search(content, match, path_regex) || match.empty()) {
+            throw read_error();
+        }
+
+        return match[1].str();
+    }
+
+    static std::string strip_godot_prefix(const std::string &path)
+    {
+        constexpr std::string_view prefixes[] = {"res://", "user://"};
+        for (const auto &prefix: prefixes) {
+            if (path.starts_with(prefix)) {
+                return path.substr(prefix.size());
+            }
+        }
+        return path;
     }
 
     // ReSharper disable once CppMemberFunctionMayBeStatic
@@ -113,14 +158,7 @@ namespace extractor
                 }
             }
 
-            // Remove Godot path prefixes
-            constexpr std::string_view prefixes[] = {"res://", "user://"};
-            for (const auto &prefix: prefixes) {
-                if (path.starts_with(prefix)) {
-                    path.erase(0, prefix.size());
-                    break;
-                }
-            }
+            path = strip_godot_prefix(path);
 
             auto new_file = std::make_unique<file>();
             new_file->path = path;
@@ -131,9 +169,71 @@ namespace extractor
             files.push_back(std::move(new_file));
         }
 
+        // Build path map for quick lookup
+        std::unordered_map<std::string, file *> path_map;
+        for (const auto &f: files) {
+            path_map[f->path] = f.get();
+        }
+
+        // Find and process .import/.remap files
+        constexpr std::string_view import_ext = ".import";
+        constexpr std::string_view remap_ext = ".remap";
+
+        std::vector<std::unique_ptr<file> > virtual_files;
+        std::unordered_set<file *> files_to_remove;
+
+        for (const auto &f: files) {
+            if (f->path.ends_with(import_ext) || f->path.ends_with(remap_ext)) {
+                const std::string content = read_file_content(stream, f->offset, f->compressed_body_size_in_bytes);
+                const std::string remap_path = strip_godot_prefix(parse_remap_path(content));
+
+                const auto it = path_map.find(remap_path);
+                if (it == path_map.end()) {
+                    // File not found in .godot, keep .import/.remap as is
+                    continue;
+                }
+                file *actual_file = it->second;
+
+                auto virtual_file = std::make_unique<file>();
+                std::string virtual_path = f->path;
+                if (virtual_path.ends_with(import_ext)) {
+                    virtual_path = virtual_path.substr(0, virtual_path.size() - import_ext.size());
+                } else if (virtual_path.ends_with(remap_ext)) {
+                    virtual_path = virtual_path.substr(0, virtual_path.size() - remap_ext.size());
+                }
+
+                // Get extension from actual file (e.g., .ctex, .fontdata)
+                const size_t dot_pos = remap_path.rfind('.');
+                if (dot_pos != std::string::npos) {
+                    virtual_path += remap_path.substr(dot_pos);
+                }
+
+                virtual_file->path = virtual_path;
+                virtual_file->offset = actual_file->offset;
+                virtual_file->compressed_body_size_in_bytes = actual_file->compressed_body_size_in_bytes;
+                virtual_file->uncompressed_body_size_in_bytes = actual_file->uncompressed_body_size_in_bytes;
+                virtual_file->magic = actual_file->magic;
+                virtual_files.push_back(std::move(virtual_file));
+
+                // Mark metadata and actual file for removal
+                files_to_remove.insert(f.get());
+                files_to_remove.insert(actual_file);
+            }
+        }
+
+        std::erase_if(files, [&files_to_remove](const std::unique_ptr<file> &f)
+        {
+            return files_to_remove.contains(f.get());
+        });
+
+        for (auto &vf: virtual_files) {
+            files.push_back(std::move(vf));
+        }
+
         return files;
     }
 
+    // ReSharper disable once CppMemberFunctionMayBeStatic
     uint32_t extractor::decrypt(uint32_t magic, std::vector<char> &data) const // NOLINT(*-convert-member-functions-to-static)
     {
         return magic;
