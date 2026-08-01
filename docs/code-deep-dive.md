@@ -50,7 +50,7 @@ The common archive layer is a useful separation: format implementations provide 
 - Recognizes the `RPA-` signature and versions 2.0 and 3.0.
 - Reads the compressed index at the offset stored in the archive header.
 - RPA-3 offsets and lengths are decoded with the header key.
-- Decompresses the whole index into memory with zlib/zstr.
+- Decompresses the index through the repository C++ compression boundary backed by statically linked zlib.
 - Parses the index with the local Pickle subset.
 - Supports the optional per-entry prefix/header and excludes its length from the body copied from the archive.
 

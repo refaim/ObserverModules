@@ -1,0 +1,131 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="Current" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <Configuration Condition="'$(Configuration)' == ''">Debug</Configuration>
+    <Platform Condition="'$(Platform)' == ''">x64</Platform>
+    <AnalysisPlatformMoniker Condition="'$(Platform)' == 'Win32'">x86</AnalysisPlatformMoniker>
+    <AnalysisPlatformMoniker Condition="'$(Platform)' == 'x64'">x64</AnalysisPlatformMoniker>
+    <AnalysisPlatformMoniker Condition="'$(Platform)' == 'ARM64'">arm64</AnalysisPlatformMoniker>
+    <AnalysisExpectedReportRoot>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\.artifacts\reports\msvc\'))</AnalysisExpectedReportRoot>
+    <AnalysisRequestedReportRoot Condition="'$(ObserverAnalysisReportDirectory)' != ''">$([System.IO.Path]::GetFullPath('$(ObserverAnalysisReportDirectory)\'))</AnalysisRequestedReportRoot>
+    <AnalysisReportArchDirectory Condition="'$(AnalysisRequestedReportRoot)' != '' And '$(AnalysisPlatformMoniker)' != ''">$([System.IO.Path]::GetFullPath('$(AnalysisRequestedReportRoot)$(AnalysisPlatformMoniker)\'))</AnalysisReportArchDirectory>
+    <ProjectProperties>Configuration=$(Configuration);Platform=$(Platform);VcpkgRoot=$(VcpkgRoot);ObserverRunCodeAnalysis=$(ObserverRunCodeAnalysis);ObserverAnalysisReportDirectory=$(ObserverAnalysisReportDirectory);ObserverEnableClangTidy=$(ObserverEnableClangTidy);LLVMInstallDir=$(LLVMInstallDir);LLVMRuntimeDir=$(LLVMRuntimeDir)</ProjectProperties>
+  </PropertyGroup>
+  <ItemGroup>
+    <ModuleProject Include="$(MSBuildThisFileDirectory)projects\renpy.vcxproj" />
+    <ModuleProject Include="$(MSBuildThisFileDirectory)projects\rpgmaker.vcxproj" />
+    <ModuleProject Include="$(MSBuildThisFileDirectory)projects\zanzarah.vcxproj" />
+    <TestProject Include="$(MSBuildThisFileDirectory)projects\tests.vcxproj" />
+    <FuzzProject Include="$(MSBuildThisFileDirectory)projects\fuzz-pickle.vcxproj" />
+    <FuzzProject Include="$(MSBuildThisFileDirectory)projects\fuzz-renpy.vcxproj" />
+    <FuzzProject Include="$(MSBuildThisFileDirectory)projects\fuzz-rpgmaker.vcxproj" />
+    <FuzzProject Include="$(MSBuildThisFileDirectory)projects\fuzz-zanzarah.vcxproj" />
+    <LeakProbeProject Include="$(MSBuildThisFileDirectory)projects\leak-probe.vcxproj" />
+    <AnalysisProject Include="$(MSBuildThisFileDirectory)projects\renpy.vcxproj">
+      <AnalysisReportName>renpy</AnalysisReportName>
+      <AnalysisConfiguration>Debug</AnalysisConfiguration>
+      <AnalysisPlatforms>Win32;x64;ARM64</AnalysisPlatforms>
+    </AnalysisProject>
+    <AnalysisProject Include="$(MSBuildThisFileDirectory)projects\rpgmaker.vcxproj">
+      <AnalysisReportName>rpgmaker</AnalysisReportName>
+      <AnalysisConfiguration>Debug</AnalysisConfiguration>
+      <AnalysisPlatforms>Win32;x64;ARM64</AnalysisPlatforms>
+    </AnalysisProject>
+    <AnalysisProject Include="$(MSBuildThisFileDirectory)projects\zanzarah.vcxproj">
+      <AnalysisReportName>zanzarah</AnalysisReportName>
+      <AnalysisConfiguration>Debug</AnalysisConfiguration>
+      <AnalysisPlatforms>Win32;x64;ARM64</AnalysisPlatforms>
+    </AnalysisProject>
+    <AnalysisProject Include="$(MSBuildThisFileDirectory)projects\tests.vcxproj">
+      <AnalysisReportName>tests</AnalysisReportName>
+      <AnalysisConfiguration>Debug</AnalysisConfiguration>
+      <AnalysisPlatforms>Win32;x64;ARM64</AnalysisPlatforms>
+    </AnalysisProject>
+    <AnalysisProject Include="$(MSBuildThisFileDirectory)projects\fuzz-pickle.vcxproj">
+      <AnalysisReportName>fuzz-pickle</AnalysisReportName>
+      <AnalysisConfiguration>Debug</AnalysisConfiguration>
+      <AnalysisPlatforms>Win32;x64;ARM64</AnalysisPlatforms>
+    </AnalysisProject>
+    <AnalysisProject Include="$(MSBuildThisFileDirectory)projects\fuzz-renpy.vcxproj">
+      <AnalysisReportName>fuzz-renpy</AnalysisReportName>
+      <AnalysisConfiguration>Debug</AnalysisConfiguration>
+      <AnalysisPlatforms>Win32;x64;ARM64</AnalysisPlatforms>
+    </AnalysisProject>
+    <AnalysisProject Include="$(MSBuildThisFileDirectory)projects\fuzz-rpgmaker.vcxproj">
+      <AnalysisReportName>fuzz-rpgmaker</AnalysisReportName>
+      <AnalysisConfiguration>Debug</AnalysisConfiguration>
+      <AnalysisPlatforms>Win32;x64;ARM64</AnalysisPlatforms>
+    </AnalysisProject>
+    <AnalysisProject Include="$(MSBuildThisFileDirectory)projects\fuzz-zanzarah.vcxproj">
+      <AnalysisReportName>fuzz-zanzarah</AnalysisReportName>
+      <AnalysisConfiguration>Debug</AnalysisConfiguration>
+      <AnalysisPlatforms>Win32;x64;ARM64</AnalysisPlatforms>
+    </AnalysisProject>
+    <AnalysisProject Include="$(MSBuildThisFileDirectory)projects\leak-probe.vcxproj">
+      <AnalysisReportName>leak-probe</AnalysisReportName>
+      <AnalysisConfiguration>Release</AnalysisConfiguration>
+      <AnalysisPlatforms>x64</AnalysisPlatforms>
+    </AnalysisProject>
+  </ItemGroup>
+
+  <Target Name="BuildModules">
+    <MSBuild Projects="@(ModuleProject)" Targets="Build" BuildInParallel="true" Properties="$(ProjectProperties)" />
+  </Target>
+  <Target Name="BuildTests" DependsOnTargets="BuildModules">
+    <MSBuild Projects="@(TestProject)" Targets="Build" BuildInParallel="true" Properties="$(ProjectProperties)" />
+  </Target>
+  <Target Name="Build" DependsOnTargets="BuildTests" />
+  <Target Name="Rebuild">
+    <MSBuild Condition="'$(ObserverRunCodeAnalysis)' != 'true'"
+             Projects="@(ModuleProject);@(TestProject)"
+             Targets="Rebuild"
+             BuildInParallel="true"
+             Properties="$(ProjectProperties)" />
+    <CallTarget Condition="'$(ObserverRunCodeAnalysis)' == 'true'" Targets="RunCompilerAnalysis" />
+  </Target>
+  <Target Name="RunCompilerAnalysis" Condition="'$(ObserverRunCodeAnalysis)' == 'true'">
+    <Error Condition="'$(AnalysisRequestedReportRoot)' == ''"
+           Text="Compiler analysis requires ObserverAnalysisReportDirectory." />
+    <Error Condition="'$(AnalysisPlatformMoniker)' == ''"
+           Text="Compiler analysis does not recognize Platform=$(Platform)." />
+    <Error Condition="'$(AnalysisRequestedReportRoot)' != '$(AnalysisExpectedReportRoot)'"
+           Text="Compiler analysis reports may be written only below the repository .artifacts\reports\msvc directory." />
+    <ItemGroup>
+      <AnalysisReportPathToValidate Include="$(MSBuildThisFileDirectory)..\.artifacts"
+                                    Condition="Exists('$(MSBuildThisFileDirectory)..\.artifacts')" />
+      <AnalysisReportPathToValidate Include="$(MSBuildThisFileDirectory)..\.artifacts\reports"
+                                    Condition="Exists('$(MSBuildThisFileDirectory)..\.artifacts\reports')" />
+      <AnalysisReportPathToValidate Include="$(AnalysisExpectedReportRoot)"
+                                    Condition="Exists('$(AnalysisExpectedReportRoot)')" />
+      <AnalysisReportPathToValidate Include="$(AnalysisReportArchDirectory)"
+                                    Condition="Exists('$(AnalysisReportArchDirectory)')" />
+      <AnalysisReportPathToValidate Update="@(AnalysisReportPathToValidate)">
+        <PathAttributes>$([System.IO.File]::GetAttributes('%(AnalysisReportPathToValidate.FullPath)'))</PathAttributes>
+      </AnalysisReportPathToValidate>
+    </ItemGroup>
+    <Error Condition="$([System.String]::Copy('%(AnalysisReportPathToValidate.PathAttributes)').Contains('ReparsePoint'))"
+           Text="Compiler analysis refuses to clean a reparse-point path: %(AnalysisReportPathToValidate.Identity)" />
+    <ItemGroup>
+      <ExistingAnalysisReport Include="$(AnalysisReportArchDirectory)*.sarif" />
+      <ActiveAnalysisProject Include="@(AnalysisProject)"
+                             Condition="$([System.String]::Copy(';%(AnalysisProject.AnalysisPlatforms);').Contains(';$(Platform);'))" />
+    </ItemGroup>
+    <Delete Files="@(ExistingAnalysisReport)" />
+    <MSBuild Projects="@(ActiveAnalysisProject)"
+             Targets="ClCompile"
+             BuildInParallel="true"
+             ContinueOnError="ErrorAndContinue"
+             Properties="$(ProjectProperties);Configuration=%(ActiveAnalysisProject.AnalysisConfiguration);ObserverAnalysisReportName=%(ActiveAnalysisProject.AnalysisReportName);ObserverCompileAnalysis=true;ForceRebuild=true" />
+  </Target>
+  <Target Name="Clean">
+    <MSBuild Projects="@(ModuleProject);@(TestProject);@(FuzzProject);@(LeakProbeProject)" Targets="Clean" BuildInParallel="true" Properties="$(ProjectProperties)" />
+  </Target>
+  <Target Name="BuildFuzz">
+    <MSBuild Projects="@(FuzzProject)" Targets="Build" BuildInParallel="true" Properties="$(ProjectProperties)" />
+  </Target>
+  <Target Name="BuildLeakProbe" DependsOnTargets="BuildModules">
+    <Error Condition="'$(Configuration)|$(Platform)' != 'Release|x64'"
+           Text="BuildLeakProbe requires Configuration=Release and Platform=x64." />
+    <MSBuild Projects="@(LeakProbeProject)" Targets="Build" Properties="$(ProjectProperties)" />
+  </Target>
+</Project>

@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="Current" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Import Project="..\ObserverProjectConfigurations.props" />
+  <PropertyGroup Label="Globals">
+    <VCProjectVersion>17.0</VCProjectVersion>
+    <ProjectGuid>{DF60A28B-D6D4-4EF0-811B-4CC53ED93070}</ProjectGuid>
+    <Keyword>Win32Proj</Keyword>
+    <RootNamespace>fuzz_rpgmaker</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+    <ObserverConfigurationType>Application</ObserverConfigurationType>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <Import Project="..\ObserverConfiguration.props" />
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <Import Project="..\ObserverProject.props" />
+  <Import Project="..\ObserverFuzz.props" />
+  <Import Project="$(VcpkgRoot)\scripts\buildsystems\msbuild\vcpkg.props" />
+
+  <PropertyGroup>
+    <TargetName>fuzz-rpgmaker</TargetName>
+  </PropertyGroup>
+  <ItemGroup>
+    <ClCompile Include="$(RepositoryRoot)src\core\io\bounded_stream.cpp" />
+    <ClInclude Include="$(RepositoryRoot)src\core\archive_limits.h" />
+    <ClCompile Include="$(RepositoryRoot)src\fuzz\archive.cpp">
+      <ObjectFileName>$(IntDir)archive_fuzzer.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="$(RepositoryRoot)src\modules\rpgmaker\rpgmaker.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="$(RepositoryRoot)src\core\io\bounded_stream.h" />
+    <ClInclude Include="$(RepositoryRoot)src\modules\extractor.h" />
+  </ItemGroup>
+
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <Import Project="$(VcpkgRoot)\scripts\buildsystems\msbuild\vcpkg.targets" />
+</Project>

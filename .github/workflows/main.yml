@@ -2,97 +2,655 @@ name: CI
 
 on:
   push:
-    branches: [ "master" ]
+    branches: [master]
   pull_request:
-    branches: [ "master" ]
+    branches: [master]
+  schedule:
+    - cron: "17 18 * * 6"
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
-  contents: write
+  contents: read
 
 env:
-  VCPKG_DEFAULT_BINARY_CACHE: "C:/vcpkg-binary-cache"
+  VCPKG_ROOT: C:\vcpkg
+  VCPKG_DEFAULT_BINARY_CACHE: C:\vcpkg-binary-cache
 
 jobs:
-  build:
+  source-quality:
+    name: Source quality
     runs-on: windows-2022
-    strategy:
-      matrix:
-        arch: [ x64, x86 ]
+    permissions:
+      contents: read
+      security-events: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - name: Setup Developer Command Prompt
-        uses: ilammy/msvc-dev-cmd@v1
-        with:
-          arch: ${{ matrix.arch }}
-
-      - name: Get project vcpkg baseline
+      - name: Install source-analysis tools
         shell: pwsh
         run: |
-          $baseline = (Get-Content -Path vcpkg.json | ConvertFrom-Json).'builtin-baseline'
-          echo "VCPKG_BASELINE=$baseline" >> $env:GITHUB_ENV
+          choco install cppcheck --version=2.19.0 --yes --no-progress
+          Install-Module PSScriptAnalyzer -RequiredVersion 1.25.0 -Repository PSGallery -Scope CurrentUser -Force
 
-      - name: Cache vcpkg
-        uses: actions/cache@v4
+      - name: Run formatting and source analyzers
+        id: source_checks
+        continue-on-error: true
+        shell: pwsh
+        run: ./build.ps1 source-checks -Arch all
+
+      - name: Upload Cppcheck x86 SARIF
+        if: always() && hashFiles('.artifacts/reports/cppcheck/cppcheck-x86.sarif') != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        uses: github/codeql-action/upload-sarif@v4
         with:
-          key: vcpkg-${{ matrix.arch }}-${{ hashFiles('vcpkg.json') }}
+          sarif_file: .artifacts/reports/cppcheck/cppcheck-x86.sarif
+          category: cppcheck/x86
+
+      - name: Upload Cppcheck x64 SARIF
+        if: always() && hashFiles('.artifacts/reports/cppcheck/cppcheck-x64.sarif') != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: .artifacts/reports/cppcheck/cppcheck-x64.sarif
+          category: cppcheck/x64
+
+      - name: Upload Cppcheck ARM64 SARIF
+        if: always() && hashFiles('.artifacts/reports/cppcheck/cppcheck-arm64.sarif') != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: .artifacts/reports/cppcheck/cppcheck-arm64.sarif
+          category: cppcheck/arm64
+
+      - name: Upload PSScriptAnalyzer SARIF
+        if: always() && hashFiles('.artifacts/reports/psscriptanalyzer/psscriptanalyzer.sarif') != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: .artifacts/reports/psscriptanalyzer/psscriptanalyzer.sarif
+          category: psscriptanalyzer
+
+      - name: Archive source-analysis reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: source-analysis-reports
+          path: .artifacts/reports
+          if-no-files-found: ignore
+
+      - name: Enforce source-quality gate
+        if: steps.source_checks.outcome == 'failure'
+        shell: pwsh
+        run: throw 'Source-quality checks failed.'
+
+  tests:
+    name: MSVC tests (${{ matrix.arch }}, ${{ matrix.config }})
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x86, x64]
+        config: [Debug, Release]
+    permissions:
+      contents: read
+      checks: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Cache vcpkg binaries
+        uses: actions/cache@v5
+        with:
+          path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
+          key: vcpkg-${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles('vcpkg.json', 'build/vcpkg/triplets/*.cmake') }}
+
+      - name: Prepare vcpkg cache
+        shell: pwsh
+        run: New-Item -ItemType Directory -Force -Path $env:VCPKG_DEFAULT_BINARY_CACHE | Out-Null
+
+      - name: Run deterministic tests
+        id: tests
+        continue-on-error: true
+        shell: pwsh
+        run: ./build.ps1 test -Arch ${{ matrix.arch }} -Config ${{ matrix.config }}
+
+      - name: Publish test report
+        if: always() && hashFiles('.artifacts/reports/tests/*.xml') != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        uses: dorny/test-reporter@v3
+        with:
+          name: MSVC tests (${{ matrix.arch }}, ${{ matrix.config }})
+          path: .artifacts/reports/tests/*.xml
+          reporter: java-junit
+          fail-on-error: false
+
+      - name: Archive test reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-reports-${{ matrix.arch }}-${{ matrix.config }}
+          path: .artifacts/reports/tests
+          if-no-files-found: ignore
+
+      - name: Enforce test gate
+        if: steps.tests.outcome == 'failure'
+        shell: pwsh
+        run: throw 'MSVC tests failed.'
+
+  tests-arm64:
+    name: MSVC tests (ARM64, ${{ matrix.config }})
+    runs-on: windows-11-arm
+    strategy:
+      fail-fast: false
+      matrix:
+        config: [Debug, Release]
+    permissions:
+      contents: read
+      checks: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Cache vcpkg binaries
+        uses: actions/cache@v5
+        with:
+          path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
+          key: vcpkg-${{ runner.os }}-arm64-${{ hashFiles('vcpkg.json', 'build/vcpkg/triplets/*.cmake') }}
+
+      - name: Prepare vcpkg cache
+        shell: pwsh
+        run: New-Item -ItemType Directory -Force -Path $env:VCPKG_DEFAULT_BINARY_CACHE | Out-Null
+
+      - name: Run native ARM64 deterministic tests
+        id: tests
+        continue-on-error: true
+        shell: pwsh
+        run: ./build.ps1 test -Arch arm64 -Config ${{ matrix.config }}
+
+      - name: Publish ARM64 test report
+        if: always() && hashFiles('.artifacts/reports/tests/*.xml') != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        uses: dorny/test-reporter@v3
+        with:
+          name: MSVC tests (ARM64, ${{ matrix.config }})
+          path: .artifacts/reports/tests/*.xml
+          reporter: java-junit
+          fail-on-error: false
+
+      - name: Archive ARM64 test reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-reports-arm64-${{ matrix.config }}
+          path: .artifacts/reports/tests
+          if-no-files-found: ignore
+
+      - name: Enforce ARM64 test gate
+        if: steps.tests.outcome == 'failure'
+        shell: pwsh
+        run: throw 'Native ARM64 MSVC tests failed.'
+
+  leaks:
+    name: UMDH leak gate (x64)
+    runs-on: windows-2022
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Cache vcpkg binaries
+        uses: actions/cache@v5
+        with:
+          path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
+          key: vcpkg-${{ runner.os }}-x64-${{ hashFiles('vcpkg.json', 'build/vcpkg/triplets/*.cmake') }}
+
+      - name: Prepare vcpkg cache
+        shell: pwsh
+        run: New-Item -ItemType Directory -Force -Path $env:VCPKG_DEFAULT_BINARY_CACHE | Out-Null
+
+      - name: Ensure Windows Debugging Tools are available
+        shell: pwsh
+        run: |
+          $programFilesX86 = [Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFilesX86)
+          $umdh = Join-Path $programFilesX86 'Windows Kits\10\Debuggers\x64\umdh.exe'
+          if (-not (Test-Path -LiteralPath $umdh -PathType Leaf)) {
+            $installer = Join-Path $env:RUNNER_TEMP 'winsdksetup.exe'
+            Invoke-WebRequest -Uri 'https://go.microsoft.com/fwlink/?linkid=2349110' -OutFile $installer
+            $signature = Get-AuthenticodeSignature -LiteralPath $installer
+            if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'Microsoft') {
+              throw "Windows SDK installer signature validation failed: $($signature.Status)"
+            }
+            $process = Start-Process -FilePath $installer -ArgumentList @(
+              '/features', 'OptionId.WindowsDesktopDebuggers',
+              '/quiet', '/norestart', '/ceip', 'off'
+            ) -Wait -PassThru
+            if ($process.ExitCode -notin @(0, 3010)) {
+              throw "Windows Debugging Tools installation failed with exit code $($process.ExitCode)."
+            }
+          }
+          if (-not (Test-Path -LiteralPath $umdh -PathType Leaf)) {
+            throw "UMDH was not found after Windows Debugging Tools setup: $umdh"
+          }
+
+      - name: Diagnose leak-test toolchain
+        shell: pwsh
+        run: ./build.ps1 doctor -Arch x64
+
+      - name: Run Release UMDH operation, failure, metadata, and DLL-lifecycle leak tests
+        id: leaks
+        continue-on-error: true
+        shell: pwsh
+        run: ./build.ps1 test-leaks -Arch x64
+
+      - name: Archive UMDH leak reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: umdh-leak-reports-x64
+          path: .artifacts/reports/leaks/x64
+          if-no-files-found: ignore
+
+      - name: Enforce leak gate
+        if: steps.leaks.outcome == 'failure'
+        shell: pwsh
+        run: throw 'UMDH detected sustained heap growth or the leak test failed.'
+
+  coverage:
+    name: Branch coverage
+    runs-on: windows-2022
+    permissions:
+      contents: read
+      checks: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Cache vcpkg binaries
+        uses: actions/cache@v5
+        with:
+          path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
+          key: vcpkg-${{ runner.os }}-x64-${{ hashFiles('vcpkg.json', 'build/vcpkg/triplets/*.cmake') }}
+
+      - name: Prepare vcpkg cache
+        shell: pwsh
+        run: New-Item -ItemType Directory -Force -Path $env:VCPKG_DEFAULT_BINARY_CACHE | Out-Null
+
+      - name: Enforce 100 percent source coverage
+        id: coverage
+        continue-on-error: true
+        shell: pwsh
+        run: ./build.ps1 test-coverage -Arch x64 -CoverageThreshold 100
+
+      - name: Add coverage summary
+        if: always() && hashFiles('.artifacts/coverage/x64/coverage.json') != ''
+        shell: pwsh
+        run: |
+          $totals = (Get-Content -Raw .artifacts/coverage/x64/coverage.json | ConvertFrom-Json).data[0].totals
+          @(
+            '## LLVM source coverage'
+            ''
+            '| Metric | Covered | Total | Percent |'
+            '|---|---:|---:|---:|'
+            "| Branches | $($totals.branches.covered) | $($totals.branches.count) | $($totals.branches.percent.ToString('F2'))% |"
+            "| Functions | $($totals.functions.covered) | $($totals.functions.count) | $($totals.functions.percent.ToString('F2'))% |"
+            "| Lines | $($totals.lines.covered) | $($totals.lines.count) | $($totals.lines.percent.ToString('F2'))% |"
+            "| Regions | $($totals.regions.covered) | $($totals.regions.count) | $($totals.regions.percent.ToString('F2'))% |"
+          ) | Add-Content -Path $env:GITHUB_STEP_SUMMARY
+
+      - name: Publish coverage test report
+        if: always() && hashFiles('.artifacts/reports/tests/tests-x64-coverage.xml') != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        uses: dorny/test-reporter@v3
+        with:
+          name: Coverage tests
+          path: .artifacts/reports/tests/tests-x64-coverage.xml
+          reporter: java-junit
+          fail-on-error: false
+
+      - name: Archive coverage reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-reports
           path: |
-            ${{env.VCPKG_DEFAULT_BINARY_CACHE}}
+            .artifacts/coverage/x64/coverage.json
+            .artifacts/coverage/x64/coverage.lcov
+            .artifacts/reports/tests/tests-x64-coverage.xml
+          if-no-files-found: ignore
 
-      - name: Setup vcpkg
-        run: |
-          New-Item -ItemType Directory -Path C:/my-vcpkg
-          Set-Location -Path C:/my-vcpkg
-          git init
-          git remote add --no-tags origin https://github.com/microsoft/vcpkg.git
-          git fetch --depth 1 --no-write-fetch-head origin ${{env.VCPKG_BASELINE}}
-          git branch master ${{env.VCPKG_BASELINE}}
-          git checkout
-          ./bootstrap-vcpkg.bat
-          New-Item -ItemType Directory -Path ${{env.VCPKG_DEFAULT_BINARY_CACHE}} -Force
-          echo "VCPKG_ROOT=C:/my-vcpkg" >> $env:GITHUB_ENV
+      - name: Enforce coverage gate
+        if: steps.coverage.outcome == 'failure'
+        shell: pwsh
+        run: throw 'Coverage is below the required threshold or the coverage run failed.'
 
-      - name: Configure CMake
-        run: cmake --preset ${{ matrix.arch }}-release
+  compiler-analysis:
+    name: Compiler analysis (${{ matrix.arch }})
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x86, x64, arm64]
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v6
 
-      - name: Build
-        run: cmake --build ${{github.workspace}}/build/${{ matrix.arch }}-release
-
-      - name: Pack
-        run: |
-          cd ${{github.workspace}}/build/${{ matrix.arch }}-release
-          cpack --config CPackConfig.cmake -C RelWithDebInfo
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+      - name: Cache vcpkg binaries
+        uses: actions/cache@v5
         with:
-          name: observer-modules-${{ matrix.arch }}
-          path: ${{github.workspace}}/build/${{ matrix.arch }}-release/*.zip
+          path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
+          key: vcpkg-${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles('vcpkg.json', 'build/vcpkg/triplets/*.cmake') }}
+
+      - name: Prepare vcpkg cache
+        shell: pwsh
+        run: New-Item -ItemType Directory -Force -Path $env:VCPKG_DEFAULT_BINARY_CACHE | Out-Null
+
+      - name: Run MSVC analysis and clang-tidy
+        id: analysis
+        continue-on-error: true
+        shell: pwsh
+        run: ./build.ps1 compiler-analysis -Arch ${{ matrix.arch }}
+
+      - name: Upload MSVC SARIF
+        if: always() && hashFiles('.artifacts/reports/msvc/${{ matrix.arch }}/*.sarif') != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: .artifacts/reports/msvc/${{ matrix.arch }}
+          category: msvc-analyze/${{ matrix.arch }}
+
+      - name: Upload clang-tidy SARIF
+        if: always() && hashFiles('.artifacts/reports/clang-tidy/${{ matrix.arch }}/clang-tidy.sarif') != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: .artifacts/reports/clang-tidy/${{ matrix.arch }}/clang-tidy.sarif
+          category: clang-tidy/${{ matrix.arch }}
+
+      - name: Archive compiler-analysis reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: compiler-analysis-${{ matrix.arch }}
+          path: |
+            .artifacts/reports/msvc/${{ matrix.arch }}
+            .artifacts/reports/clang-tidy/${{ matrix.arch }}
+          if-no-files-found: ignore
+
+      - name: Enforce compiler-analysis gate
+        if: steps.analysis.outcome == 'failure'
+        shell: pwsh
+        run: throw 'Compiler analysis failed.'
+
+  asan:
+    name: MSVC ASan (${{ matrix.arch }})
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x86, x64]
+    permissions:
+      contents: read
+      checks: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Cache vcpkg binaries
+        uses: actions/cache@v5
+        with:
+          path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
+          key: vcpkg-${{ runner.os }}-${{ matrix.arch }}-asan-${{ hashFiles('vcpkg.json', 'build/vcpkg/triplets/*.cmake') }}
+
+      - name: Prepare vcpkg cache
+        shell: pwsh
+        run: New-Item -ItemType Directory -Force -Path $env:VCPKG_DEFAULT_BINARY_CACHE | Out-Null
+
+      - name: Run MSVC AddressSanitizer tests
+        id: asan
+        continue-on-error: true
+        shell: pwsh
+        run: ./build.ps1 test-asan -Arch ${{ matrix.arch }}
+
+      - name: Publish ASan test report
+        if: always() && hashFiles('.artifacts/reports/tests/*.xml') != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        uses: dorny/test-reporter@v3
+        with:
+          name: MSVC ASan (${{ matrix.arch }})
+          path: .artifacts/reports/tests/*.xml
+          reporter: java-junit
+          fail-on-error: false
+
+      - name: Archive ASan reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: asan-reports-${{ matrix.arch }}
+          path: .artifacts/reports/tests
+          if-no-files-found: ignore
+
+      - name: Enforce ASan gate
+        if: steps.asan.outcome == 'failure'
+        shell: pwsh
+        run: throw 'MSVC ASan failed.'
+
+  ubsan:
+    name: clang-cl UBSan
+    runs-on: windows-2022
+    permissions:
+      contents: read
+      checks: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Cache vcpkg binaries
+        uses: actions/cache@v5
+        with:
+          path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
+          key: vcpkg-${{ runner.os }}-x64-${{ hashFiles('vcpkg.json', 'build/vcpkg/triplets/*.cmake') }}
+
+      - name: Prepare vcpkg cache
+        shell: pwsh
+        run: New-Item -ItemType Directory -Force -Path $env:VCPKG_DEFAULT_BINARY_CACHE | Out-Null
+
+      - name: Run UndefinedBehaviorSanitizer tests
+        id: ubsan
+        continue-on-error: true
+        shell: pwsh
+        run: ./build.ps1 test-ubsan -Arch x64
+
+      - name: Publish UBSan test report
+        if: always() && hashFiles('.artifacts/reports/tests/*.xml') != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        uses: dorny/test-reporter@v3
+        with:
+          name: clang-cl UBSan
+          path: .artifacts/reports/tests/*.xml
+          reporter: java-junit
+          fail-on-error: false
+
+      - name: Archive UBSan reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ubsan-reports
+          path: .artifacts/reports/tests
+          if-no-files-found: ignore
+
+      - name: Enforce UBSan gate
+        if: steps.ubsan.outcome == 'failure'
+        shell: pwsh
+        run: throw 'clang-cl UBSan failed.'
+
+  fuzz:
+    name: Fuzz smoke test
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Cache vcpkg binaries
+        uses: actions/cache@v5
+        with:
+          path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
+          key: vcpkg-${{ runner.os }}-x64-asan-${{ hashFiles('vcpkg.json', 'build/vcpkg/triplets/*.cmake') }}
+
+      - name: Prepare vcpkg cache
+        shell: pwsh
+        run: New-Item -ItemType Directory -Force -Path $env:VCPKG_DEFAULT_BINARY_CACHE | Out-Null
+
+      - name: Run libFuzzer
+        id: fuzz
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $secondsPerTarget = if ('${{ github.event_name }}' -eq 'schedule') { 1800 } else { 30 }
+          ./build.ps1 fuzz -Arch x64 -FuzzTarget all -FuzzSeconds $secondsPerTarget
+
+      - name: Archive fuzz corpus and crashes
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: fuzz-results
+          path: .artifacts/fuzz
+          if-no-files-found: ignore
+
+      - name: Enforce fuzz gate
+        if: steps.fuzz.outcome == 'failure'
+        shell: pwsh
+        run: throw 'Fuzz smoke test found a failure.'
+
+  codeql:
+    name: CodeQL C++
+    runs-on: windows-2022
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Cache vcpkg binaries
+        uses: actions/cache@v5
+        with:
+          path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
+          key: vcpkg-${{ runner.os }}-x64-${{ hashFiles('vcpkg.json', 'build/vcpkg/triplets/*.cmake') }}
+
+      - name: Prepare dependencies before tracing
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path $env:VCPKG_DEFAULT_BINARY_CACHE | Out-Null
+          ./build.ps1 restore -Arch x64
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: c-cpp
+          build-mode: manual
+
+      - name: Build traced MSVC binaries
+        shell: pwsh
+        run: ./build.ps1 build -Arch x64 -Config Release
+
+      - name: Analyze and upload CodeQL SARIF
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: codeql/c-cpp
+          output: .artifacts/reports/codeql/raw
+          post-processed-sarif-path: .artifacts/reports/codeql/uploaded
+
+      - name: Archive CodeQL SARIF
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: codeql-sarif
+          path: .artifacts/reports/codeql
+          if-no-files-found: ignore
+
+  package:
+    name: Release package (${{ matrix.arch }})
+    needs: [tests, tests-arm64, leaks]
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86
+            runner: windows-2022
+          - arch: x64
+            runner: windows-2022
+          - arch: arm64
+            runner: windows-11-arm
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Cache vcpkg binaries
+        uses: actions/cache@v5
+        with:
+          path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
+          key: vcpkg-${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles('vcpkg.json', 'build/vcpkg/triplets/*.cmake') }}
+
+      - name: Prepare vcpkg cache
+        shell: pwsh
+        run: New-Item -ItemType Directory -Force -Path $env:VCPKG_DEFAULT_BINARY_CACHE | Out-Null
+
+      - name: Install BinSkim
+        shell: pwsh
+        run: |
+          dotnet tool install --global Microsoft.CodeAnalysis.BinSkim --version 4.4.9.11
+          (Join-Path $env:USERPROFILE '.dotnet\tools') | Add-Content -Path $env:GITHUB_PATH
+
+      - name: Build, audit, and package
+        id: package
+        continue-on-error: true
+        shell: pwsh
+        run: ./build.ps1 package -Arch ${{ matrix.arch }}
+
+      - name: Upload BinSkim SARIF
+        if: always() && hashFiles('.artifacts/audit/binskim-${{ matrix.arch }}.sarif') != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: .artifacts/audit/binskim-${{ matrix.arch }}.sarif
+          category: binskim/${{ matrix.arch }}
+
+      - name: Archive release packages
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: packages-${{ matrix.arch }}
+          path: .artifacts/packages/*.zip
+          if-no-files-found: error
+
+      - name: Archive binary-audit report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: binary-audit-${{ matrix.arch }}
+          path: .artifacts/audit/binskim-${{ matrix.arch }}.sarif
+          if-no-files-found: ignore
+
+      - name: Enforce package gate
+        if: steps.package.outcome == 'failure'
+        shell: pwsh
+        run: throw 'Release build, binary audit, or packaging failed.'
 
   release:
-    needs: build
-    runs-on: ubuntu-latest
+    name: Publish release
+    needs: [source-quality, tests, tests-arm64, leaks, coverage, compiler-analysis, asan, ubsan, fuzz, codeql, package]
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
+      - name: Download release packages
+        uses: actions/download-artifact@v8
         with:
+          pattern: packages-*
           merge-multiple: true
-          path: ./artifacts
+          path: release-assets
 
       - name: Generate release tag
         id: tag
-        run: echo "tag=$(date +'%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT
+        shell: bash
+        run: echo "tag=release-$(date -u +'%Y%m%d-%H%M%S')" >> "$GITHUB_OUTPUT"
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v3
         with:
-          tag_name: release-${{ steps.tag.outputs.tag }}
-          name: 'Release ${{ steps.tag.outputs.tag }}'
-          body: |
-            Automated release from master branch.
-
-            Download the *-dll.zip files if you need Observer modules.
-            Download the *-pdb.zip files if you need debug symbols.
-          files: ./artifacts/*.zip
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: Release ${{ steps.tag.outputs.tag }}
+          body: Automated release from the fully verified master branch.
+          files: release-assets/*.zip
           prerelease: false

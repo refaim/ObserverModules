@@ -69,7 +69,6 @@ specific files as needed without having to unpack the entire archive.
 | [lazyhamster/Observer](https://github.com/lazyhamster/Observer) | [LGPL-3.0](licenses/Observer.txt)   |
 | [Cyan4973/xxHash](https://github.com/Cyan4973/xxHash)           | [BSD-2-Clause](licenses/xxHash.txt) |
 | [zlib](https://zlib.net)                                        | [zlib](licenses/zlib.txt)           |
-| [mateidavid/zstr](https://github.com/mateidavid/zstr)           | [MIT](licenses/zstr.txt)            |
 
 ## Sources of inspiration
 
@@ -84,9 +83,21 @@ specific files as needed without having to unpack the entire archive.
 
 ### Prerequisites
 
-- **Visual Studio 2017** compiler
-- **CLion** and/or **CMake** (version 3.31+)
-- **vcpkg**
+- Visual Studio Build Tools 2022 with the v143 MSVC tools for x86/x64 and ARM64, Spectre-mitigated libraries, and a
+  Windows 11 SDK
+- PowerShell 7.4 or newer
+- vcpkg available on `PATH` or through `VCPKG_ROOT`
 
-You can open the included CLion project directly and build through the IDE or use CMake manually to generate the build
-files, then compile using the Visual Studio compiler.
+No IDE, Visual Studio developer prompt, global vcpkg integration, or repository-level CMake generation is required.
+From a normal Windows console:
+
+```powershell
+.\build.ps1 doctor
+.\build.ps1 build -Arch all -Config Release
+.\build.ps1 test -Arch x86,x64 -Config Debug
+.\build.ps1 package -Arch all
+```
+
+The build restores pinned static dependencies and produces self-contained `/MT` modules for x86, x64, and ARM64.
+See [the build-system documentation](docs/build-system.md) for analysis, coverage, sanitizer, fuzzing, binary-audit, and
+packaging commands.

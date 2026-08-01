@@ -1,0 +1,17 @@
+quiet: false
+silent: false
+strict: true
+includeNotCovered: false
+dryRunEnabled: false
+captureTestOutput: false
+captureMutantOutput: false
+mutators:
+  - cxx_default
+includePaths:
+  - '.*/src/modules/renpy/pickle\.cpp$'
+excludePaths:
+  - '.*/\.artifacts/.*'
+  - '.*/src/tests/.*'
+parallelization:
+  workers: 2
+  executionWorkers: 2

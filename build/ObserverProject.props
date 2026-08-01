@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <RepositoryRoot>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\'))</RepositoryRoot>
+    <ArtifactsRoot>$(RepositoryRoot).artifacts\</ArtifactsRoot>
+    <PlatformMoniker Condition="'$(Platform)' == 'Win32'">x86</PlatformMoniker>
+    <PlatformMoniker Condition="'$(Platform)' == 'x64'">x64</PlatformMoniker>
+    <PlatformMoniker Condition="'$(Platform)' == 'ARM64'">arm64</PlatformMoniker>
+    <VcpkgTriplet Condition="'$(Configuration)' != 'ASan' And '$(Configuration)' != 'Fuzz'">observer-$(PlatformMoniker)-windows-static</VcpkgTriplet>
+    <VcpkgTriplet Condition="'$(Configuration)' == 'ASan' Or '$(Configuration)' == 'Fuzz'">observer-$(PlatformMoniker)-windows-static-asan</VcpkgTriplet>
+    <VcpkgEnableManifest>true</VcpkgEnableManifest>
+    <!-- build.ps1 restore owns mutation; ordinary builds only consume the restored tree. -->
+    <VcpkgManifestInstall>false</VcpkgManifestInstall>
+    <!-- Tool installation and updates are always explicit user actions. -->
+    <VcpkgAutoBootstrap>false</VcpkgAutoBootstrap>
+    <VcpkgManifestRoot>$(RepositoryRoot)</VcpkgManifestRoot>
+    <!-- Separate manifest install roots prevent one architecture from pruning another. -->
+    <VcpkgInstalledDir Condition="'$(Configuration)' != 'ASan' And '$(Configuration)' != 'Fuzz'">$(ArtifactsRoot)vcpkg_installed\$(PlatformMoniker)\</VcpkgInstalledDir>
+    <VcpkgInstalledDir Condition="'$(Configuration)' == 'ASan' Or '$(Configuration)' == 'Fuzz'">$(ArtifactsRoot)vcpkg_installed\$(PlatformMoniker)-asan\</VcpkgInstalledDir>
+    <VcpkgApplocalDeps>false</VcpkgApplocalDeps>
+    <VcpkgAdditionalInstallOptions>--overlay-triplets=$(RepositoryRoot)build\vcpkg\triplets</VcpkgAdditionalInstallOptions>
+    <OutDir>$(ArtifactsRoot)bin\$(PlatformMoniker)\$(Configuration)\</OutDir>
+    <IntDir>$(ArtifactsRoot)obj\$(PlatformMoniker)\$(Configuration)\$(ProjectName)\</IntDir>
+    <TargetDir>$(OutDir)</TargetDir>
+    <TargetName>$(ProjectName)</TargetName>
+    <GenerateManifest>true</GenerateManifest>
+    <LinkIncremental Condition="'$(Configuration)' == 'ASan' Or '$(Configuration)' == 'Fuzz'">false</LinkIncremental>
+    <RunCodeAnalysis Condition="'$(ObserverRunCodeAnalysis)' == 'true'">true</RunCodeAnalysis>
+    <EnableMicrosoftCodeAnalysis>true</EnableMicrosoftCodeAnalysis>
+    <CodeAnalysisRuleSet Condition="'$(ObserverRunCodeAnalysis)' == 'true'">$(RepositoryRoot)build\ObserverNativeAnalysis.ruleset</CodeAnalysisRuleSet>
+    <ObserverAnalysisReportName Condition="'$(ObserverAnalysisReportName)' == ''">$(ProjectName)</ObserverAnalysisReportName>
+    <EnableClangTidyCodeAnalysis Condition="'$(ObserverEnableClangTidy)' == 'true'">true</EnableClangTidyCodeAnalysis>
+  </PropertyGroup>
+
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <LanguageStandard Condition="'$(Configuration)' != 'Coverage' And '$(Configuration)' != 'Fuzz' And '$(Configuration)' != 'UBSan' And '$(ObserverEnableClangTidy)' != 'true'">stdcpp23</LanguageStandard>
+      <LanguageStandard Condition="'$(Configuration)' == 'Coverage' Or '$(Configuration)' == 'Fuzz' Or '$(Configuration)' == 'UBSan' Or '$(ObserverEnableClangTidy)' == 'true'">stdcpplatest</LanguageStandard>
+      <WarningLevel>Level4</WarningLevel>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <ConformanceMode>true</ConformanceMode>
+      <UseStandardPreprocessor Condition="'$(Configuration)' != 'Coverage' And '$(Configuration)' != 'Fuzz' And '$(Configuration)' != 'UBSan'">true</UseStandardPreprocessor>
+      <ExternalWarningLevel>TurnOffAllWarnings</ExternalWarningLevel>
+      <TreatAngleIncludeAsExternal>true</TreatAngleIncludeAsExternal>
+      <MultiProcessorCompilation Condition="'$(ObserverRunCodeAnalysis)' != 'true'">true</MultiProcessorCompilation>
+      <MultiProcessorCompilation Condition="'$(ObserverRunCodeAnalysis)' == 'true'">false</MultiProcessorCompilation>
+      <SDLCheck>true</SDLCheck>
+      <ControlFlowGuard Condition="'$(Configuration)' == 'Release'">Guard</ControlFlowGuard>
+      <DisableAnalyzeExternal Condition="'$(ObserverRunCodeAnalysis)' == 'true'">true</DisableAnalyzeExternal>
+      <PREfastLog Condition="'$(ObserverRunCodeAnalysis)' == 'true' And '$(ObserverAnalysisReportDirectory)' != ''">$(ObserverAnalysisReportDirectory)\$(PlatformMoniker)\$(ObserverAnalysisReportName).sarif</PREfastLog>
+      <PREfastLog Condition="'$(ObserverRunCodeAnalysis)' == 'true' And '$(ObserverAnalysisReportPath)' != ''">$(ObserverAnalysisReportPath)</PREfastLog>
+      <ExceptionHandling>Sync</ExceptionHandling>
+      <RuntimeLibrary Condition="'$(Configuration)' == 'Release' Or '$(Configuration)' == 'ASan' Or '$(Configuration)' == 'Fuzz' Or '$(Configuration)' == 'UBSan'">MultiThreaded</RuntimeLibrary>
+      <RuntimeLibrary Condition="'$(Configuration)' != 'Release' And '$(Configuration)' != 'ASan' And '$(Configuration)' != 'Fuzz' And '$(Configuration)' != 'UBSan'">MultiThreadedDebug</RuntimeLibrary>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+      <BasicRuntimeChecks Condition="'$(Configuration)' == 'Debug'">EnableFastChecks</BasicRuntimeChecks>
+      <BasicRuntimeChecks Condition="'$(Configuration)' == 'ASan'">Default</BasicRuntimeChecks>
+      <SupportJustMyCode Condition="'$(Configuration)' == 'ASan'">false</SupportJustMyCode>
+      <Optimization Condition="'$(Configuration)' != 'Release'">Disabled</Optimization>
+      <Optimization Condition="'$(Configuration)' == 'Release'">MaxSpeed</Optimization>
+      <IntrinsicFunctions Condition="'$(Configuration)' == 'Release'">true</IntrinsicFunctions>
+      <FunctionLevelLinking Condition="'$(Configuration)' == 'Release'">true</FunctionLevelLinking>
+      <AdditionalIncludeDirectories>$(RepositoryRoot)src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>NOMINMAX;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalOptions>/utf-8 /Zc:__cplusplus %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions Condition="'$(Configuration)' == 'Coverage'">/clang:-fprofile-instr-generate /clang:-fcoverage-mapping %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions Condition="'$(Configuration)' == 'ASan'">/fsanitize=address %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions Condition="'$(Configuration)' == 'UBSan'">/clang:-fsanitize=undefined /clang:-fno-sanitize-recover=all %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions Condition="'$(Configuration)' == 'Fuzz'">/clang:-fsanitize=fuzzer,address %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <Link>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <GenerateFullProgramDatabaseFile Condition="'$(Configuration)' == 'Release'">true</GenerateFullProgramDatabaseFile>
+      <TreatLinkerWarningAsErrors>true</TreatLinkerWarningAsErrors>
+      <DataExecutionPrevention>true</DataExecutionPrevention>
+      <RandomizedBaseAddress>true</RandomizedBaseAddress>
+      <ControlFlowGuard Condition="'$(Configuration)' == 'Release'">Guard</ControlFlowGuard>
+      <CETCompat Condition="'$(Configuration)' == 'Release' And '$(Platform)' != 'ARM64'">true</CETCompat>
+      <EnableCOMDATFolding Condition="'$(Configuration)' == 'Release'">true</EnableCOMDATFolding>
+      <OptimizeReferences Condition="'$(Configuration)' == 'Release'">true</OptimizeReferences>
+      <LinkTimeCodeGeneration Condition="'$(Configuration)' == 'Release'">UseLinkTimeCodeGeneration</LinkTimeCodeGeneration>
+      <AdditionalDependencies Condition="'$(Configuration)' == 'UBSan'">$(LLVMRuntimeDir)\clang_rt.ubsan_standalone-x86_64.lib;$(LLVMRuntimeDir)\clang_rt.ubsan_standalone_cxx-x86_64.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+</Project>
