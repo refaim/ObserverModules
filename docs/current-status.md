@@ -8,11 +8,13 @@ as authoritative; older counts in `autonomous-work-log.md` are historical snapsh
 
 - Repository: `C:\Users\Roma\Dev\ObserverModules`
 - Branch: `codex/msbuild-toolchain`
-- The worktree intentionally contains the complete migration and is not yet committed or pushed.
+- Checkpoint commit `294b584` preserves the complete MSBuild migration and DAG experiments before the approved
+  IX-derived replacement work. The branch has not been pushed.
 - `CLAUDE.md` has been replaced by repository-level `AGENTS.md`.
 - The old CMake/IDE entry points are being removed. CMake remains acceptable only inside vcpkg ports.
 - Do not create a background Goal for this work. In the previous chat Goal cards repeatedly became unavailable.
-- Do not install or update software. Ask the owner when another tool is required.
+- Do not install or update global/system tools. Project-local Python dependencies may be added and locked with `uv`;
+  report missing external developer tools instead of installing them.
 - Keep verbose command output in `.artifacts/*.log` and report only concise results in chat; verbose dynamic-check
   output repeatedly triggered a Codex UI display filter, although commands and filesystem changes continued normally.
 
@@ -22,8 +24,9 @@ as authoritative; older counts in `autonomous-work-log.md` are historical snapsh
 - Static CRT (`/MT`) and static third-party dependencies; release packages must not require the VC redistributable or
   adjacent dependency DLLs.
 - The console entry point is `build.ps1`/`build.cmd`, with direct MSBuild project files under `build/`.
-- `Release` is the shippable optimized-with-symbols configuration: `/O2`, `/GL`, `/LTCG`, `/MT`, `/Zi`, and a full
-  linker PDB. There is intentionally no separate `RelWithDebInfo` configuration.
+- `Release` is the shippable optimized-with-symbols configuration: `/O2`, `/GL`, `/LTCG`, `/MT`, compiler-embedded
+  `/Z7` symbols, and a full linker PDB. `/Z7` removes the shared compiler-PDB service from parallel isolated build
+  leaves; the linker still emits the distributable PDB. There is intentionally no separate `RelWithDebInfo`.
 - TDD, 100% production line and branch coverage, mutation testing, deterministic tests, format-aware dynamic testing,
   leak checks, binary inspection, and hermetic CI.
 - Clean architecture and strict C/C++ boundaries. Application and test code must not call a C API directly; a C API is
@@ -52,6 +55,41 @@ as authoritative; older counts in `autonomous-work-log.md` are historical snapsh
   C++ APIs, so a later decompressor replacement is local.
 - Ren'Py, RPG Maker, and Zanzarah share `observer::io::bounded_stream` for checked positioning and exact reads.
 
+### IX-derived replacement pilot
+
+- `tools/build` now contains the working Python 3.14/Jinja replacement core: canonical MD5 identities, demand DAG
+  execution, named pools, native interprocess locks through `filelock`, repository-local `out/cas`, confined work
+  paths, and Windows process-tree cancellation through `psutil` plus `pywin32` Job Objects.
+- The project environment exact-pins `coverage==7.15.2`; its blocking gate measures all first-party `core`, `graphs`,
+  and CLI code with 100% line and branch coverage and no production exclusions.
+- The production analysis graph now covers every supported first-party project/TU occurrence on x86, x64, and ARM64.
+  It contains 533 nodes: 262 independent raw analyzer leaves, 262 independent normalizers, three shared restore leaves,
+  and per-architecture deterministic merge/semantic gates. The x64-only leak probe is deliberately absent from the
+  cross-architecture graphs. Every analyzer has its own object root.
+- Raw TU identities currently use a deliberately restricted literal-include closure. Computed includes,
+  `#include_next`, and `__has_include` are rejected instead of being under-signed; the first-party path namespace is
+  also signed. The planned generic form is a two-phase compiler-derived resolver using MSVC `/sourceDependencies` and
+  `clang-scan-deps`, so this bootstrap scanner is not presented as a general C++ preprocessor.
+- Official `vswhere.exe` and `VsDevCmd.bat` discovery fingerprints MSBuild 17.14.51.32402, MSVC 14.44.35207,
+  clang-tidy 19.1.5, Windows SDK 10.0.26100.0, and the resolved vcpkg root. Discovery does not mutate the parent
+  environment or install tools. The signed developer-environment delta deliberately excludes inherited/transport
+  `PATH`; runtime overlays append the host path case-insensitively, so CAS identities are stable across launch modes.
+- The native graph splits project/configuration/architecture builds and Catch2 shards into isolated CAS leaves.
+  x64 Debug and Release matrices have run successfully with four concurrent MSBuild project leaves. Compiler debug
+  data uses `/Z7`, avoiding cross-Job `mspdbsrv` RPC failures while the linker still emits a full PDB.
+- Fine-grained fuzz and release-binary audit graphs are implemented. Each fuzz target has independent build, corpus
+  replay, and nonce-signed timed execution; each module audit has three independent dumpbin leaves, a PE policy gate,
+  a BinSkim leaf, and a separate SARIF policy gate.
+- The earlier 1,248-line pilot count is obsolete now that real graph families have replaced projections. Re-measure
+  production LOC after parity and the required structural reduction; compare the final replacement, not an incomplete
+  slice, with the 2,321-line old PowerShell production surface.
+- The root `build.ps1` contract has deliberately not switched. Run the pilot from the repository root with:
+
+  ```powershell
+  uv run --project tools/build --frozen --no-sync python tools/build/main.py analysis-slice --repository . --arch all
+  uv run --project tools/build --frozen --no-sync python tools/build/main.py native --repository . --arch x64 --config Debug
+  ```
+
 ## Latest verified evidence
 
 All commands below completed successfully after the latest Pickle regression fix.
@@ -66,6 +104,15 @@ All commands below completed successfully after the latest Pickle regression fix
 | Short Ren'Py format run | 345,037 executions in 15 seconds |
 | Short RPG Maker format run | 219,383 executions in 15 seconds |
 | Short Zanzarah format run | 418,998 executions in 15 seconds |
+| Replacement Python suite before leak/package completion | 143 tests; 1305 statements and 380 branches, all 100% |
+| Complete 191-node x64 graph, first cold run | 134 seconds; one real C26498 finding reached only the semantic gate |
+| x64 incremental after the one-line `constexpr` fix | 17.7 seconds |
+| Complete 191-node x64 graph, warm | 2.91 seconds |
+| Cold addition of x86 and ARM64 | about 200 seconds for 168 new raw analyzer leaves at 12-way concurrency |
+| Complete 533-node three-architecture graph, warm | 4.38 seconds |
+| x64 Debug native graph, four project leaves and four test shards | cold run green; no C1090 after `/Z7` |
+| x64 Release native graph, including leak-probe build | cold run green with `/MT`, `/GL`, `/LTCG`, and linker PDB |
+| x64 Debug native graph, warm | 1.66 seconds |
 
 The short all-format command returned exit code 0. Detailed local evidence is in:
 
@@ -81,34 +128,17 @@ and both 100% coverage and the all-format short run passed again.
 
 ## Required next work, in order
 
-1. Run `source-checks` and fix clang-format, Cppcheck, and PSScriptAnalyzer findings introduced by the latest changes.
-   Do not weaken rules to make the gate green.
-2. Check in a minimized seed for the new Pickle regression, replay every checked-in seed, then define a longer
-   all-format CI schedule. Seed the four targets with representative examples derived from the external corpus without
-   committing the multi-gigabyte corpus.
-3. Rework `test-leaks` and `leak-probe.vcxproj` to test the exact optimized x64 `Release` (`/MT`) DLLs. The current CI
-   leak job is mandatory but the script still hard-codes a Debug probe. Expand cases beyond small happy paths to cover
-   parse failure, cancellation, read/write failure, repeated DLL lifecycle, and large/sparse metadata workloads.
-4. Add package smoke verification: unpack each produced ZIP, assert its exact contents, load the DLL from the unpacked
-   package, and exercise the Observer API. Run packaging for x86/x64/ARM64 to prove the new one-PDB-ZIP-per-architecture
-   layout. Ensure each module package contains only its own applicable third-party documents.
-5. Make `verify` a truthful aggregate gate. It currently omits coverage, sanitizers, leak checks, all-format runs, and
-   package smoke. Split build-only ARM64 verification from executable tests when the host cannot run ARM64 binaries;
-   `verify -Arch all` must not fail merely because an x64 host cannot execute ARM64.
-6. Run the clean build/test matrix: MSVC x86 and x64 Debug/Release tests; ARM64 Debug/Release builds locally and tests on
-   the native GitHub runner. Then run ASan x86/x64 and clang-cl UBSan x64 after the latest parser changes.
-7. Run `/analyze` and clang-tidy for modules, tests, format targets, and the leak probe on all supported architectures.
-   Currently the aggregate analysis graph omits the format targets and leak probe.
-8. Finish GitHub report integration. MSVC analysis, Cppcheck, CodeQL, and BinSkim should upload SARIF. clang-tidy still
-   needs a reliable SARIF conversion/upload path. Preserve mandatory job semantics even when reports use
-   `continue-on-error` for artifact collection.
-9. Run `audit-binaries` for x86/x64/ARM64 and verify the exact Release DLLs with dumpbin and BinSkim: `/MT`, expected
-   architecture and mitigations, no debug CRT, no unexpected imports, no adjacent dependency DLLs. BA2027 about absent
-   SourceLink remains an explicit owner decision, not a silently suppressed result.
-10. Implement mutation testing. The leading approach is to extract a portable parser core and run Mull in Linux CI;
-    no reached non-equivalent surviving mutant is acceptable. Do not install Mull locally without owner approval.
-11. Update the permanent docs with final evidence, inspect the complete diff, commit on `codex/msbuild-toolchain`, push,
-    and report any CI-only assumptions that still require the first GitHub run.
+1. Complete the in-progress split of source checks, builds/tests, fuzz targets, leak scenarios/modes, audit work,
+   packaging, and remaining gates
+   into the smallest safe nodes with measured pool capacities.
+2. Replace the restricted include-closure bootstrap with the recorded compiler-derived two-phase resolver before the
+   CAS is treated as generic for arbitrary future C++ include forms.
+3. Preserve the current `build.ps1` implementation and old DAG experiments until the replacement has full result
+   parity and measured cold/warm local evidence. Only then switch the entry point. After the switch is verified and
+   checkpointed, delete the superseded PowerShell orchestration, experimental DAGs, their legacy-only tests, and stale
+   build documentation; retain the MSBuild projects/props/targets because they remain the native backend.
+4. After the portable parser core is established, add the documented WSL2/Linux local backend for Mull and the Linux
+   sanitizer surface. CI repeats locally runnable commands; it is not the only place those gates may run.
 
 After the mandatory gates above, the authorized stretch work is IWYU integration and extraction of a portable parser
 core statically linked into the existing module DLLs. This must not add a runtime DLL or change the public Observer ABI.

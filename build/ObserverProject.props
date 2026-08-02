@@ -52,7 +52,7 @@
       <ExceptionHandling>Sync</ExceptionHandling>
       <RuntimeLibrary Condition="'$(Configuration)' == 'Release' Or '$(Configuration)' == 'ASan' Or '$(Configuration)' == 'Fuzz' Or '$(Configuration)' == 'UBSan'">MultiThreaded</RuntimeLibrary>
       <RuntimeLibrary Condition="'$(Configuration)' != 'Release' And '$(Configuration)' != 'ASan' And '$(Configuration)' != 'Fuzz' And '$(Configuration)' != 'UBSan'">MultiThreadedDebug</RuntimeLibrary>
-      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+      <DebugInformationFormat>OldStyle</DebugInformationFormat>
       <BasicRuntimeChecks Condition="'$(Configuration)' == 'Debug'">EnableFastChecks</BasicRuntimeChecks>
       <BasicRuntimeChecks Condition="'$(Configuration)' == 'ASan'">Default</BasicRuntimeChecks>
       <SupportJustMyCode Condition="'$(Configuration)' == 'ASan'">false</SupportJustMyCode>
@@ -63,6 +63,8 @@
       <AdditionalIncludeDirectories>$(RepositoryRoot)src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>NOMINMAX;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <AdditionalOptions>/utf-8 /Zc:__cplusplus %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions Condition="'$(ObserverSourceDependenciesPath)' != ''">/sourceDependencies "$(ObserverSourceDependenciesPath)" %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions Condition="'$(ObserverClangCommandPath)' != ''">/clang:-MJ"$(ObserverClangCommandPath)" %(AdditionalOptions)</AdditionalOptions>
       <AdditionalOptions Condition="'$(Configuration)' == 'Coverage'">/clang:-fprofile-instr-generate /clang:-fcoverage-mapping %(AdditionalOptions)</AdditionalOptions>
       <AdditionalOptions Condition="'$(Configuration)' == 'ASan'">/fsanitize=address %(AdditionalOptions)</AdditionalOptions>
       <AdditionalOptions Condition="'$(Configuration)' == 'UBSan'">/clang:-fsanitize=undefined /clang:-fno-sanitize-recover=all %(AdditionalOptions)</AdditionalOptions>

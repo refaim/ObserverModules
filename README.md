@@ -78,6 +78,7 @@ specific files as needed without having to unpack the entire archive.
 | [birkenfeld/serde-pickle](https://github.com/birkenfeld/serde-pickle) | [MIT](licenses/serde-pickle.txt) |
 | [Shizmob/rpatool](https://github.com/Shizmob/rpatool)                 | [WTFPL](licenses/rpatool.txt)    |
 | [zanzapak](https://aluigi.altervista.org/papers.htm#others-file)      | [GPL-3.0](licenses/zanzapak.txt) |
+| [pg83/ix](https://github.com/pg83/ix/tree/66726a904152246fbef8b27e26e878840f6d7fb7) | [MIT](licenses/IX.txt) |
 
 ## Building from Source
 

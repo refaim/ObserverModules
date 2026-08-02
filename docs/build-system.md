@@ -61,6 +61,18 @@ coverage, binary auditing, and packaging.
 Use `-FuzzTarget pickle|renpy|rpgmaker|zanzarah` for a focused local regression run; the default `all` runs every
 format target.
 
+The IX-derived replacement is intentionally separate until it reaches complete command parity. Its current 533-node
+analysis graph runs MSVC `/analyze` and clang-tidy independently per supported project/TU/architecture, normalizes each
+report independently, and then executes deterministic per-architecture SARIF merge and semantic clean gates. From the
+repository root, run the pinned environment without syncing or downloading:
+
+```powershell
+uv run --project tools/build --frozen --no-sync python tools/build/main.py analysis-slice --repository . --arch all
+```
+
+Results are printed as exact paths below `out/cas`; a second identical run is served from touch-marker cache entries.
+This pilot does not replace any documented `build.ps1` command yet.
+
 `verify` is the complete host-capable aggregate. It builds Debug and Release for every requested architecture, runs
 deterministic tests only where the current host can execute them, and then runs source/compiler analysis, coverage,
 the supported sanitizer/leak/fuzz gates, binary audit, package-content validation, and package runtime smoke. A

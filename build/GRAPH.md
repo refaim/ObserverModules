@@ -1,5 +1,10 @@
 # Experimental build graph driver
 
+> **Historical baseline:** the owner approved the replacement design in
+> [`docs/ix-build-adaptation.md`](../docs/ix-build-adaptation.md) on 2026-08-01.
+> This coarse driver and the later fine-graph spikes remain only as benchmark/oracle
+> code until the new implementation proves parity. Do not extend them into production.
+
 `graph_driver.py` is a stdlib-only outer DAG experiment. It schedules existing
 `build.ps1` commands; it does not replace their MSBuild, vcpkg, analysis, test, or
 packaging implementation. Nothing calls the driver from the default build entrypoint.

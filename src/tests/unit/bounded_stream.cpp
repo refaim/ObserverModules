@@ -214,7 +214,7 @@ TEST_CASE("bounded stream: normalizes seek and read failures")
     {
         std::istringstream source("abc");
         observer::io::bounded_stream input(source);
-        const auto impossible_size = static_cast<std::size_t>(std::numeric_limits<std::streamsize>::max()) + 1;
+        constexpr auto impossible_size = static_cast<std::size_t>(std::numeric_limits<std::streamsize>::max()) + 1;
         REQUIRE_THROWS_AS(input.read_exact(nullptr, impossible_size), observer::io::read_error);
     }
 }

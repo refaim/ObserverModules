@@ -4,6 +4,8 @@
   continuation order for a new chat.
 - [Current code deep dive](code-deep-dive.md) — architecture, format implementations, defects, and technical risks found during the static review.
 - [Build system and engineering workflow](build-system.md) — MSBuild, toolchain, tests, analysis, coverage, fuzzing, and packaging.
+- [IX-derived local build DAG](ix-build-adaptation.md) — approved Python/Jinja orchestration, MD5 CAS, Windows
+  execution safety, and WSL2 extension plan.
 - [High-assurance software methodology](critical-software-methodology.md) — TDD, architecture and ABI boundaries, ownership, parser safety, and verification policy.
 - [Autonomous build-system work log](autonomous-work-log.md) — temporary decisions, doubts, and verification evidence for review.
 - [GARbro module plan](garbro.md)

@@ -1,0 +1,27 @@
+[project]
+name = "observer-build"
+version = "0.1.0"
+description = "Local content-addressed build graph for ObserverModules"
+requires-python = "==3.14.6"
+dependencies = [
+    "coverage==7.15.2",
+    "filelock==3.32.2",
+    "jinja2==3.1.6",
+    "psutil==7.2.2",
+    "pywin32==312; sys_platform == 'win32'",
+]
+
+[tool.uv]
+package = false
+
+[tool.coverage.run]
+branch = true
+command_line = "-m unittest discover -s tests -p test_*.py"
+source = ["."]
+
+[tool.coverage.report]
+exclude_lines = []
+fail_under = 100
+include = ["core/*", "graphs/*", "driver.py", "main.py"]
+show_missing = true
+skip_covered = false
