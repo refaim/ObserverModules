@@ -24,7 +24,7 @@ def node(name: str, *, inputs: tuple[str, ...] = ()) -> Node:
         name,
         hashlib.md5(name.encode(), usedforsecurity=False).hexdigest(),
         "build",
-        Command((str(Path("C:/tools/build.exe")),)),
+        Command((str(Path("C:/sdk/build.exe")),)),
         inputs,
     )
 

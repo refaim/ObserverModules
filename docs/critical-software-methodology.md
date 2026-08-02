@@ -107,21 +107,18 @@ Every layer finds a different defect class; passing one does not substitute for 
 1. **Fast deterministic tests:** parser/unit tests, common archive-operation tests, and ABI contract tests.
 2. **Structural coverage:** 100% LLVM line and branch coverage over first-party production code, plus review of tests
    that reach each branch.
-3. **Mutation testing:** mutate first-party parser/application logic and require every non-equivalent reached mutant to
-   be killed. Surviving mutants are fixed with stronger behavioral tests; they are not hidden by lowering a percentage
-   threshold. Mutation reports are retained as local evidence.
-4. **Exact-toolchain tests:** MSVC Debug and shippable MSVC Release on x86, x64, and ARM64 where the runner is native.
-5. **Static analysis:** compiler warnings-as-errors, MSVC `/analyze`, clang-tidy, Cppcheck, and PowerShell analysis.
+3. **Exact-toolchain tests:** MSVC Debug and shippable MSVC Release on x86, x64, and ARM64 where the runner is native.
+4. **Static analysis:** compiler warnings-as-errors, MSVC `/analyze`, clang-tidy, Cppcheck, and PowerShell analysis.
    Diagnostics are fixed or narrowly justified, never globally muted. Additional services such as CodeQL may repeat or
    extend this evidence but cannot replace a local gate.
-6. **Dynamic analysis:** MSVC AddressSanitizer where supported; clang-cl AddressSanitizer and
+5. **Dynamic analysis:** MSVC AddressSanitizer where supported; clang-cl AddressSanitizer and
    UndefinedBehaviorSanitizer as independent diagnostic builds; UMDH across repeated real-DLL operations and repeated
    load/unload cycles. Peak private bytes and resource budgets are checked separately from leak growth.
-7. **Coverage-guided fuzzing:** every parser and its meaningful decoding surfaces receive libFuzzer targets, curated
+6. **Coverage-guided fuzzing:** every parser and its meaningful decoding surfaces receive libFuzzer targets, curated
    seed corpora, bounded input/resources, persisted crash artifacts, and regression tests for every confirmed defect.
-8. **Binary and package assurance:** exact exports, forbidden imports, `/MT` runtime audit, BinSkim, PDB archive audit,
+7. **Binary and package assurance:** exact exports, forbidden imports, `/MT` runtime audit, BinSkim, PDB archive audit,
    archive-content allowlists, and smoke tests of the packaged DLL bytes.
-9. **Release evidence:** clean-checkout build, pinned dependencies, full gate results, hashes/artifacts, and a reviewed
+8. **Release evidence:** clean-checkout build, pinned dependencies, full gate results, hashes/artifacts, and a reviewed
    decision/deviation log.
 
 Coverage and fuzzing must not catch allocation exhaustion or unexpected exceptions merely to keep running. A crash,
@@ -162,9 +159,5 @@ covers the residual risk.
    memory ceilings per format, including whether callers may configure them.
 3. **Shared ownership:** forbid `std::shared_ptr` entirely in first-party code unless an ADR is approved, or permit it
    with a local lifetime rationale?
-4. **Mutation engine:** select and pin a practical engine. Mull is LLVM-based and produces machine-readable reports,
-   but does not provide a supported native-Windows workflow; the current leading design is to mutate the portable
-   parser core under Clang in the local WSL2 backend while keeping all shipped binaries MSVC-built and independently
-   tested.
-5. **Release provenance:** whether reproducible-build comparison, SBOM, signing, and SLSA-style provenance become
+4. **Release provenance:** whether reproducible-build comparison, SBOM, signing, and SLSA-style provenance become
    mandatory release gates.

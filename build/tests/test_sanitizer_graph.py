@@ -33,7 +33,7 @@ def node(name: str, *, inputs: tuple[str, ...] = ()) -> Node:
         name,
         hashlib.md5(name.encode(), usedforsecurity=False).hexdigest(),
         "build",
-        Command(("C:/tools/build.exe",)),
+        Command(("C:/sdk/build.exe",)),
         inputs,
     )
 
@@ -384,7 +384,7 @@ class SanitizerGraphTests(unittest.TestCase):
                 self.assertEqual(shard.inputs.count(build.name), 1)
 
     def test_sanitizer_runtime_is_test_only_and_release_remains_static_mt(self) -> None:
-        root = ET.parse(BUILD_ROOT.parents[1] / "build/ObserverProject.props").getroot()
+        root = ET.parse(BUILD_ROOT / "ObserverProject.props").getroot()
         namespace = "{http://schemas.microsoft.com/developer/msbuild/2003}"
         runtime_libraries = root.findall(f".//{namespace}RuntimeLibrary")
         release = next(

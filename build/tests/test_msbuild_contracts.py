@@ -5,7 +5,7 @@ import unittest
 import xml.etree.ElementTree as ET
 
 
-REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 MSBUILD = "{http://schemas.microsoft.com/developer/msbuild/2003}"
 
 

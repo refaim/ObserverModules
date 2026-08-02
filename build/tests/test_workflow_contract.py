@@ -4,7 +4,7 @@ from pathlib import Path
 import unittest
 
 
-REPOSITORY = Path(__file__).parents[3]
+REPOSITORY = Path(__file__).parents[2]
 
 
 class WorkflowContractTests(unittest.TestCase):
@@ -17,7 +17,6 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn("./build.ps1 verify -Arch x64", workflow)
         self.assertNotIn("continue-on-error", workflow)
         for private_protocol in (
-            ".artifacts",
             "upload-artifact",
             "download-artifact",
             "upload-sarif",

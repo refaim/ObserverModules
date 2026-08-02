@@ -1,7 +1,4 @@
-/.artifacts
 /out/
-/.coverage*
-/tools/build/.venv/
-/tools/build/.uv-cache/
-/tools/build/.coverage*
+/build/.venv/
+/build/.uv-cache/
 /.idea/

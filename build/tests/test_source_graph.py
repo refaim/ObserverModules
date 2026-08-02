@@ -9,7 +9,7 @@ from pathlib import Path
 
 
 BUILD_ROOT = Path(__file__).resolve().parents[1]
-REPOSITORY = BUILD_ROOT.parents[1]
+REPOSITORY = BUILD_ROOT.parent
 sys.path.insert(0, str(BUILD_ROOT))
 
 from graphs.source import SourceTools, _repository_files, source_checks  # noqa: E402
@@ -49,7 +49,7 @@ class SourceGraphTests(unittest.TestCase):
             source = repository / "src/file.cpp"
             source.parent.mkdir()
             source.touch()
-            for relative in (".coverage", "tools/build/.coverage.agent"):
+            for relative in (".coverage", "build/.coverage.agent"):
                 path = repository / relative
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.touch()
@@ -166,7 +166,6 @@ class SourceGraphTests(unittest.TestCase):
         self.assertIn("'-D_M_IX86=600'", cppcheck_script)
         self.assertIn(f"'-I{include_dir}'", cppcheck_script)
         self.assertIn("'--suppress=*:out/cas/*-restore-vcpkg-*/out/*'", cppcheck_script)
-        self.assertNotIn(".artifacts/vcpkg_installed", cppcheck_script)
         self.assertIn('"--output-file=$outDir\\cppcheck.sarif"', cppcheck_script)
         self.assertNotIn("--error-exitcode", cppcheck_script)
         self.assertIn("Cppcheck did not produce cppcheck.sarif", cppcheck_script)

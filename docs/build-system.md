@@ -21,10 +21,10 @@ orchestration and keeps MSBuild as the native compile/link backend.
 build.ps1 / build.cmd        stable command-line entry point
         |
         v
-tools/build/main.py         command contract and graph composition
+build/main.py               command contract and graph composition
         |
         v
-tools/build/graphs/*        fine-grained content-addressed DAG
+build/graphs/*              fine-grained content-addressed DAG
         |
         v
 build/projects/*.vcxproj    compile/link graph
@@ -88,7 +88,7 @@ below `out/work`.
 deterministic tests only where the current host can execute them, and then runs source/compiler analysis, coverage,
 the supported sanitizer/leak/fuzz gates, binary audit, package-content validation, and package runtime smoke. A
 non-native runtime check is reported explicitly as deferred rather than falsely reported as executed. All gates are
-designed to be runnable locally; the later WSL2 backend will supply Linux-only sanitizer and mutation capabilities.
+designed to be runnable locally on the supported Windows host.
 The verify fuzz work covers all four format targets; `-FuzzSeconds` controls each bounded run.
 
 All graph families are merged into one executor. Ready nodes from builds, tests, analyzers, coverage, sanitizers,
@@ -125,7 +125,7 @@ deprecated compatibility no-op and is rejected on `restore` itself.
 
 Developer tools are not library dependencies and are discovered by `doctor`:
 
-- `uv` and the repository environment initialized once with `uv sync --project tools/build --frozen`;
+- `uv` and the repository environment initialized once with `uv sync --project build --frozen`;
 - Visual Studio Build Tools 2022 with MSVC x86/x64 and ARM64 tools plus a Windows SDK;
 - PowerShell 7.4 or newer;
 - vcpkg;
@@ -134,7 +134,7 @@ Developer tools are not library dependencies and are discovered by `doctor`:
 - PSScriptAnalyzer for PowerShell sources.
 
 Normal `build.ps1` commands use `uv --frozen --no-sync`: they neither resolve nor download Python packages while a
-build is running. `tools/build/uv.lock` exact-pins Python 3.14.6 and the small runtime dependency set.
+build is running. `build/uv.lock` exact-pins Python 3.14.6 and the small runtime dependency set.
 
 ## Compiler and static-analysis policy
 
@@ -171,8 +171,7 @@ inspect any mandatory gate.
 
 The main GitHub workflow is therefore a thin client: it provisions an otherwise empty hosted runner, then invokes the
 same public `doctor` and bounded `verify` commands used locally. It contains no private gate graph, report parser,
-artifact-path protocol, or release logic. The temporary mutation workflow remains separate only until its work moves
-to the supported local WSL2 backend.
+artifact-path protocol, or release logic.
 
 ### Future analysis backlog
 
@@ -304,12 +303,8 @@ coordination lock and refuses to race active runs or node publishers.
 data, and inactive locks while retaining the minimal coordination-lock skeleton. Both modes validate that every target
 is the exact repository `out` layout and reject reparse points or unknown entries.
 
-## Planned WSL2 backend
-
-After the portable parser core exists, the same Python graph/signing model will gain short POSIX-shell recipes and run
-natively inside WSL2. Windows must not launch one `wsl.exe` per leaf. Platform, shell, and toolchain identity are signed,
-so Linux and Windows outputs cannot alias. This local backend will add Mull mutation testing and the Linux
-ASan/UBSan/LSan surface; shipping modules remain Windows/MSVC artifacts.
+After the portable parser core is complete, revisit a separate local WSL2 workflow for Linux-only sanitizers and
+test-quality experiments. It is not part of the current build graph; shipping modules remain Windows/MSVC artifacts.
 
 ## Release audit and packaging
 

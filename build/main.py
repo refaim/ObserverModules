@@ -99,14 +99,14 @@ def _parser() -> argparse.ArgumentParser:
     doctor.add_argument("-SkipDependencyRestore", action="store_true", dest="skip_restore")
     for name, options in _COMMAND_OPTIONS.items():
         command = commands.add_parser(name)
-        command.add_argument("-Repository", "--repository", type=Path, default=Path(__file__).parents[2])
+        command.add_argument("-Repository", "--repository", type=Path, default=Path(__file__).parents[1])
         command.add_argument("-Jobs", "--jobs", type=_integer(1))
         command.add_argument("-SkipDependencyRestore", action="store_true", dest="skip_restore")
         for option in options:
             flags, settings = _OPTIONS[option]
             command.add_argument(*flags, dest=option, **settings)
     clean = commands.add_parser("clean")
-    clean.add_argument("-Repository", "--repository", type=Path, default=Path(__file__).parents[2])
+    clean.add_argument("-Repository", "--repository", type=Path, default=Path(__file__).parents[1])
     clean.add_argument("-SkipDependencyRestore", action="store_true", dest="skip_restore")
     flags, settings = _OPTIONS["clean_mode"]
     clean.add_argument(*flags, dest="clean_mode", **settings)

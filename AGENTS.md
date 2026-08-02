@@ -43,9 +43,7 @@ This project uses C++23 and follows the high-assurance engineering policy in
 - Treat archive bytes, metadata, paths, counts, offsets, sizes, and callback behavior as untrusted input. Validate
   before use, use checked arithmetic before narrowing/allocation/seeking, impose explicit resource and iteration
   bounds, guarantee loop progress, and avoid input-driven recursion unless a strict depth limit is enforced.
-- Express security-relevant condition combinations as executable, data-driven decision-table tests. Mutation testing
-  of first-party parser/application logic is a mandatory test-quality gate; a surviving non-equivalent mutant is a
-  test defect, not an acceptable score reduction.
+- Express security-relevant condition combinations as executable, data-driven decision-table tests.
 - Keep functions cohesive, control flow reviewable, ownership explicit, and preprocessor use minimal. Avoid magic
   numbers, hidden global state, duplicated policy, and speculative abstraction. KISS and DRY remain subordinate to
   clear boundaries and independently testable behavior.

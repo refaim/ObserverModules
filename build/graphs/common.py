@@ -170,7 +170,7 @@ def python_action(factory: NodeFactory, name: str, module: str, arguments: tuple
     source = BUILD_ROOT.joinpath(*module.split(".")).with_suffix(".py")
     return factory.make(
         "argv.json", name, pool, {"argv": (executable, "-m", module) + arguments},
-        files={source.relative_to(BUILD_ROOT.parent.parent).as_posix(): source.read_bytes()} | dict(files or {}),
+        files={source.relative_to(BUILD_ROOT.parent).as_posix(): source.read_bytes()} | dict(files or {}),
         dependencies=dependencies,
         identity=dict(identity or {}) | {"python": sys.version, "python_executable": executable},
         config={"action": arguments[0], "platform": "windows"} | dict(config or {}),

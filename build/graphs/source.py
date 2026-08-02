@@ -21,7 +21,7 @@ _CPPCHECK_ARCHITECTURES = {
     "x64": ("win64", "_M_X64=100"),
     "arm64": ("win64", "_M_ARM64=1"),
 }
-_IGNORED_DIRECTORIES = {".git", ".artifacts", ".venv", "__pycache__", "out"}
+_IGNORED_DIRECTORIES = {".git", ".venv", "__pycache__", "out"}
 
 
 def _relative(repository: Path, path: Path) -> str:

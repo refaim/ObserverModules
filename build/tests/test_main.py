@@ -236,10 +236,11 @@ class MainTests(unittest.TestCase):
         doctor.assert_called_once_with(())
 
     def test_root_powershell_entry_point_uses_frozen_project_environment(self) -> None:
-        script = (BUILD_ROOT.parents[1] / "build.ps1").read_text(encoding="utf-8")
+        script = (BUILD_ROOT.parent / "build.ps1").read_text(encoding="utf-8")
 
         self.assertIn("uv run --project $buildProject --frozen --no-sync", script)
-        self.assertIn("tools\\build", script)
+        self.assertIn("$PSScriptRoot 'build'", script)
+        self.assertNotIn("tools\\build", script)
         self.assertIn("exit $LASTEXITCODE", script)
         self.assertNotIn("build\\build.ps1", script)
 

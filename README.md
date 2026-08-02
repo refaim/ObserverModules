@@ -94,7 +94,7 @@ No IDE, Visual Studio developer prompt, global vcpkg integration, or repository-
 From a normal Windows console:
 
 ```powershell
-uv sync --project tools/build --frozen
+uv sync --project build --frozen
 .\build.ps1 doctor
 .\build.ps1 build -Arch all -Config Release
 .\build.ps1 test -Arch x86,x64 -Config Debug

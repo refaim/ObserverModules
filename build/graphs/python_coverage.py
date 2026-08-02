@@ -39,7 +39,7 @@ def python_coverage_graph(repository: Path) -> Graph:
     """Build one demand gate using only the repository-local pinned coverage executable."""
 
     root = repository.resolve(strict=True)
-    build_root = root / "tools/build"
+    build_root = root / "build"
     coverage = (build_root / ".venv/Scripts/coverage.exe").resolve(strict=True)
     if not coverage.is_file():
         raise FileNotFoundError(f"project coverage executable is not a file: {coverage}")

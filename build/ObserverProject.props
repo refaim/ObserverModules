@@ -9,7 +9,7 @@
     <VcpkgTriplet Condition="'$(Configuration)' != 'ASan' And '$(Configuration)' != 'Fuzz'">observer-$(PlatformMoniker)-windows-static</VcpkgTriplet>
     <VcpkgTriplet Condition="'$(Configuration)' == 'ASan' Or '$(Configuration)' == 'Fuzz'">observer-$(PlatformMoniker)-windows-static-asan</VcpkgTriplet>
     <VcpkgEnableManifest>true</VcpkgEnableManifest>
-    <!-- build.ps1 restore owns mutation; ordinary builds only consume the restored tree. -->
+    <!-- build.ps1 restore owns dependency installation; ordinary builds only consume the restored tree. -->
     <VcpkgManifestInstall>false</VcpkgManifestInstall>
     <!-- Tool installation and updates are always explicit user actions. -->
     <VcpkgAutoBootstrap>false</VcpkgAutoBootstrap>

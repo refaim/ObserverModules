@@ -20,7 +20,7 @@ from graphs.python_coverage import python_coverage_graph  # noqa: E402
 
 class PythonCoverageGraphTests(unittest.TestCase):
     def repository(self, root: Path, executable: bool = True) -> Path:
-        build = root / "tools/build"
+        build = root / "build"
         for relative, content in (
             ("core/example.py", "VALUE = 1\n"),
             ("graphs/example.py", "VALUE = 2\n"),
@@ -59,23 +59,23 @@ class PythonCoverageGraphTests(unittest.TestCase):
             self.assertEqual(
                 node.command.argv,
                 (sys.executable, "-m", "core.python_coverage",
-                 str(repository / "tools/build/.venv/Scripts/coverage.exe"), str(repository / "tools/build")),
+                 str(repository / "build/.venv/Scripts/coverage.exe"), str(repository / "build")),
             )
-            (repository / "tools/build/tests/test_example.py").write_text("changed\n", encoding="utf-8")
+            (repository / "build/tests/test_example.py").write_text("changed\n", encoding="utf-8")
             changed_test = python_coverage_graph(repository)
-            (repository / "tools/build/tests/test_example.py").write_text("pass\n", encoding="utf-8")
-            (repository / "tools/build/driver.py").write_text("changed\n", encoding="utf-8")
+            (repository / "build/tests/test_example.py").write_text("pass\n", encoding="utf-8")
+            (repository / "build/driver.py").write_text("changed\n", encoding="utf-8")
             changed_driver = python_coverage_graph(repository)
-            (repository / "tools/build/driver.py").write_text("VALUE = 4\n", encoding="utf-8")
-            config = repository / "tools/build/pyproject.toml"
+            (repository / "build/driver.py").write_text("VALUE = 4\n", encoding="utf-8")
+            config = repository / "build/pyproject.toml"
             original_config = config.read_text(encoding="utf-8")
             config.write_text(original_config + "\n# changed\n", encoding="utf-8")
             changed_config = python_coverage_graph(repository)
             config.write_text(original_config, encoding="utf-8")
-            (repository / "tools/build/.venv/Scripts/coverage.exe").write_bytes(b"changed-coverage")
+            (repository / "build/.venv/Scripts/coverage.exe").write_bytes(b"changed-coverage")
             changed_tool = python_coverage_graph(repository)
-            (repository / "tools/build/.venv/Scripts/coverage.exe").write_bytes(b"coverage-launcher")
-            (repository / "tools/build/.venv/Lib/site-packages/coverage/version.py").write_text(
+            (repository / "build/.venv/Scripts/coverage.exe").write_bytes(b"coverage-launcher")
+            (repository / "build/.venv/Lib/site-packages/coverage/version.py").write_text(
                 "__version__ = 'changed'\n", encoding="utf-8"
             )
             changed_package = python_coverage_graph(repository)
@@ -90,14 +90,14 @@ class PythonCoverageGraphTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             missing = self.repository(root / "missing")
-            (missing / "tools/build/.venv/Scripts/coverage.exe").unlink()
+            (missing / "build/.venv/Scripts/coverage.exe").unlink()
             with self.assertRaises(FileNotFoundError):
                 python_coverage_graph(missing)
             directory = self.repository(root / "directory", executable=False)
             with self.assertRaisesRegex(FileNotFoundError, "not a file"):
                 python_coverage_graph(directory)
             bad_package = self.repository(root / "bad-package")
-            package = bad_package / "tools/build/.venv/Lib/site-packages/coverage"
+            package = bad_package / "build/.venv/Lib/site-packages/coverage"
             (package / "version.py").unlink()
             (package / "__pycache__/version.pyc").unlink()
             (package / "__pycache__").rmdir()

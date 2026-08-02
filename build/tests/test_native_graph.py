@@ -29,7 +29,7 @@ class NativeGraphTests(unittest.TestCase):
         self,
     ) -> None:
         root = ET.parse(
-            BUILD_ROOT.parents[1] / "build/ObserverProject.props"
+            BUILD_ROOT / "ObserverProject.props"
         ).getroot()
         debug_information = root.find(
             ".//{http://schemas.microsoft.com/developer/msbuild/2003}DebugInformationFormat"

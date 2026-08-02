@@ -30,7 +30,7 @@ jobs:
         uses: astral-sh/setup-uv@v8
         with:
           enable-cache: true
-          cache-dependency-glob: tools/build/uv.lock
+          cache-dependency-glob: build/uv.lock
 
       - name: Cache vcpkg binaries
         uses: actions/cache@v5
@@ -42,7 +42,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path $env:VCPKG_DEFAULT_BINARY_CACHE | Out-Null
-          uv sync --project tools/build --frozen
+          uv sync --project build --frozen
 
       - name: Provision external verification tools
         shell: pwsh
