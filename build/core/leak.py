@@ -11,7 +11,9 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 
+from filelock import FileLock
 import psutil
 
 
@@ -134,6 +136,43 @@ def _kill_tree(process: psutil.Popen[str]) -> None:
     psutil.wait_procs(processes, timeout=5)
 
 
+def _run_gflags(gflags: Path, image: str, flag: str | None = None) -> subprocess.CompletedProcess[str]:
+    command = [str(gflags), "/i", image]
+    if flag is not None:
+        command.append(flag)
+    return subprocess.run(
+        command, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        encoding="utf-8", errors="replace",
+    )
+
+
+def _change_stack_traces(gflags: Path, image: str, enabled: bool) -> None:
+    flag = "+ust" if enabled else "-ust"
+    result = _run_gflags(gflags, image, flag)
+    if result.returncode:
+        raise LeakError(f"GFlags {flag} failed ({result.returncode}): {result.stdout}")
+
+
+def _enable_stack_traces(gflags: Path, image: str) -> bool:
+    if not gflags.is_file():
+        return False
+    current = _run_gflags(gflags, image)
+    if current.returncode:
+        raise LeakError(f"GFlags query failed ({current.returncode}): {current.stdout}")
+    match = re.search(r"are:\s*([0-9A-Fa-f]+)\s*$", current.stdout)
+    if match is None:
+        raise LeakError(f"GFlags returned an unrecognized setting: {current.stdout}")
+    if int(match.group(1), 16) & 0x1000:
+        return False
+    try:
+        _change_stack_traces(gflags, image, True)
+    except OSError as error:
+        if getattr(error, "winerror", None) != 740:
+            raise
+        return False
+    return True
+
+
 def _snapshot(umdh: Path, pid: int, destination: Path, baseline: bool) -> None:
     result = subprocess.run([str(umdh), f"-p:{pid}", f"-f:{destination}"], text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, encoding="utf-8", errors="replace")
     text = destination.read_text(encoding="utf-8", errors="replace") if destination.is_file() else ""
@@ -148,15 +187,25 @@ def _capture(args: Sequence[str]) -> None:
     directory, umdh_value, mode, scenario, warmup_value, iterations_value, windows_value = _exact("capture", args, 7)
     _selection(mode, scenario)
     probe, umdh = _file(str(Path(directory) / BINARIES[0]), "leak probe"), _file(umdh_value, "UMDH")
+    gflags = umdh.with_name("gflags.exe")
     warmup, iterations, windows = _count(warmup_value, "warmup"), _count(iterations_value, "iterations"), _count(windows_value, "windows", minimum=3)
     output, snapshot_dir = _output(), _output() / "snapshots"
     snapshot_dir.mkdir()
     environment = os.environ | {"_NT_SYMBOL_PATH": directory, "OANOCACHE": "1"}
     command = [str(probe), "--mode", mode, "--scenario", scenario, "--warmup", str(warmup), "--iterations", str(iterations), "--windows", str(windows)]
     error_path = output / "probe.stderr.log"
+    process: psutil.Popen[str] | None = None
     with error_path.open("w+", encoding="utf-8") as errors:
-        process = psutil.Popen(command, cwd=directory, env=environment, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=errors, text=True, encoding="utf-8", errors="replace")
         try:
+            lock = FileLock(Path(tempfile.gettempdir()) / "observer-modules-gflags.lock")
+            with lock:
+                changed = _enable_stack_traces(gflags, probe.name)
+                try:
+                    process = psutil.Popen(command, cwd=directory, env=environment, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=errors, text=True, encoding="utf-8", errors="replace")
+                finally:
+                    if changed:
+                        _change_stack_traces(gflags, probe.name, False)
+            assert process is not None
             _ready(_read(process, "READY"), mode, scenario, process.pid)
             for label in ("baseline", *(f"window-{index}" for index in range(1, windows + 1))):
                 line = _read(process, "SNAPSHOT", label)
@@ -175,11 +224,13 @@ def _capture(args: Sequence[str]) -> None:
                 errors.flush(); errors.seek(0)
                 raise LeakError(f"leak probe failed ({result}): {errors.read()}")
         finally:
-            if process.poll() is None:
-                _kill_tree(process)
-            assert process.stdin is not None and process.stdout is not None
-            process.stdin.close()
-            process.stdout.close()
+            if process is not None:
+                if process.poll() is None:
+                    _kill_tree(process)
+                assert process.stdin is not None and process.stdout is not None
+                process.stdin.close()
+                process.stdout.close()
+    assert process is not None
     _json("capture.json", {"mode": mode, "scenario": scenario, "processId": process.pid, "windows": windows})
 
 

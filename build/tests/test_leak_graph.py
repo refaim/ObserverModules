@@ -385,6 +385,8 @@ class LeakWorkerTests(unittest.TestCase):
             (root / "leak-probe.exe").touch()
             umdh = root / "umdh.exe"
             umdh.touch()
+            gflags = root / "gflags.exe"
+            gflags.touch()
             lines = [
                 "probe startup noise",
                 "OBSERVER_LEAK_PROBE|READY|pid=77|mode=operations|configuration=Release|scenarios=malformed",
@@ -394,14 +396,26 @@ class LeakWorkerTests(unittest.TestCase):
             process = FakeProbe(lines)
 
             def snapshot(argv: list[str], **_options: object) -> subprocess.CompletedProcess[str]:
+                if Path(argv[0]) == gflags:
+                    output = "Current Registry Settings for leak-probe.exe executable are: 00000000" if len(argv) == 3 else ""
+                    return subprocess.CompletedProcess(argv, 0, output)
                 Path(argv[-1].removeprefix("-f:")).write_text("BackTrace 1\n", encoding="utf-8")
                 return subprocess.CompletedProcess(argv, 0, "")
 
             with self.output(root), mock.patch("core.leak.psutil.Popen", return_value=process) as popen, mock.patch(
                 "core.leak.subprocess.run", side_effect=snapshot
-            ):
+            ) as invoked:
                 leak_main(("capture", str(root), str(umdh), "operations", "malformed", "1", "2", "3"))
 
+            commands = [call.args[0] for call in invoked.call_args_list]
+            self.assertEqual(
+                commands[:2],
+                [
+                    [str(gflags), "/i", "leak-probe.exe"],
+                    [str(gflags), "/i", "leak-probe.exe", "+ust"],
+                ],
+            )
+            self.assertEqual([str(gflags), "/i", "leak-probe.exe", "-ust"], commands[2])
             self.assertIsNot(popen.call_args.kwargs["stderr"], subprocess.PIPE)
             self.assertEqual("continue|baseline\ncontinue|window-1\ncontinue|window-2\ncontinue|window-3\n", process.stdin.getvalue())
             self.assertTrue(process.stdin.was_closed)
@@ -414,6 +428,8 @@ class LeakWorkerTests(unittest.TestCase):
             (root / "leak-probe.exe").touch()
             umdh = root / "umdh.exe"
             umdh.touch()
+            gflags = root / "gflags.exe"
+            gflags.touch()
             cases = (
                 FakeProbe(["OBSERVER_LEAK_PROBE|READY|pid=77|mode=operations|configuration=Release|scenarios=malformed"]),
                 FakeProbe([
@@ -433,6 +449,9 @@ class LeakWorkerTests(unittest.TestCase):
             )
 
             def snapshot(argv: list[str], **_options: object) -> subprocess.CompletedProcess[str]:
+                if Path(argv[0]) == gflags:
+                    output = "Current Registry Settings for leak-probe.exe executable are: 00000000" if len(argv) == 3 else ""
+                    return subprocess.CompletedProcess(argv, 0, output)
                 Path(argv[-1].removeprefix("-f:")).write_text("BackTrace\n", encoding="utf-8")
                 return subprocess.CompletedProcess(argv, 0, "")
 
@@ -447,6 +466,98 @@ class LeakWorkerTests(unittest.TestCase):
                     leak_main(("capture", str(root), str(umdh), "operations", "malformed", "1", "2", "3"))
                 if process.timeout or process.result == 0:
                     self.assertTrue(process.killed)
+
+            rejected = root / "gflags-rejected"
+            rejected.mkdir()
+            failure = subprocess.CompletedProcess([], 1, "access denied")
+
+            def reject(argv: list[str], **_options: object) -> subprocess.CompletedProcess[str]:
+                if len(argv) == 3:
+                    return subprocess.CompletedProcess(
+                        argv, 0, "Current Registry Settings for leak-probe.exe executable are: 00000000"
+                    )
+                return failure
+
+            with self.output(rejected), mock.patch(
+                "core.leak.subprocess.run", side_effect=reject
+            ), mock.patch("core.leak.psutil.Popen") as popen, self.assertRaisesRegex(
+                LeakError, "GFlags \\+ust failed"
+            ):
+                leak_main(("capture", str(root), str(umdh), "operations", "malformed", "1", "2", "3"))
+            popen.assert_not_called()
+
+            cleanup = root / "gflags-cleanup"
+            cleanup.mkdir()
+
+            def reject_cleanup(argv: list[str], **_options: object) -> subprocess.CompletedProcess[str]:
+                output = "Current Registry Settings for leak-probe.exe executable are: 00000000" if len(argv) == 3 else ""
+                return failure if argv[-1] == "-ust" else subprocess.CompletedProcess(argv, 0, output)
+
+            process = FakeProbe([])
+            with self.output(cleanup), mock.patch(
+                "core.leak.subprocess.run", side_effect=reject_cleanup
+            ), mock.patch("core.leak.psutil.Popen", return_value=process), mock.patch(
+                "core.leak.psutil.wait_procs"
+            ), self.assertRaisesRegex(LeakError, "GFlags -ust failed"):
+                leak_main(("capture", str(root), str(umdh), "operations", "malformed", "1", "2", "3"))
+            self.assertTrue(process.killed)
+
+            elevation = root / "gflags-elevation"
+            elevation.mkdir()
+            elevated = OSError("requires elevation")
+            elevated.winerror = 740  # type: ignore[attr-defined]
+            calls = 0
+
+            def unavailable(argv: list[str], **_options: object) -> subprocess.CompletedProcess[str]:
+                nonlocal calls
+                if Path(argv[0]) == gflags:
+                    calls += 1
+                    if calls == 1:
+                        return subprocess.CompletedProcess(
+                            argv, 0, "Current Registry Settings for leak-probe.exe executable are: 00000000"
+                        )
+                    raise elevated
+                Path(argv[-1].removeprefix("-f:")).write_text("BackTrace\n", encoding="utf-8")
+                return subprocess.CompletedProcess(argv, 0, "")
+
+            process = FakeProbe([
+                "OBSERVER_LEAK_PROBE|READY|pid=77|mode=operations|configuration=Release|scenarios=malformed",
+                *(f"OBSERVER_LEAK_PROBE|SNAPSHOT|{label}|pid=77|" for label in ("baseline", "window-1", "window-2", "window-3")),
+                "OBSERVER_LEAK_PROBE|DONE|pid=77|",
+            ])
+            with self.output(elevation), mock.patch(
+                "core.leak.subprocess.run", side_effect=unavailable
+            ), mock.patch("core.leak.psutil.Popen", return_value=process) as popen:
+                leak_main(("capture", str(root), str(umdh), "operations", "malformed", "1", "2", "3"))
+            popen.assert_called_once()
+
+            existing = mock.Mock(returncode=0, stdout="Current Registry Settings for leak-probe.exe executable are: 00001000")
+            with mock.patch("core.leak.subprocess.run", return_value=existing) as invoked:
+                self.assertFalse(leak._enable_stack_traces(gflags, "leak-probe.exe"))
+            invoked.assert_called_once()
+
+    def test_stack_trace_activation_handles_missing_and_invalid_gflags(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            missing = root / "missing.exe"
+            self.assertFalse(leak._enable_stack_traces(missing, "probe.exe"))
+
+            gflags = root / "gflags.exe"
+            gflags.touch()
+            for result, message in (
+                (mock.Mock(returncode=1, stdout="denied"), "query failed"),
+                (mock.Mock(returncode=0, stdout="unexpected"), "unrecognized"),
+            ):
+                with self.subTest(message=message), mock.patch(
+                    "core.leak.subprocess.run", return_value=result
+                ), self.assertRaisesRegex(LeakError, message):
+                    leak._enable_stack_traces(gflags, "probe.exe")
+
+            query = mock.Mock(returncode=0, stdout="Current Registry Settings for probe.exe executable are: 00000000")
+            unexpected = OSError("unexpected launch failure")
+            unexpected.winerror = 5  # type: ignore[attr-defined]
+            with mock.patch("core.leak.subprocess.run", side_effect=(query, unexpected)), self.assertRaises(OSError):
+                leak._enable_stack_traces(gflags, "probe.exe")
 
     def test_diff_and_judge_preserve_growth_evidence_and_reject_leaks(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
