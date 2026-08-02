@@ -14,6 +14,16 @@ def _project(relative_path: str) -> ET.Element:
 
 
 class MSBuildContractsTests(unittest.TestCase):
+    def test_direct_msbuild_fallback_stays_below_managed_work_root(self) -> None:
+        project = _project("build/ObserverProject.props")
+
+        artifacts_root = project.find(f".//{MSBUILD}ArtifactsRoot")
+        self.assertIsNotNone(artifacts_root)
+        self.assertEqual(
+            artifacts_root.text,
+            "$(RepositoryRoot)out\\work\\manual-msbuild\\",
+        )
+
     def test_analysis_reports_have_stable_unique_project_paths(self) -> None:
         project = _project("build/ObserverProject.props")
 

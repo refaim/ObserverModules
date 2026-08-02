@@ -2,7 +2,7 @@
 <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <PropertyGroup>
     <RepositoryRoot>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\'))</RepositoryRoot>
-    <ArtifactsRoot>$(RepositoryRoot).artifacts\</ArtifactsRoot>
+    <ArtifactsRoot>$(RepositoryRoot)out\work\manual-msbuild\</ArtifactsRoot>
     <PlatformMoniker Condition="'$(Platform)' == 'Win32'">x86</PlatformMoniker>
     <PlatformMoniker Condition="'$(Platform)' == 'x64'">x64</PlatformMoniker>
     <PlatformMoniker Condition="'$(Platform)' == 'ARM64'">arm64</PlatformMoniker>

@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 
 BUILD_ROOT = Path(__file__).resolve().parents[1]
@@ -13,6 +15,7 @@ sys.path.insert(0, str(BUILD_ROOT))
 
 from core.paths import BuildPaths  # noqa: E402
 from graphs.analysis import (  # noqa: E402
+    _manifest_index,
     analysis_discovery_slice,
     analysis_slice,
     load_dependency_manifests,
@@ -354,6 +357,29 @@ class AnalysisSliceTests(unittest.TestCase):
             loaded = load_dependency_manifests(repository, discovery)
 
         self.assertEqual(loaded, expected)
+
+    def test_manifest_index_keeps_newest_candidate_regardless_of_enumeration_order(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            repository = Path(temporary) / "repo"
+            repository.mkdir()
+            paths = BuildPaths(repository)
+            paths.prepare()
+            name = "discover-dependencies-x64-renpy-modules.renpy.pickle"
+            older = paths.cas("1" * 32, name)
+            newer = paths.cas("2" * 32, name)
+            for cas, content, timestamp in (
+                (older, b"older", 100),
+                (newer, b"newer", 200),
+            ):
+                cas.output.mkdir(parents=True)
+                (cas.output / "dependencies.json").write_bytes(content)
+                cas.touch.touch()
+                os.utime(cas.touch, ns=(timestamp, timestamp))
+
+            with mock.patch.object(Path, "glob", return_value=(newer.entry, older.entry)):
+                loaded = _manifest_index(repository, {name})
+
+        self.assertEqual(loaded, {name: b"newer"})
 
     def test_incomplete_dependency_discovery_is_not_loadable(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
