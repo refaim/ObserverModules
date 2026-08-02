@@ -71,6 +71,46 @@ def native_repository(root: Path) -> Path:
 
 
 class AnalysisCoverageTests(unittest.TestCase):
+    def test_tests_project_declares_cross_directory_header_dependencies(self) -> None:
+        repository = BUILD_ROOT.parent
+        project = analysis.project_inventory(
+            repository, ("tests",), include_link_inputs=False
+        )[0]
+        observer = repository / "src/tests/framework/observer.cpp"
+        pickle = repository / "src/tests/unit/pickle.cpp"
+        headers = (
+            repository / "src/api.h",
+            repository / "src/archive.h",
+            repository / "src/modules/extractor.h",
+        )
+        content = json.dumps({
+            "Data": {
+                "Source": str(observer.resolve()),
+                "Includes": [str(headers[0].resolve())],
+            }
+        }).encode()
+
+        observer_files = analysis.dependency_inputs(
+            repository, repository / "out/cas/unused/out",
+            observer, content, project.headers,
+        )
+        pickle_files = analysis.dependency_inputs(
+            repository, repository / "out/cas/unused/out", pickle,
+            json.dumps({
+                "Data": {
+                    "Source": str(pickle.resolve()),
+                    "Includes": [str(path.resolve()) for path in headers[1:]],
+                }
+            }).encode(),
+            project.headers,
+        )
+
+        self.assertEqual(observer_files["src/api.h"], headers[0].read_bytes())
+        self.assertEqual(pickle_files["src/archive.h"], headers[1].read_bytes())
+        self.assertEqual(
+            pickle_files["src/modules/extractor.h"], headers[2].read_bytes()
+        )
+
     def test_compiler_manifest_accepts_only_exact_relevant_dependency_bytes(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             repository = Path(temporary) / "repo"

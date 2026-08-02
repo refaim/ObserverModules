@@ -52,12 +52,15 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="$(RepositoryRoot)src\api.h" />
+    <ClInclude Include="$(RepositoryRoot)src\archive.h" />
     <ClInclude Include="$(RepositoryRoot)src\core\io\bounded_stream.h" />
     <ClInclude Include="$(RepositoryRoot)src\tests\framework\observer.h" />
     <ClInclude Include="$(RepositoryRoot)src\core\compression\zlib_codec.h" />
     <ClInclude Include="$(RepositoryRoot)src\tests\framework\testcase.h" />
     <ClInclude Include="$(RepositoryRoot)src\tests\support\archive_fixtures.h" />
     <ClInclude Include="$(RepositoryRoot)src\tests\support\zlib_fixture.h" />
+    <ClInclude Include="$(RepositoryRoot)src\modules\extractor.h" />
     <ClInclude Include="$(RepositoryRoot)src\modules\renpy\pickle.h" />
   </ItemGroup>
 
