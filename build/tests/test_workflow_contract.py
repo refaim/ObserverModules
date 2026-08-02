@@ -87,6 +87,8 @@ class WorkflowContractTests(unittest.TestCase):
             "git -C $env:VCPKG_ROOT fetch --no-tags --depth=1 origin $baseline",
             workflow,
         )
+        self.assertIn("checkout --detach --force $baseline", workflow)
+        self.assertIn("bootstrap-vcpkg.bat", workflow)
         self.assertIn("C:\\Program Files\\Cppcheck", workflow)
         self.assertIn("nuget install Microsoft.CodeAnalysis.BinSkim", workflow)
         self.assertIn("tools\\net9.0\\win-x64\\BinSkim.exe", workflow)

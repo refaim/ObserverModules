@@ -82,6 +82,15 @@ jobs:
               throw "Unable to fetch vcpkg baseline $baseline."
             }
           }
+          git -C $env:VCPKG_ROOT -c advice.detachedHead=false `
+            checkout --detach --force $baseline
+          if ($LASTEXITCODE -ne 0) {
+            throw "Unable to check out vcpkg baseline $baseline."
+          }
+          & (Join-Path $env:VCPKG_ROOT 'bootstrap-vcpkg.bat') -disableMetrics
+          if ($LASTEXITCODE -ne 0) {
+            throw "Unable to bootstrap vcpkg baseline $baseline."
+          }
           uv sync --project build --frozen
 
       - name: Provision external verification tools
