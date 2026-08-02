@@ -65,6 +65,17 @@ jobs:
           path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
           key: vcpkg-${{ steps.runner-image.outputs.identity }}-${{ matrix.arch }}-${{ hashFiles('vcpkg.json', 'build/vcpkg/triplets/*.cmake') }}
 
+      - name: Cache completed build nodes
+        if: matrix.job != 'source'
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: out/cas
+          key: cas-v1-${{ steps.runner-image.outputs.identity }}-${{ matrix.job }}-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            cas-v1-${{ steps.runner-image.outputs.identity }}-${{ matrix.job }}-${{ github.sha }}-
+            cas-v1-${{ steps.runner-image.outputs.identity }}-${{ matrix.job }}-
+          save-always: true
+
       - name: Prepare the pinned Python environment
         shell: pwsh
         run: |
@@ -151,7 +162,7 @@ jobs:
           if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'Microsoft') {
             throw "Windows 10 Debugging Tools payload signature validation failed: $($signature.Status)"
           }
-          $arguments = @('/a', ('`"' + $msi + '`"'), '/qn', '/norestart', ('TARGETDIR=`"' + $extract + '`"'))
+          $arguments = @('/a', $msi, '/qn', '/norestart', "TARGETDIR=$extract")
           $process = Start-Process -FilePath "$env:SystemRoot\System32\msiexec.exe" `
             -ArgumentList $arguments -Wait -PassThru
           if ($process.ExitCode -ne 0) {

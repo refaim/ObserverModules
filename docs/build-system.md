@@ -282,9 +282,11 @@ Pull requests use the same gates and thresholds with shorter explicit bounded-wo
 hidden `pr`/`full` gate composition and no manual profile; changing a bounded duration never removes a target or
 weakens the 100% coverage and zero-finding gates.
 
-The workflow may cache only dependency transport data: uv downloads/environment data and the vcpkg binary cache keyed
-by pinned manifests, triplets, and toolchain identity. It does not cache `out/cas`, `out/work`, completed packages, or
-an installed vcpkg tree. A cold cache may make a run slower but can never change its gates.
+The workflow caches dependency transport data and completed content-addressed build nodes. CAS caches are isolated by
+hosted-runner image and architecture job, restored only within GitHub's branch/ref cache scope, and never shared with
+the source job. Node identities still cover recipes, declared inputs, dependency identities, configuration, runtime,
+and toolchain content; fuzz and leak nodes include a run nonce. An absent or evicted cache therefore changes only
+latency. The workflow never caches `out/work`, packages, or an installed vcpkg tree.
 
 Each job uploads its `-ExportDir` with `if: always()` so reports from completed independent branches survive a later
 failure. Pull-request evidence is retained for seven days; `master` evidence for thirty days. Release ZIPs and PDBs are

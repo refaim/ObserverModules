@@ -52,7 +52,14 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn("/packages", workflow)
         self.assertNotIn("if-no-files-found: ignore", workflow)
         self.assertIn("permissions:\n  contents: read", workflow)
-        self.assertNotIn("out/cas", workflow)
+        self.assertEqual(workflow.count("path: out/cas"), 1)
+        self.assertIn(
+            "key: cas-v1-${{ steps.runner-image.outputs.identity }}-${{ matrix.job }}-"
+            "${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}",
+            workflow,
+        )
+        self.assertIn("cas-v1-${{ steps.runner-image.outputs.identity }}-${{ matrix.job }}-", workflow)
+        self.assertIn("save-always: true", workflow)
         self.assertNotIn("out/work", workflow)
         self.assertNotIn("contents: write", workflow)
         self.assertNotIn("download-artifact", workflow)
@@ -103,6 +110,10 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn("354173D844D5C061050EE2638AA94FAFB4835AC3DE836E220F6A74A992849A3B", workflow)
         self.assertIn(
             '$process = Start-Process -FilePath "$env:SystemRoot\\System32\\msiexec.exe"',
+            workflow,
+        )
+        self.assertIn(
+            '$arguments = @(\'/a\', $msi, \'/qn\', \'/norestart\', "TARGETDIR=$extract")',
             workflow,
         )
         self.assertNotIn("'/layout'", workflow)
