@@ -49,13 +49,15 @@ PowerShell-specific quoting is centralized instead of repeated in every leaf.
 
 Canonical MD5 covers the fully rendered recipe, descriptor/argv data, declared input bytes and paths, dependency UIDs,
 toolchain/platform identity, and the executor schema. MD5 is a fast local content identity, not a cryptographic trust
-boundary for remote artifacts. A CAS hit requires both the expected entry and its `touch` marker; failed or cancelled
-work cannot publish the marker.
+boundary for remote artifacts. A CAS hit requires a canonical entry directory, its `out` directory, regular `log.txt`,
+and a zero-byte regular `touch` publication marker; failed or cancelled work cannot publish that marker.
 
-`filelock` coordinates node publication and clean operations between cooperating local processes. Mutable paths are
-confined below the exact repository output root and existing reparse points are rejected. `psutil` launches and
-observes processes; a Windows Job Object terminates the complete descendant tree on failure or cancellation. These are
-explicit local-build guarantees, not a claim of hostile-process isolation.
+`filelock` coordinates node publication and clean operations between cooperating local processes. A public command
+holds one run lease across dependency discovery, all executor phases, manifest reads, telemetry, pruning, and result
+export; standalone executor use acquires the same lease implicitly. Mutable paths are confined below the exact
+repository output root and existing reparse points are rejected. `psutil` launches and observes processes; a Windows
+Job Object terminates the complete descendant tree on failure or cancellation. These are explicit local-build
+guarantees, not a claim of hostile-process isolation.
 
 ## IX-aligned build model
 
@@ -84,12 +86,17 @@ linking is explicitly outside this stage.
   downloaded artifact must be authenticated separately.
 - The UID covers the rendered recipe, declared input paths and bytes, dependency UIDs, semantic configuration, and a
   normalized toolchain fingerprint.
-- Absolute checkout/CAS/export paths, `GITHUB_*`, commit and PR ids, run timestamps, log destinations, `Jobs`, pool
-  capacities, and scheduler order do not affect the UID.
+- Dependency discovery signs every project-declared header plus header-like files beside the translation unit. The
+  compiler manifest is then checked fail-closed: any other first-party header dependency must be added to the
+  project's `<ClInclude>` inventory before downstream graph construction can continue.
+- Absolute checkout/CAS/export paths, `GITHUB_*`, commit and PR ids, log destinations, `Jobs`, pool capacities, and
+  scheduler order do not affect the UID. The explicit run nonce is the exception: it intentionally changes fuzz,
+  leak, and opt-in corpus test identities; the default CLI nonce is based on time and process id.
 - Change the physical successful-entry key to `out/cas/<uid>`. The readable node name remains in graph diagnostics,
   logs, and exported manifests instead of being duplicated in the CAS directory name.
-- Keep mutable scratch, locks, leases, failed work, and incomplete-entry quarantine below `out/work`. There is no
-  permanent IX-style trash directory: quarantine is recoverable during the run and stale work is removed by the
+- Keep mutable scratch, locks, leases, and incomplete-entry quarantine below `out/work`. A failed node may first leave
+  a markerless directory and log in `out/cas`; a later demand moves it to per-run quarantine before rebuilding. There
+  is no permanent IX-style trash directory: quarantine is recoverable during the run and stale work is removed by the
   existing safe cleanup contract.
 
 ### Execution
@@ -114,7 +121,11 @@ separate `packages/manifest.json`, whose paths are relative to that bundle, so C
 without publishing release ZIPs from pull requests. Manifests are written after their files and record command status,
 result ids, relative paths, producer UIDs, sizes, and SHA-256 digests. Diagnostics produced before a later gate failure
 are exported; release packages are exported only after their complete package gates pass. The export destination is
-not part of recipe identity.
+not part of recipe identity. The root manifest also records graph nodes and their UIDs as `hit`, `executed`, `failed`,
+or `incomplete`. Durations are measured for executed and failed nodes; hits and incomplete nodes report zero. A hit is
+any valid pre-existing CAS entry, whether restored by CI or already local. `incomplete` means the graph node neither
+hit nor completed in this invocation, commonly because it was blocked; it is not an inventory of markerless CAS
+directories. Telemetry is captured before pruning and does not report removed entries.
 
 ## Supported commands
 
@@ -146,6 +157,12 @@ format target.
 Without `-ExportDir`, commands may print their internal target paths for local diagnostics. Stable consumers use the
 typed export boundary; mutable intermediates and locks remain below `out/work`.
 
+`verify` and `verify-arch` accept `-PruneCas`. The option is intended for bounded cache generations such as CI. On a
+successful command it retains every complete node UID in the full graph, including unvisited dependencies of a cached
+target, and removes unlocked non-live canonical directories before publishing success evidence. Without `-ExportDir`
+the same success-path sweep runs without a manifest; a failed command without export keeps its internal failure data.
+Normal local commands keep prior successful nodes for fast switching between targets and configurations.
+
 `verify` is the complete host-capable aggregate. It builds Debug and Release for every requested architecture, runs
 deterministic tests only where the current host can execute them, and then runs source/compiler analysis, coverage,
 the supported sanitizer/leak/fuzz gates, binary audit, package-content validation, and package runtime smoke. A
@@ -153,10 +170,10 @@ non-native runtime check is reported explicitly as deferred rather than falsely 
 designed to be runnable locally on the supported Windows host.
 The verify fuzz work covers all four format targets; `-FuzzSeconds` controls each bounded run.
 
-All graph families are merged into one executor. Ready nodes from builds, tests, analyzers, coverage, sanitizers,
-fuzzing, leak checks, audit, and packaging may overlap whenever their real dependencies allow it. `-Jobs` sets the
-shared global capacity. The implementation has no unmeasured UMDH or BinSkim limits encoded as
-scheduler policy.
+Verification has two executor phases: a merged dependency-discovery graph, then one merged post-discovery graph.
+Within the second phase, ready nodes from builds, tests, analyzers, coverage, sanitizers, fuzzing, leak checks, audit,
+and packaging may overlap whenever their real dependencies allow it. `-Jobs` sets the shared global capacity. The
+implementation has no unmeasured UMDH or BinSkim limits encoded as scheduler policy.
 
 ## Configurations
 
@@ -282,20 +299,36 @@ Pull requests use the same gates and thresholds with shorter explicit bounded-wo
 hidden `pr`/`full` gate composition and no manual profile; changing a bounded duration never removes a target or
 weakens the 100% coverage and zero-finding gates.
 
-The workflow caches dependency transport data and completed content-addressed build nodes. CAS caches are isolated by
-hosted-runner image and architecture job, restored only within GitHub's branch/ref cache scope, and never shared with
-the source job. Node identities still cover recipes, declared inputs, dependency identities, configuration, runtime,
-and toolchain content; fuzz and leak nodes include a run nonce. An absent or evicted cache therefore changes only
-latency. The workflow never caches `out/work`, packages, or an installed vcpkg tree.
+The workflow caches dependency transport data and the `out/cas` content-addressed store. CAS caches are isolated by
+architecture job, restored only within GitHub's branch/ref cache scope, and never shared with the source job. Their
+outer restore prefixes deliberately span hosted-runner image revisions: node identities cover recipes, declared
+inputs, dependency identities, configuration, runtime, and toolchain content, so incompatible nodes miss without
+requiring a coarse image key. Each run and attempt has a unique generation key. Separate restore and save steps retain
+the store after a later gate fails. Only canonical complete entries can hit: a demanded incomplete entry is
+quarantined and rebuilt. Fuzz, leak, and opt-in corpus nodes include a run nonce. An absent or evicted cache therefore
+changes only latency. The workflow never caches `out/work`, an installed vcpkg tree, or the separate
+`ExportDir/packages` bundle; package-node outputs can still live inside the CAS cache.
 
-Each job uploads its `-ExportDir` with `if: always()` so reports from completed independent branches survive a later
-failure. Pull-request evidence is retained for seven days; `master` evidence for thirty days. Release ZIPs and PDBs are
-uploaded only from successful `master` jobs. Actions are pinned to full commit SHAs, permissions default to
+Architecture jobs pass `-PruneCas`. On success, telemetry is captured, mark-and-sweep removes unlocked canonical
+directories not named by the command graph's live UID set, and then the success manifest is published. On execution
+failure inside the complete final graph, available failure evidence is published before pruning so failed logs survive.
+If manifest loading or final graph composition fails after discovery, evidence for the partial graph is exported but
+pruning is skipped because that graph is not a complete liveness boundary. The workflow then saves a new immutable
+GitHub cache generation. Locked and noncanonical entries are preserved; no access time or wall-clock age participates
+in liveness. An early graph/export/prune failure can still reach the `always()` save step with an unpruned store. GitHub
+eventually evicts older whole generations according to its cache retention policy; unlocked canonical stale entries do
+not propagate after a successful prune.
+
+Each job attempts to upload the manifest, reports, and logs from its `-ExportDir` with `if: always()` so evidence from
+completed independent branches survives a later failure; a failure after the verification step starts but before
+manifest creation is reported as missing evidence. Pull-request evidence is retained for seven days; `master`
+evidence for thirty days. The separate packages
+subtree is uploaded only from successful `master` jobs. Actions are pinned to full commit SHAs, permissions default to
 `contents: read`, untrusted pull requests receive no secrets, and `pull_request_target` is forbidden.
 
-The workflow first runs `doctor`, then exactly one public verification command. It always uploads the self-contained
-evidence bundle and uploads the separate package bundle only from successful `master` architecture jobs. Branch
-protection requires `source`, `x86`, `x64`, and `arm64-cross`.
+The workflow first runs `doctor`, then exactly one public verification command. It uploads the self-contained evidence
+bundle when verification produced one and uploads the separate package bundle only from successful `master`
+architecture jobs. Branch protection requires `source`, `x86`, `x64`, and `arm64-cross`.
 
 The hosted x64 job selects UMDH from the serviced Windows 10 SDK 2004 line explicitly. This avoids the documented
 allocation-stack capture defect in the UMDH shipped with Windows 11 SDKs without changing the locally runnable leak
@@ -420,13 +453,21 @@ regression input after triage.
 
 ## Output and cleanup
 
-`out/cas` contains immutable successful node results. `out/work` contains in-flight scratch space, failed-run evidence,
-and `.locks`. Successful node scratch is removed immediately. Each active execution holds a run lease; `clean` takes a
-coordination lock and refuses to race active runs or node publishers.
+`out/cas` contains immutable successful node results plus markerless directories left by failed or cancelled nodes.
+`out/work` contains in-flight scratch space, quarantined incomplete entries, failed-run scratch, and `.locks`.
+Successful node scratch is removed immediately. Each active execution holds a run lease; `clean` takes a coordination
+lock and refuses to race active runs or node publishers.
 
 `clean -CleanMode stale-work` removes only inactive scratch. `clean -CleanMode all` removes CAS entries, completed run
-data, and inactive locks while retaining the minimal coordination-lock skeleton. Both modes validate that every target
-is the exact repository `out` layout and reject reparse points or unknown entries.
+data, and inactive locks while retaining the minimal coordination-lock skeleton. Both modes validate the exact
+repository `out` layout and reject reparse points, unsafe types, and unexpected top-level/work/lock entries.
+
+CI uses the narrower `-PruneCas` contract instead of `clean`: complete UIDs from the full current command graph are the
+mark set, and canonical CAS directories outside that set are candidates for removal whether complete or markerless.
+The sweep takes the global coordination lock, refuses to run while another run lease is active, takes each candidate
+node lock, and revalidates its confined directory under that lock. The caller's explicitly identified, verified-active
+session lease is the sole exception. The sweep skips locked candidates, preserves noncanonical entries, and rejects an
+unsafe layout.
 
 After the portable parser core is complete, revisit a separate local WSL2 workflow for Linux-only sanitizers and
 test-quality experiments. It is not part of the current build graph; shipping modules remain Windows/MSVC artifacts.

@@ -21,6 +21,7 @@ from graphs.common import (
 
 _BUILD_ROOT = Path(__file__).resolve().parents[1]
 _MSBUILD_NS = "{http://schemas.microsoft.com/developer/msbuild/2003}"
+_HEADER_SUFFIXES = frozenset({".h", ".hh", ".hpp", ".hxx", ".inc", ".inl"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,6 +30,7 @@ class MsbuildProject:
     path: Path
     inputs: tuple[str, ...]
     sources: tuple[Path, ...]
+    headers: tuple[Path, ...]
 
 
 def _relative(repository: Path, path: Path) -> str:
@@ -64,20 +66,24 @@ def project_inventory(
             root / project_path(root, item.get("Include", ""), project) for item in
             document.iter(f"{_MSBUILD_NS}ClCompile") if item.get("Include")
         )
+        headers = tuple(
+            root / project_path(root, item.get("Include", ""), project) for item in
+            document.iter(f"{_MSBUILD_NS}ClInclude") if item.get("Include")
+        )
         projects.append(MsbuildProject(
-            project.stem, project, tuple(dict.fromkeys(inputs)), sources
+            project.stem, project, tuple(dict.fromkeys(inputs)), sources, headers
         ))
     return tuple(projects)
 
 
-def _projects(repository: Path) -> tuple[tuple[str, Path, Path], ...]:
+def _projects(repository: Path) -> tuple[tuple[str, Path, Path, tuple[Path, ...]], ...]:
     try:
         projects = project_inventory(repository, include_link_inputs=False)
     except ValueError as error:
         message = str(error).replace("unsupported project input", "unsupported ClCompile path", 1)
         raise ValueError(message) from error
     return tuple(
-        (project.name, project.path, source) for project in projects
+        (project.name, project.path, source, project.headers) for project in projects
         for source in project.sources
     )
 
@@ -107,6 +113,28 @@ def _project_files(
     return {path: (repository / path).read_bytes() for path in dict.fromkeys(inputs)}
 
 
+def _stable_headers(source: Path, project_headers: tuple[Path, ...]) -> tuple[Path, ...]:
+    local_headers = tuple(
+        path for path in source.parent.iterdir()
+        if path.is_file() and path.suffix.casefold() in _HEADER_SUFFIXES
+    )
+    return tuple(dict.fromkeys((*project_headers, *local_headers)))
+
+
+def _discovery_files(
+    repository: Path,
+    project_name: str,
+    project: Path,
+    source: Path,
+    headers: tuple[Path, ...],
+) -> dict[str, bytes]:
+    extra = tuple(
+        _relative(repository, path)
+        for path in _stable_headers(source, headers)
+    )
+    return _project_files(repository, project_name, project, source, extra)
+
+
 def _compile_variables(
     toolchain: MsvcToolchain, project: Path, source: Path, restore_output: Path,
     configuration: str, platform: str,
@@ -120,24 +148,11 @@ def _compile_variables(
     }
 
 
-def _manifest_index(
-    repository: Path, requested: Mapping[str, str]
-) -> dict[str, bytes]:
-    paths, manifests = BuildPaths(repository), {}
-    for name, uid in requested.items():
-        cas = paths.cas(uid)
-        manifest = paths.require_confined(
-            cas.output / "dependencies.json", paths.cas_root
-        )
-        if cas.touch.is_file() and not cas.touch.stat().st_size and manifest.is_file():
-            manifests[name] = manifest.read_bytes()
-    return manifests
-
-
 def dependency_inputs(
-    repository: Path, restore_output: Path, source: Path, content: bytes
+    repository: Path, restore_output: Path, source: Path, content: bytes,
+    project_headers: tuple[Path, ...] = (),
 ) -> dict[str, bytes]:
-    """Validate one MSVC manifest and sign only project/package dependency bytes."""
+    """Validate one manifest and sign its covered project/package dependency bytes."""
 
     try:
         data = json.loads(content)["Data"]
@@ -158,13 +173,25 @@ def dependency_inputs(
 
     files = {"compiler/dependencies.json": content}
     try:
+        source_root = (repository / "src").resolve(strict=True)
+        restore_root = restore_output.resolve(strict=False)
+        covered = {
+            path.resolve(strict=True)
+            for path in _stable_headers(source, project_headers)
+        }
         for candidate in dict.fromkeys((expected, *dependencies)):
-            if candidate.is_relative_to(repository / "src"):
+            resolved = candidate.resolve(strict=False)
+            if resolved.is_relative_to(source_root):
                 path = candidate.resolve(strict=True)
                 name = _relative(repository, path)
-            elif candidate.is_relative_to(restore_output):
+                if path != expected and path not in covered:
+                    raise ValueError(
+                        "first-party dependency is not covered by the stable header "
+                        f"inventory for {source}: {name}"
+                    )
+            elif resolved.is_relative_to(restore_root):
                 path = candidate.resolve(strict=True)
-                name = "vcpkg/" + path.relative_to(restore_output).as_posix()
+                name = "vcpkg/" + path.relative_to(restore_root).as_posix()
             else:
                 continue
             files[name] = path.read_bytes()
@@ -192,7 +219,9 @@ def project_build(
             manifest = manifests[name]
         except KeyError as error:
             raise ValueError(f"missing dependency manifest: {name}") from error
-        files.update(dependency_inputs(repository, restore_output, source, manifest))
+        files.update(dependency_inputs(
+            repository, restore_output, source, manifest, project.headers
+        ))
     return factory.make(
         template, f"build-{project.name}-{architecture}-{qualifier}", "slot", variables,
         files=files, dependencies=tuple(dependencies), identity=identity, config=config,
@@ -201,18 +230,15 @@ def project_build(
 
 def _dependency_node(
     repository: Path, toolchain: MsvcToolchain, factory: NodeFactory, restore: Node,
-    unit: tuple[str, Path, Path], namespace: str, architecture: str, platform: str,
-    configuration: str | None, qualifier: str, previous: Mapping[str, bytes],
+    unit: tuple[str, Path, Path, tuple[Path, ...]], namespace: str, architecture: str,
+    platform: str, configuration: str | None, qualifier: str,
 ) -> Node:
-    project_name, project, source = unit
+    project_name, project, source, headers = unit
     name = dependency_node_name(
         repository, architecture, project_name, source, qualifier
     )
     restore_output = BuildPaths(repository).cas(restore.uid).output
-    files = _project_files(repository, project_name, project, source)
-    prior = previous.get(name)
-    if prior is not None:
-        files.update(dependency_inputs(repository, restore_output, source, prior))
+    files = _discovery_files(repository, project_name, project, source, headers)
     variables = _compile_variables(
         toolchain, project, source, restore_output,
         configuration or ("Release" if project_name == "leak-probe" else "Debug"),
@@ -246,7 +272,7 @@ def dependency_discovery_slice(
     projects = tuple(
         unit for unit in _projects(root) if project_names is None or unit[0] in project_names
     )
-    def create(previous: Mapping[str, bytes]) -> Graph:
+    def create() -> Graph:
         nodes, targets = [], []
         for architecture in architectures:
             platform = _platform(architecture)
@@ -260,17 +286,13 @@ def dependency_discovery_slice(
                     continue
                 node = _dependency_node(
                     root, toolchain, factory, restore, unit, namespace, architecture,
-                    platform, configuration, name_qualifier, previous,
+                    platform, configuration, name_qualifier,
                 )
                 nodes.append(node)
                 targets.append(node.name)
         return Graph(tuple(nodes), tuple(targets), {"restore": 1, "slot": jobs})
 
-    base = create({})
-    previous = _manifest_index(
-        root, {name: base.node(name).uid for name in base.targets}
-    )
-    return create(previous) if previous else base
+    return create()
 
 
 def _exact_identity(prefix: str, tool: ResolvedTool) -> dict[str, str]:
@@ -305,7 +327,7 @@ def clang_dependency_discovery_slice(
     )
     paths = BuildPaths(root)
 
-    def create(previous: Mapping[str, bytes]) -> Graph:
+    def create() -> Graph:
         nodes: list[Node] = []
         targets: list[str] = []
         for architecture in architectures:
@@ -315,16 +337,13 @@ def clang_dependency_discovery_slice(
             )
             nodes.append(restore)
             restore_output = paths.cas(restore.uid).output
-            for project_name, project, source in projects:
+            for project_name, project, source, headers in projects:
                 if project_name == "leak-probe" and architecture != "x64":
                     continue
                 name = dependency_node_name(
                     root, architecture, project_name, source, name_qualifier
                 )
-                files = _project_files(root, project_name, project, source)
-                prior = previous.get(name)
-                if prior is not None:
-                    files.update(dependency_inputs(root, restore_output, source, prior))
+                files = _discovery_files(root, project_name, project, source, headers)
                 capture = clang_factory.make(
                     "clang-command.ps1",
                     name.replace("discover-dependencies-", "capture-clang-command-", 1),
@@ -363,11 +382,7 @@ def clang_dependency_discovery_slice(
                 targets.append(scan.name)
         return Graph(tuple(nodes), tuple(targets), {"restore": 1, "slot": jobs})
 
-    base = create({})
-    previous = _manifest_index(
-        root, {name: base.node(name).uid for name in base.targets}
-    )
-    return create(previous) if previous else base
+    return create()
 
 
 def analysis_discovery_slice(
@@ -397,11 +412,11 @@ def load_dependency_manifests(repository: Path, discovery: Graph) -> dict[str, b
 
 def _raw(
     repository: Path, toolchain: MsvcToolchain, factory: NodeFactory, discovery: Node,
-    restore_output: Path, unit: tuple[str, Path, Path], backend: str,
+    restore_output: Path, unit: tuple[str, Path, Path, tuple[Path, ...]], backend: str,
     dependencies: Mapping[str, bytes],
     architecture: str, platform: str,
 ) -> Node:
-    project_name, project, source = unit
+    project_name, project, source, _headers = unit
     slug, template, extra = {
         "msvc": ("msvc", "msvc-analyze.ps1", ("build/ObserverNativeAnalysis.ruleset",)),
         "clang-tidy": ("tidy", "clang-tidy.ps1", (".clang-tidy",)),
@@ -444,7 +459,7 @@ def analysis_slice(
         restore = discovery.node(f"restore-vcpkg-{architecture}")
         normalized = []
         for unit in projects:
-            project_name, _project, source = unit
+            project_name, _project, source, headers = unit
             if project_name == "leak-probe" and architecture != "x64":
                 continue
             unit_name = _unit(root, source)
@@ -455,7 +470,9 @@ def analysis_slice(
                 manifest = manifests[discovery_name]
             except KeyError as error:
                 raise ValueError(f"missing dependency manifest: {discovery_name}") from error
-            dependencies = dependency_inputs(root, output(restore), source, manifest)
+            dependencies = dependency_inputs(
+                root, output(restore), source, manifest, headers
+            )
             raw_nodes = tuple(
                 (backend, _raw(
                     root, toolchain, factory, discovered, output(restore), unit, backend,

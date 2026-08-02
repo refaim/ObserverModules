@@ -10,7 +10,7 @@ import re
 import shutil
 import stat
 import tempfile
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
 from core.graph import Graph, Node, Result
 from core.store import CasStore
@@ -210,6 +210,7 @@ def export_results(
     status: str,
     *,
     failures: Iterable[str] = (),
+    cache: Mapping[str, object] | None = None,
 ) -> Path:
     """Publish complete declared results and a relative-path-only manifest."""
 
@@ -270,17 +271,17 @@ def export_results(
                     logs.append(
                         {"node": current.name, "path": relative, "sha256": digest, "size": size}
                     )
-            _write_manifest(
-                staging,
-                {
-                    "schema": 1,
-                    "command": command,
-                    "status": status,
-                    "failures": list(failure_names),
-                    "results": results,
-                    "logs": logs,
-                },
-            )
+            document: dict[str, object] = {
+                "schema": 1,
+                "command": command,
+                "status": status,
+                "failures": list(failure_names),
+                "results": results,
+                "logs": logs,
+            }
+            if cache is not None:
+                document["cache"] = dict(cache)
+            _write_manifest(staging, document)
             if _lstat(published) is not None:
                 raise ResultExportError(f"export destination already exists: {published}")
             staging.rename(published)

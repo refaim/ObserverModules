@@ -12,7 +12,7 @@ from unittest import mock
 BUILD_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BUILD_ROOT))
 
-from core.toolchain import discover_msvc_toolchain  # noqa: E402
+from core.toolchain import _command_environment, discover_msvc_toolchain  # noqa: E402
 
 
 def executable(path: Path) -> Path:
@@ -22,6 +22,42 @@ def executable(path: Path) -> Path:
 
 
 class MsvcToolchainTests(unittest.TestCase):
+    def test_command_environment_is_stable_when_canonical_values_are_inherited(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            include = root / "include"
+            lib = root / "lib"
+            libpath = root / "references"
+            for directory in (include, lib, libpath):
+                directory.mkdir()
+
+            canonical = {
+                "INCLUDE": str(include),
+                "LIB": str(lib),
+                "LIBPATH": str(libpath),
+                "VCToolsVersion": "14.44.35207",
+                "VSCMD_VER": "17.14.15",
+                "WindowsSDKVersion": "10.0.26100.0\\",
+            }
+            captured = "\r\n".join(
+                (
+                    *(f"{key}={value}" for key, value in canonical.items()),
+                    "Path=toolchain;host",
+                    "__VSCMD_PREINIT_PATH=host",
+                    "GITHUB_SHA=unchanged",
+                    "UNRELATED=unchanged",
+                )
+            )
+            inherited = {"GITHUB_SHA": "unchanged", "UNRELATED": "unchanged"}
+
+            with mock.patch.dict(os.environ, inherited, clear=True):
+                absent = _command_environment(captured)
+            with mock.patch.dict(os.environ, inherited | canonical, clear=True):
+                already_equal = _command_environment(captured)
+
+            self.assertEqual(dict(absent), canonical)
+            self.assertEqual(already_equal, absent)
+
     def test_discovers_x64_tools_and_canonical_command_environment(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

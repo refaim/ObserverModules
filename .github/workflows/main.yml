@@ -65,16 +65,16 @@ jobs:
           path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
           key: vcpkg-${{ steps.runner-image.outputs.identity }}-${{ matrix.arch }}-${{ hashFiles('vcpkg.json', 'build/vcpkg/triplets/*.cmake') }}
 
-      - name: Cache completed build nodes
+      - name: Restore completed build nodes
+        id: restore-build-cas
         if: matrix.job != 'source'
-        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: out/cas
-          key: cas-v1-${{ steps.runner-image.outputs.identity }}-${{ matrix.job }}-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: cas-v1-${{ matrix.job }}-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
-            cas-v1-${{ steps.runner-image.outputs.identity }}-${{ matrix.job }}-${{ github.sha }}-
-            cas-v1-${{ steps.runner-image.outputs.identity }}-${{ matrix.job }}-
-          save-always: true
+            cas-v1-${{ matrix.job }}-${{ github.sha }}-
+            cas-v1-${{ matrix.job }}-
 
       - name: Prepare the pinned Python environment
         shell: pwsh
@@ -206,7 +206,14 @@ jobs:
           $leakIterations = if ('${{ github.event_name }}' -eq 'pull_request') { 1 } else { 100 }
           ./build.ps1 verify-arch -Arch '${{ matrix.arch }}' -ExportDir $evidence `
             -TestShards 4 -FuzzSeconds $fuzzSeconds -LeakWarmup $leakWarmup `
-            -LeakIterations $leakIterations -LeakWindows 3
+            -LeakIterations $leakIterations -LeakWindows 3 -PruneCas
+
+      - name: Save completed build nodes
+        if: always() && matrix.job != 'source'
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: out/cas
+          key: ${{ steps.restore-build-cas.outputs.cache-primary-key }}
 
       - name: Upload verification evidence
         if: always() && (steps.verify-source.outcome != 'skipped' || steps.verify-arch.outcome != 'skipped')

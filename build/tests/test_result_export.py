@@ -175,6 +175,35 @@ class ResultExportTests(unittest.TestCase):
             ["logs/ready.log", "logs/failed.log"],
         )
 
+    def test_root_manifest_publishes_cache_identity_report(self) -> None:
+        producer = node("cached")
+        graph = Graph((producer,), (producer.name,), {"cpu": 1})
+        cache = {
+            "schema": 1,
+            "summary": {"executed": 0, "failed": 0, "hit": 1, "incomplete": 0},
+            "nodes": [{
+                "duration_ms": 0,
+                "name": producer.name,
+                "state": "hit",
+                "uid": producer.uid,
+            }],
+        }
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            _paths, store = self.fixture(root)
+            self.prepare(store, producer)
+            destination = root / "export"
+
+            export_results(
+                graph, store, destination, "verify", "success", cache=cache
+            )
+            manifest = json.loads(
+                (destination / "manifest.json").read_text(encoding="utf-8")
+            )
+
+        self.assertEqual(manifest["cache"], cache)
+
     def test_existing_destination_missing_result_and_path_collisions_are_rejected(self) -> None:
         cases = (
             "existing",

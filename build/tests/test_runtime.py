@@ -15,6 +15,7 @@ from filelock import FileLock, Timeout
 BUILD_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BUILD_ROOT))
 
+from core.clean import CleanError, clean  # noqa: E402
 from core.graph import Command, Graph, Node  # noqa: E402
 from core.runtime import BuildRuntime, ProcessFailed  # noqa: E402
 
@@ -22,7 +23,12 @@ from core.runtime import BuildRuntime, ProcessFailed  # noqa: E402
 RUN_ID = "20260801-runtime"
 
 
-def node(name: str = "analyze-renpy.pickle", *, env: tuple[tuple[str, str], ...] = ()) -> Node:
+def node(
+    name: str = "analyze-renpy.pickle",
+    *,
+    env: tuple[tuple[str, str], ...] = (),
+    inputs: tuple[str, ...] = (),
+) -> Node:
     return Node(
         name=name,
         uid=hashlib.md5(name.encode(), usedforsecurity=False).hexdigest(),
@@ -33,6 +39,7 @@ def node(name: str = "analyze-renpy.pickle", *, env: tuple[tuple[str, str], ...]
             cwd=r"C:\repo\source",
             stdin=b"exact recipe\r\n",
         ),
+        inputs=inputs,
     )
 
 
@@ -174,6 +181,111 @@ class BuildRuntimeTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(runtime.is_complete(current))
             self.assertEqual(runtime.store.paths_for(current).touch.stat().st_size, 0)
 
+    async def test_cache_report_distinguishes_executed_and_restored_nodes(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            repository = Path(temporary) / "repo"
+            repository.mkdir()
+            current = node()
+            graph = Graph((current,), (current.name,), {"cpu": 1})
+
+            cold_runner = FakeRunner()
+            cold = BuildRuntime(repository, "cold-run", process_runner=cold_runner)
+            await cold.executor(graph).run()
+            cold_report = cold.cache_report()
+
+            warm_runner = FakeRunner()
+            warm = BuildRuntime(repository, "warm-run", process_runner=warm_runner)
+            await warm.executor(graph).run()
+            warm_report = warm.cache_report()
+
+            self.assertEqual(cold_report["schema"], 1)
+            self.assertEqual(
+                cold_report["summary"],
+                {"executed": 1, "failed": 0, "hit": 0, "incomplete": 0},
+            )
+            self.assertEqual(cold_report["nodes"][0]["name"], current.name)
+            self.assertEqual(cold_report["nodes"][0]["uid"], current.uid)
+            self.assertEqual(cold_report["nodes"][0]["state"], "executed")
+            self.assertGreaterEqual(cold_report["nodes"][0]["duration_ms"], 0)
+            self.assertEqual(cold.live_uids(), (current.uid,))
+
+            self.assertEqual(
+                warm_report["summary"],
+                {"executed": 0, "failed": 0, "hit": 1, "incomplete": 0},
+            )
+            self.assertEqual(warm_report["nodes"], [
+                {
+                    "duration_ms": 0,
+                    "name": current.name,
+                    "state": "hit",
+                    "uid": current.uid,
+                }
+            ])
+            self.assertEqual(warm.live_uids(), (current.uid,))
+            self.assertEqual(len(cold_runner.calls), 1)
+            self.assertEqual(warm_runner.calls, [])
+
+    async def test_warm_cached_target_retains_and_reports_its_complete_dependency(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            repository = Path(temporary) / "repo"
+            repository.mkdir()
+            dependency = node("dependency")
+            target = node("target", inputs=(dependency.name,))
+            graph = Graph((dependency, target), (target.name,), {"cpu": 1})
+
+            cold = BuildRuntime(repository, "cold-run", process_runner=FakeRunner())
+            await cold.executor(graph).run()
+            warm = BuildRuntime(repository, "warm-run", process_runner=FakeRunner())
+            await warm.executor(graph).run()
+
+            self.assertEqual(
+                warm.live_uids(graph), tuple(sorted((dependency.uid, target.uid)))
+            )
+            self.assertEqual(
+                warm.cache_report(graph)["summary"],
+                {"executed": 0, "failed": 0, "hit": 2, "incomplete": 0},
+            )
+
+    async def test_cache_report_excludes_failed_nodes_from_live_uids(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            repository = Path(temporary) / "repo"
+            repository.mkdir()
+            current = node()
+            graph = Graph((current,), (current.name,), {"cpu": 1})
+            runtime = BuildRuntime(
+                repository, "failed-run", process_runner=FakeRunner(23)
+            )
+
+            with self.assertRaises(ExceptionGroup):
+                await runtime.executor(graph).run()
+
+            self.assertEqual(runtime.cache_report()["summary"], {
+                "executed": 0,
+                "failed": 1,
+                "hit": 0,
+                "incomplete": 0,
+            })
+            self.assertEqual(runtime.cache_report()["nodes"][0]["state"], "failed")
+            self.assertEqual(runtime.live_uids(), ())
+
+    async def test_cache_report_marks_observed_unpublished_nodes_incomplete(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            repository = Path(temporary) / "repo"
+            repository.mkdir()
+            runtime = BuildRuntime(repository, "pending-run", process_runner=FakeRunner())
+            current = node()
+
+            self.assertFalse(runtime.is_complete(current))
+
+            self.assertEqual(runtime.cache_report()["summary"], {
+                "executed": 0,
+                "failed": 0,
+                "hit": 0,
+                "incomplete": 1,
+            })
+            self.assertEqual(runtime.cache_report()["nodes"][0]["state"], "incomplete")
+            self.assertEqual(runtime.live_uids(), ())
+
     async def test_executor_holds_per_run_lease_without_serializing_distinct_runs(self) -> None:
         class ConcurrentRunner:
             entered = 0
@@ -218,6 +330,38 @@ class BuildRuntimeTests(unittest.IsolatedAsyncioTestCase):
                 with FileLock(first.paths.lease(run_id), timeout=0, fallback_to_soft=False,
                               preserve_lock_file=True):
                     pass
+
+    async def test_session_reuses_one_lease_across_executors_and_blocks_clean(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            repository = Path(temporary) / "repo"
+            repository.mkdir()
+            runtime = BuildRuntime(repository, RUN_ID, process_runner=FakeRunner())
+            graphs = tuple(
+                Graph((current,), (current.name,), {"cpu": 1})
+                for current in (node("discovery"), node("final"))
+            )
+
+            async with runtime.session():
+                self.assertEqual(runtime.owned_run_id, RUN_ID)
+                with self.assertRaisesRegex(RuntimeError, "already active"):
+                    async with runtime.session():
+                        pass
+                await runtime.executor(graphs[0]).run()
+                with self.assertRaises(CleanError):
+                    await asyncio.to_thread(clean, repository)
+                await runtime.executor(graphs[1]).run()
+                with self.assertRaises(Timeout), FileLock(
+                    runtime.paths.lease(RUN_ID), timeout=0, fallback_to_soft=False,
+                    preserve_lock_file=True,
+                ):
+                    pass
+
+            self.assertIsNone(runtime.owned_run_id)
+            with FileLock(
+                runtime.paths.lease(RUN_ID), timeout=0, fallback_to_soft=False,
+                preserve_lock_file=True,
+            ):
+                pass
 
     async def test_nonzero_exit_leaves_entry_incomplete_without_marker(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

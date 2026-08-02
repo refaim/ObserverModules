@@ -6,7 +6,6 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 import re
-import xml.etree.ElementTree as ET
 
 from core.graph import Graph, Node, Result
 from core.paths import BuildPaths
@@ -15,13 +14,12 @@ from graphs.analysis import (
     clang_dependency_discovery_slice,
     dependency_inputs,
     dependency_node_name,
+    project_inventory,
 )
 from graphs.common import recipe_factory, tool_environment
 
 
 _BUILD_ROOT = Path(__file__).resolve().parents[1]
-_NS = "{http://schemas.microsoft.com/developer/msbuild/2003}"
-_PREFIX = "$(RepositoryRoot)"
 _TARGETS = {"pickle": 262144, "renpy": 1048576, "rpgmaker": 1048576, "zanzarah": 1048576}
 FUZZ_TARGETS = tuple(_TARGETS)
 _COMMON = (
@@ -92,22 +90,28 @@ def _project_files(
     repository: Path, target: str, restore_output: Path, discovery: Graph,
     manifests: Mapping[str, bytes],
 ) -> tuple[dict[str, bytes], tuple[Node, ...]]:
-    project = repository / f"build/projects/fuzz-{target}.vcxproj"
-    paths = [repository / relative for relative in _COMMON] + [project]
+    try:
+        project = project_inventory(
+            repository, (f"fuzz-{target}",), include_link_inputs=False
+        )[0]
+    except ValueError as error:
+        message = str(error).replace(
+            "unsupported project input", "unsupported ClCompile path", 1
+        )
+        raise ValueError(message) from error
+    paths = [repository / relative for relative in _COMMON] + [project.path]
     files = {}
     dependencies = []
-    for item in ET.parse(project).getroot().iter(f"{_NS}ClCompile"):
-        include = item.get("Include", "")
-        if not include.startswith(_PREFIX):
-            raise ValueError(f"unsupported ClCompile path in {project}: {include}")
-        source = (repository / include.removeprefix(_PREFIX)).resolve(strict=True)
+    for source in project.sources:
         name = dependency_node_name(repository, "x64", f"fuzz-{target}", source, "fuzz")
         dependencies.append(discovery.node(name))
         try:
             manifest = manifests[name]
         except KeyError as error:
             raise ValueError(f"missing dependency manifest: {name}") from error
-        files.update(dependency_inputs(repository, restore_output, source, manifest))
+        files.update(dependency_inputs(
+            repository, restore_output, source, manifest, project.headers
+        ))
     relative = (path.resolve(strict=True).relative_to(repository).as_posix() for path in paths)
     files.update({name: (repository / name).read_bytes() for name in dict.fromkeys(relative)})
     return files, tuple(dependencies)

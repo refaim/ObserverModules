@@ -61,6 +61,7 @@ class FakeRuntime:
     def __init__(self, repository: Path, run_id: str) -> None:
         self.repository = repository
         self.run_id = run_id
+        self.session_active = False
         self.executed: list[Graph] = []
         self.store = SimpleNamespace(
             paths_for=lambda current: SimpleNamespace(
@@ -74,6 +75,30 @@ class FakeRuntime:
 
     async def run(self) -> None:
         return None
+
+    def session(self) -> FakeRuntime:
+        return self
+
+    async def __aenter__(self) -> FakeRuntime:
+        self.session_active = True
+        return self
+
+    async def __aexit__(self, *_exc: object) -> None:
+        self.session_active = False
+
+    @property
+    def owned_run_id(self) -> str | None:
+        return self.run_id if self.session_active else None
+
+    def cache_report(self, _graph: Graph | None = None) -> dict[str, object]:
+        return {
+            "schema": 1,
+            "summary": {"executed": 0, "failed": 0, "hit": 0, "incomplete": 0},
+            "nodes": [],
+        }
+
+    def live_uids(self, graph: Graph) -> tuple[str, ...]:
+        return tuple(sorted(current.uid for current in graph.nodes))
 
 
 class DriverTests(unittest.IsolatedAsyncioTestCase):
@@ -89,8 +114,13 @@ class DriverTests(unittest.IsolatedAsyncioTestCase):
         self.runtime_patch.stop()
         self.temporary.cleanup()
 
-    def session(self, jobs: int | None = 4) -> driver.Driver:
-        return driver.Driver(self.repository, "run-1", self.toolchain, jobs=jobs)
+    def session(
+        self, jobs: int | None = 4, *, prune_cas: bool = False
+    ) -> driver.Driver:
+        return driver.Driver(
+            self.repository, "run-1", self.toolchain,
+            jobs=jobs, prune_cas=prune_cas,
+        )
 
     def tool(self, name: str) -> ResolvedTool:
         path = self.repository / f"tools/{name}.exe"
@@ -553,33 +583,155 @@ class DriverTests(unittest.IsolatedAsyncioTestCase):
         export.assert_called_once_with(
             session.runtime.executed[0], session.runtime.store,
             self.repository / "evidence", "verify-source", "success", failures=(),
+            cache=session.runtime.cache_report(session.runtime.executed[0]),
         )
 
-    async def test_failed_public_command_exports_structured_failures_before_reraising(self) -> None:
-        session = self.session()
+    async def test_enabled_cas_sweep_runs_before_successful_result_export(self) -> None:
+        session = self.session(prune_cas=True)
+        common = Graph((node("source"),), ("source",), {"slot": 4})
+        python = Graph((node("python"),), ("python",), {"slot": 4})
+        events: list[str] = []
+
+        def record(event: str) -> None:
+            self.assertTrue(session.runtime.session_active)
+            events.append(event)
+
+        with (
+            mock.patch.object(driver, "discover_source_tools", return_value="tools"),
+            mock.patch.object(driver, "common_source_checks", return_value=common),
+            mock.patch.object(driver, "python_coverage_graph", return_value=python),
+            mock.patch.object(
+                driver, "export_results", side_effect=lambda *_args, **_kwargs: record("export")
+            ),
+            mock.patch.object(
+                driver, "sweep_cas", side_effect=lambda *_args, **_kwargs: record("sweep")
+            ) as sweep,
+        ):
+            await session.verify_source(export_dir=self.repository / "evidence")
+
+        self.assertEqual(events, ["sweep", "export"])
+        self.assertFalse(session.runtime.session_active)
+        graph = session.runtime.executed[0]
+        sweep.assert_called_once_with(
+            self.repository, session.runtime.live_uids(graph), owned_run_id="run-1"
+        )
+
+    async def test_cas_sweep_failure_exports_failed_status_before_reraising(self) -> None:
+        session = self.session(prune_cas=True)
+        common = Graph((node("source"),), ("source",), {"slot": 4})
+        python = Graph((node("python"),), ("python",), {"slot": 4})
+        maintenance = RuntimeError("prune failed")
+        events: list[str] = []
+
+        def fail_sweep(*_args, **_kwargs) -> None:
+            events.append("sweep")
+            raise maintenance
+
+        with (
+            mock.patch.object(driver, "discover_source_tools", return_value="tools"),
+            mock.patch.object(driver, "common_source_checks", return_value=common),
+            mock.patch.object(driver, "python_coverage_graph", return_value=python),
+            mock.patch.object(driver, "sweep_cas", side_effect=fail_sweep),
+            mock.patch.object(
+                driver, "export_results",
+                side_effect=lambda *_args, **_kwargs: events.append("export"),
+            ) as export,
+            self.assertRaises(RuntimeError) as raised,
+        ):
+            await session.verify_source(export_dir=self.repository / "failed-evidence")
+
+        self.assertIs(raised.exception, maintenance)
+        self.assertEqual(events, ["sweep", "export"])
+        self.assertEqual(export.call_args.args[4], "failed")
+        self.assertEqual(export.call_args.kwargs["failures"], ())
+
+    async def test_cas_sweep_failure_without_export_reraises_inside_session(self) -> None:
+        session = self.session(prune_cas=True)
+        common = Graph((node("source"),), ("source",), {"slot": 4})
+        python = Graph((node("python"),), ("python",), {"slot": 4})
+        maintenance = RuntimeError("prune failed")
+
+        def fail_sweep(*_args, **_kwargs) -> None:
+            self.assertTrue(session.runtime.session_active)
+            raise maintenance
+
+        with (
+            mock.patch.object(driver, "discover_source_tools", return_value="tools"),
+            mock.patch.object(driver, "common_source_checks", return_value=common),
+            mock.patch.object(driver, "python_coverage_graph", return_value=python),
+            mock.patch.object(driver, "sweep_cas", side_effect=fail_sweep),
+            self.assertRaises(RuntimeError) as raised,
+        ):
+            await session.verify_source()
+
+        self.assertIs(raised.exception, maintenance)
+        self.assertFalse(session.runtime.session_active)
+
+    async def test_cas_sweep_and_failed_export_preserve_both_errors(self) -> None:
+        session = self.session(prune_cas=True)
+        common = Graph((node("source"),), ("source",), {"slot": 4})
+        python = Graph((node("python"),), ("python",), {"slot": 4})
+        maintenance = RuntimeError("prune failed")
+        export_failure = RuntimeError("export failed")
+
+        with (
+            mock.patch.object(driver, "discover_source_tools", return_value="tools"),
+            mock.patch.object(driver, "common_source_checks", return_value=common),
+            mock.patch.object(driver, "python_coverage_graph", return_value=python),
+            mock.patch.object(driver, "sweep_cas", side_effect=maintenance),
+            mock.patch.object(driver, "export_results", side_effect=export_failure),
+            self.assertRaises(ExceptionGroup) as raised,
+        ):
+            await session.verify_source(export_dir=self.repository / "failed-evidence")
+
+        self.assertIs(raised.exception.exceptions[0], maintenance)
+        self.assertIs(raised.exception.exceptions[1], export_failure)
+        self.assertFalse(session.runtime.session_active)
+
+    async def test_failed_public_command_exports_then_sweeps_before_reraising(self) -> None:
+        session = self.session(prune_cas=True)
         common = Graph((node("source"),), ("source",), {"slot": 4})
         python = Graph((node("python"),), ("python",), {"slot": 4})
         failure = ExceptionGroup("failed", (RuntimeError("expected"),))
         failure.failed_nodes = ("source",)
+        live_uids = (common.nodes[0].uid,)
+        events: list[str] = []
 
         async def fail() -> None:
             raise failure
+
+        def live(_graph: Graph) -> tuple[str, ...]:
+            events.append("live")
+            return live_uids
 
         with (
             mock.patch.object(driver, "discover_source_tools", return_value="tools"),
             mock.patch.object(driver, "common_source_checks", return_value=common),
             mock.patch.object(driver, "python_coverage_graph", return_value=python),
             mock.patch.object(session.runtime, "run", side_effect=fail),
-            mock.patch.object(driver, "export_results") as export,
+            mock.patch.object(
+                driver, "export_results",
+                side_effect=lambda *_args, **_kwargs: events.append("export"),
+            ) as export,
+            mock.patch.object(session.runtime, "live_uids", side_effect=live),
+            mock.patch.object(
+                driver, "sweep_cas",
+                side_effect=lambda *_args, **_kwargs: events.append("sweep"),
+            ) as sweep,
             self.assertRaises(ExceptionGroup) as raised,
         ):
             await session.verify_source(export_dir=self.repository / "failed-evidence")
 
         self.assertIs(raised.exception, failure)
+        self.assertEqual(events, ["export", "live", "sweep"])
         graph = session.runtime.executed[0]
         export.assert_called_once_with(
             graph, session.runtime.store, self.repository / "failed-evidence",
             "verify-source", "failed", failures=("source",),
+            cache=session.runtime.cache_report(graph),
+        )
+        sweep.assert_called_once_with(
+            self.repository, live_uids, owned_run_id="run-1"
         )
 
     async def test_export_failure_preserves_the_original_execution_failure(self) -> None:
@@ -607,6 +759,34 @@ class DriverTests(unittest.IsolatedAsyncioTestCase):
         self.assertIs(raised.exception.exceptions[0], execution)
         self.assertRegex(str(raised.exception.exceptions[1]), "export")
 
+    async def test_failed_command_and_cas_sweep_failure_preserve_both_errors(self) -> None:
+        session = self.session(prune_cas=True)
+        graph = Graph((node("source"),), ("source",), {"slot": 4})
+        execution = ExceptionGroup("failed", (RuntimeError("execution"),))
+        execution.failed_nodes = ("source",)
+        maintenance = RuntimeError("prune")
+
+        async def fail() -> None:
+            raise execution
+
+        with (
+            mock.patch.object(driver, "discover_source_tools", return_value="tools"),
+            mock.patch.object(driver, "common_source_checks", return_value=graph),
+            mock.patch.object(
+                driver, "python_coverage_graph",
+                return_value=Graph((node("python"),), ("python",), {"slot": 4}),
+            ),
+            mock.patch.object(session.runtime, "run", side_effect=fail),
+            mock.patch.object(driver, "export_results"),
+            mock.patch.object(driver, "sweep_cas", side_effect=maintenance),
+            self.assertRaises(ExceptionGroup) as raised,
+        ):
+            await session.verify_source(export_dir=self.repository / "failed-evidence")
+
+        self.assertIs(raised.exception.exceptions[0], execution)
+        self.assertIs(raised.exception.exceptions[1], maintenance)
+        self.assertIn("cache pruning failed", str(raised.exception))
+
     async def test_failure_before_graph_composition_does_not_publish_empty_evidence(self) -> None:
         session = self.session()
         with (
@@ -618,6 +798,33 @@ class DriverTests(unittest.IsolatedAsyncioTestCase):
         ):
             await session.verify_source(export_dir=self.repository / "evidence")
         export.assert_not_called()
+
+    async def test_failure_after_discovery_export_does_not_prune_from_partial_graph(self) -> None:
+        session = self.session(prune_cas=True)
+        discovery = discovery_graph(("x64",))
+        composition = RuntimeError("manifest composition failed")
+
+        async def operation() -> tuple[Path, ...]:
+            await session._staged(
+                discovery,
+                mock.Mock(side_effect=composition),
+            )
+            self.fail("composition failure must propagate")
+
+        with (
+            mock.patch.object(driver, "load_dependency_manifests", return_value={}),
+            mock.patch.object(driver, "export_results") as export,
+            mock.patch.object(driver, "sweep_cas") as sweep,
+            self.assertRaises(RuntimeError) as raised,
+        ):
+            await session._public(
+                "verify-arch", self.repository / "failed-evidence", operation
+            )
+
+        self.assertIs(raised.exception, composition)
+        self.assertEqual(session.runtime.executed, [discovery])
+        self.assertEqual(export.call_args.args[4], "failed")
+        sweep.assert_not_called()
 
     async def test_verify_arch_omits_common_and_nonrunnable_specialists(self) -> None:
         session = self.session()

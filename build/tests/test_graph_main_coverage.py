@@ -93,7 +93,9 @@ class AnalysisCoverageTests(unittest.TestCase):
                 }
             ).encode()
 
-            files = analysis.dependency_inputs(repository, package_root, source, content)
+            files = analysis.dependency_inputs(
+                repository, package_root, source, content, (first_party,)
+            )
 
         self.assertEqual(
             set(files),

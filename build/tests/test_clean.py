@@ -19,11 +19,14 @@ from filelock import FileLock, Timeout
 BUILD_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BUILD_ROOT))
 
+import core.clean as core_clean  # noqa: E402
 from core.clean import CleanError, clean, main  # noqa: E402
 from core.paths import BuildPaths, PathSafetyError  # noqa: E402
 
 
 UID = "0123456789abcdef0123456789abcdef"
+LIVE_UID = "11111111111111111111111111111111"
+ACTIVE_UID = "22222222222222222222222222222222"
 
 
 class CleanTests(unittest.TestCase):
@@ -31,6 +34,182 @@ class CleanTests(unittest.TestCase):
         repository = root / "repo"
         repository.mkdir(parents=True)
         return repository, BuildPaths(repository)
+
+    @staticmethod
+    def complete_cas(paths: BuildPaths, uid: str) -> Path:
+        entry = paths.cas(uid)
+        entry.output.mkdir(parents=True)
+        entry.log.touch()
+        entry.touch.touch()
+        return entry.entry
+
+    def test_cas_sweep_uses_explicit_liveness_and_removes_incomplete_entries(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            repository, paths = self.repository(Path(temporary))
+            paths.prepare()
+            live = self.complete_cas(paths, LIVE_UID)
+            inactive = self.complete_cas(paths, UID)
+            os.utime(paths.cas(LIVE_UID).touch, ns=(1, 1))
+            os.utime(paths.cas(UID).touch, ns=(2_000_000_000, 2_000_000_000))
+            incomplete = paths.cas(ACTIVE_UID)
+            incomplete.output.mkdir(parents=True)
+            incomplete.log.touch()
+            legacy = paths.cas_root / f"{UID}-legacy"
+            legacy.mkdir()
+
+            removed = core_clean.sweep_cas(repository, {LIVE_UID})
+
+            self.assertEqual(removed, (inactive, incomplete.entry))
+            self.assertTrue(live.is_dir())
+            self.assertFalse(inactive.exists())
+            self.assertFalse(incomplete.entry.exists())
+            self.assertTrue(legacy.is_dir())
+
+    def test_cas_sweep_skips_active_nodes_and_holds_both_locks_while_removing(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            repository, paths = self.repository(Path(temporary))
+            paths.prepare()
+            inactive = self.complete_cas(paths, UID)
+            active = self.complete_cas(paths, ACTIVE_UID)
+            original_remove = shutil.rmtree
+
+            def remove(target: Path) -> None:
+                for lock_path in (paths.coordination_lock(), paths.lock(UID)):
+                    with self.assertRaises(Timeout), FileLock(
+                        lock_path, timeout=0, fallback_to_soft=False,
+                        preserve_lock_file=True,
+                    ):
+                        pass
+                original_remove(target)
+
+            active_lock = FileLock(
+                paths.lock(ACTIVE_UID), timeout=0, fallback_to_soft=False,
+                preserve_lock_file=True,
+            )
+            with active_lock, mock.patch(
+                "core.clean.shutil.rmtree", side_effect=remove
+            ):
+                self.assertEqual(core_clean.sweep_cas(repository, ()), (inactive,))
+
+            self.assertTrue(active.is_dir())
+
+    def test_cas_sweep_refuses_to_delete_while_another_run_lease_is_active(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            repository, paths = self.repository(Path(temporary))
+            paths.prepare()
+            inactive = self.complete_cas(paths, UID)
+            lease = FileLock(
+                paths.lease("active-run"), timeout=0, fallback_to_soft=False,
+                preserve_lock_file=True,
+            )
+
+            with lease, self.assertRaisesRegex(CleanError, "active build lease"):
+                core_clean.sweep_cas(repository, ())
+
+            self.assertTrue(inactive.is_dir())
+            self.assertEqual(core_clean.sweep_cas(repository, ()), (inactive,))
+
+    def test_cas_sweep_ignores_only_the_explicit_owned_active_lease(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            repository, paths = self.repository(Path(temporary))
+            paths.prepare()
+            inactive = self.complete_cas(paths, UID)
+            owned = FileLock(
+                paths.lease("owned-run"), timeout=0, fallback_to_soft=False,
+                preserve_lock_file=True,
+            )
+
+            with owned:
+                self.assertEqual(
+                    core_clean.sweep_cas(
+                        repository, (), owned_run_id="owned-run"
+                    ),
+                    (inactive,),
+                )
+
+            inactive = self.complete_cas(paths, UID)
+            other = FileLock(
+                paths.lease("other-run"), timeout=0, fallback_to_soft=False,
+                preserve_lock_file=True,
+            )
+            with owned, other, self.assertRaisesRegex(CleanError, "other-run"):
+                core_clean.sweep_cas(repository, (), owned_run_id="owned-run")
+            self.assertTrue(inactive.is_dir())
+
+            with self.assertRaisesRegex(CleanError, "owned run lease is not active"):
+                core_clean.sweep_cas(repository, (), owned_run_id="owned-run")
+            with self.assertRaisesRegex(CleanError, "owned run lease is missing"):
+                core_clean.sweep_cas(repository, (), owned_run_id="missing-run")
+            self.assertTrue(inactive.is_dir())
+
+    def test_cas_sweep_rechecks_paths_under_lock_and_rejects_unsafe_inputs(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repository, paths = self.repository(root / "races")
+            paths.prepare()
+            inactive = self.complete_cas(paths, UID)
+            original_cas = BuildPaths.cas
+            calls = 0
+
+            def recheck(instance: BuildPaths, uid: str):
+                nonlocal calls
+                candidate = original_cas(instance, uid)
+                calls += 1
+                if calls == 2:
+                    with self.assertRaises(Timeout), FileLock(
+                        paths.lock(UID), timeout=0, fallback_to_soft=False,
+                        preserve_lock_file=True,
+                    ):
+                        pass
+                    raise PathSafetyError("reparse point appeared")
+                return candidate
+
+            with mock.patch.object(BuildPaths, "cas", autospec=True, side_effect=recheck), \
+                    self.assertRaisesRegex(PathSafetyError, "reparse point"):
+                core_clean.sweep_cas(repository, ())
+            self.assertEqual(calls, 2)
+            self.assertTrue(inactive.is_dir())
+
+            with self.assertRaisesRegex(PathSafetyError, "UID"):
+                core_clean.sweep_cas(repository, {UID.upper()})
+            self.assertTrue(inactive.is_dir())
+
+            malformed_lease = paths.locks_root / "run-.lease"
+            malformed_lease.touch()
+            with self.assertRaisesRegex(CleanError, "unexpected run lease"):
+                core_clean.sweep_cas(repository, ())
+            self.assertTrue(inactive.is_dir())
+            malformed_lease.unlink()
+
+            with FileLock(
+                paths.coordination_lock(), timeout=0, fallback_to_soft=False,
+                preserve_lock_file=True,
+            ), self.assertRaisesRegex(CleanError, "coordination lock"):
+                core_clean.sweep_cas(repository, ())
+            self.assertTrue(inactive.is_dir())
+
+            reparse_repository, reparse = self.repository(root / "reparse")
+            reparse.prepare()
+            reparse_entry = self.complete_cas(reparse, UID)
+            with mock.patch(
+                "core.paths._is_reparse",
+                side_effect=lambda path: Path(path) == reparse_entry,
+            ), self.assertRaisesRegex(PathSafetyError, "reparse point"):
+                core_clean.sweep_cas(reparse_repository, ())
+            self.assertTrue(reparse_entry.is_dir())
+
+            empty_repository, _empty = self.repository(root / "empty")
+            self.assertEqual(core_clean.sweep_cas(empty_repository, ()), ())
+
+            vanished_repository, vanished = self.repository(root / "vanished")
+            vanished.prepare()
+            with mock.patch("core.clean._validate", side_effect=(True, False)):
+                self.assertEqual(core_clean.sweep_cas(vanished_repository, ()), ())
+
+            no_cas_repository, no_cas = self.repository(root / "no-cas")
+            no_cas.output_root.mkdir()
+            no_cas.work_root.mkdir()
+            self.assertEqual(core_clean.sweep_cas(no_cas_repository, ()), ())
 
     def test_all_removes_only_exact_generated_output(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

@@ -22,6 +22,32 @@ class MsvcToolchain:
     identity: tuple[tuple[str, str], ...]
 
 
+_DEVELOPER_VARIABLES = frozenset(
+    {
+        "devenvdir",
+        "extensionsdkdir",
+        "external_include",
+        "include",
+        "lib",
+        "libpath",
+        "netfxsdkdir",
+        "ucrtversion",
+        "universalcrtsdkdir",
+        "vcideinstalldir",
+        "vcinstalldir",
+        "visualstudioversion",
+        "vs170comntools",
+        "vsinstalldir",
+        "windowslibpath",
+    }
+)
+_DEVELOPER_PREFIXES = ("framework", "vctools", "vscmd_", "windowssdk")
+
+
+def _developer_variable(name: str) -> bool:
+    return name in _DEVELOPER_VARIABLES or name.startswith(_DEVELOPER_PREFIXES)
+
+
 def _existing(path: Path | str | None, directory: bool = False) -> Path:
     resolved = Path(path).resolve() if path else None
     if resolved is None or not (resolved.is_dir() if directory else resolved.is_file()):
@@ -36,6 +62,8 @@ def _command_environment(text: str) -> tuple[tuple[str, str], ...]:
             continue
         key, value = line.split("=", 1)
         folded = key.casefold()
+        if not _developer_variable(folded):
+            continue
         canonical = key.upper() if folded in {"path", "lib"} else key
         if folded == "lib":
             value = os.pathsep.join(
@@ -43,14 +71,7 @@ def _command_environment(text: str) -> tuple[tuple[str, str], ...]:
             )
         values[folded] = (canonical, value)
 
-    values.pop("__vscmd_preinit_path", None)
-    values.pop("path", None)
-
-    inherited = {key.casefold(): value for key, value in os.environ.items()}
-    changed = (
-        pair for folded, pair in values.items() if inherited.get(folded) != pair[1]
-    )
-    return tuple(sorted(changed, key=lambda pair: pair[0].casefold()))
+    return tuple(sorted(values.values(), key=lambda pair: pair[0].casefold()))
 
 
 def _output(argv: list[str] | str, **options: str) -> str:

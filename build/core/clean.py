@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import argparse
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 import os
 from pathlib import Path
 import shutil
@@ -88,6 +88,80 @@ def _require_inactive(paths: BuildPaths) -> tuple[Path, ...]:
             raise CleanError(f"active build lock: {entry}") from error
         inactive.append(entry)
     return tuple(inactive)
+
+
+def _require_no_active_runs(paths: BuildPaths, owned_lease: Path | None) -> None:
+    owned_active = owned_lease is None
+    for entry in sorted(paths.locks_root.iterdir()):
+        if not (entry.name.startswith("run-") and entry.suffix == ".lease"):
+            continue
+        try:
+            paths.lease(entry.name[4:-6])
+        except PathSafetyError as error:
+            raise CleanError(f"unexpected run lease: {entry}") from error
+        lock = FileLock(
+            entry, timeout=0, fallback_to_soft=False, preserve_lock_file=True
+        )
+        try:
+            with lock:
+                if entry == owned_lease:
+                    raise CleanError(f"owned run lease is not active: {entry}")
+        except Timeout as error:
+            if entry == owned_lease:
+                owned_active = True
+                continue
+            raise CleanError(f"active build lease: {entry}") from error
+    if not owned_active:
+        raise CleanError(f"owned run lease is missing: {owned_lease}")
+
+
+def sweep_cas(
+    repository: Path | str, live_uids: Collection[str], *, owned_run_id: str | None = None
+) -> tuple[Path, ...]:
+    """Remove unlocked canonical CAS entries absent from the explicit live set."""
+
+    paths = BuildPaths(repository)
+    owned_lease = paths.lease(owned_run_id) if owned_run_id is not None else None
+    live = frozenset(live_uids)
+    for uid in live:
+        paths.cas(uid)
+    if not _validate(paths):
+        return ()
+    paths.work_root.mkdir(exist_ok=True)
+    paths.locks_root.mkdir(exist_ok=True)
+    coordination = FileLock(
+        paths.coordination_lock(), timeout=0, fallback_to_soft=False,
+        preserve_lock_file=True,
+    )
+    try:
+        with coordination:
+            if not _validate(paths) or not paths.cas_root.exists():
+                return ()
+            _require_no_active_runs(paths, owned_lease)
+            removed = []
+            for entry in sorted(paths.cas_root.iterdir()):
+                uid = entry.name
+                if (
+                    len(uid) != 32
+                    or any(character not in "0123456789abcdef" for character in uid)
+                    or uid in live
+                ):
+                    continue
+                candidate = paths.cas(uid)
+                node = FileLock(
+                    paths.lock(uid), timeout=0, fallback_to_soft=False,
+                    preserve_lock_file=True,
+                )
+                try:
+                    with node:
+                        candidate = paths.cas(uid)
+                        shutil.rmtree(candidate.entry)
+                except Timeout:
+                    continue
+                removed.append(candidate.entry)
+            return tuple(removed)
+    except Timeout as error:
+        raise CleanError("active build coordination lock") from error
 
 
 def clean(repository: Path | str, mode: str = "all") -> tuple[Path, ...]:

@@ -21,7 +21,6 @@ from graphs.instrumented import (  # noqa: E402
 )
 from graphs.analysis import (  # noqa: E402
     clang_dependency_discovery_slice,
-    dependency_node_name,
 )
 
 
@@ -494,57 +493,209 @@ class InstrumentedBuildGraphTests(unittest.TestCase):
                     before.node(name).uid, toolchain_changed.node(name).uid, name
                 )
 
-    def test_clang_discovery_skips_unsupported_leak_arch_and_signs_prior_manifest(self) -> None:
+    def test_clang_discovery_and_build_uids_ignore_manifest_cache_state(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             repository = self.repository(root / "repo")
             toolchain = self.toolchain(root)
-            source = repository / "src/leak-probe.cpp"
-            name = dependency_node_name(
-                repository, "x64", "leak-probe", source, "coverage"
+            runtime = self.llvm_runtime(root)
+            variants = (
+                InstrumentedVariant("coverage", "x64"),
+                InstrumentedVariant(
+                    "ubsan", "x64", runtime, {"hash": "runtime"}
+                ),
             )
-            manifest = json.dumps(
-                {
-                    "Data": {
-                        "Source": str(source.resolve()),
-                        "Includes": [str((repository / "src/tests.h").resolve())],
-                    }
-                }
-            ).encode()
-            with mock.patch("graphs.analysis._manifest_index", return_value={name: manifest}):
-                discovery = clang_dependency_discovery_slice(
-                    repository,
-                    toolchain,
-                    project_names=("leak-probe",),
-                    configuration="Coverage",
-                    name_qualifier="coverage",
-                    architectures=("x86", "x64"),
-                )
-            with mock.patch("graphs.analysis._manifest_index", return_value={}):
-                without_prior = clang_dependency_discovery_slice(
-                    repository,
-                    toolchain,
-                    project_names=("leak-probe",),
-                    configuration="Coverage",
-                    name_qualifier="coverage",
-                    architectures=("x86", "x64"),
-                )
-            asan = (InstrumentedVariant("asan", "x64"),)
-            asan_discovery = instrumented_dependency_discovery_slice(
-                repository, toolchain, variants=asan
+            cold = instrumented_dependency_discovery_slice(
+                repository, toolchain, variants=variants
             )
-            instrumented_build_slice(
+            manifests = self.manifests(repository, cold)
+            cold_build = instrumented_build_slice(
                 repository,
                 toolchain,
-                discovery=asan_discovery,
-                manifests=self.manifests(repository, asan_discovery),
-                variants=asan,
+                discovery=cold,
+                manifests=manifests,
+                variants=variants,
+            )
+            paths = BuildPaths(repository)
+            first = cold.targets[0]
+            cas = paths.cas(cold.node(first).uid)
+            cas.output.mkdir(parents=True)
+            (cas.output / "dependencies.json").write_bytes(manifests[first])
+            cas.touch.touch()
+            partial = instrumented_dependency_discovery_slice(
+                repository, toolchain, variants=variants
+            )
+            partial_build = instrumented_build_slice(
+                repository,
+                toolchain,
+                discovery=partial,
+                manifests=manifests,
+                variants=variants,
+            )
+            for target in cold.targets[1:]:
+                cas = paths.cas(cold.node(target).uid)
+                cas.output.mkdir(parents=True)
+                (cas.output / "dependencies.json").write_bytes(manifests[target])
+                cas.touch.touch()
+            full = instrumented_dependency_discovery_slice(
+                repository, toolchain, variants=variants
+            )
+            full_build = instrumented_build_slice(
+                repository,
+                toolchain,
+                discovery=full,
+                manifests=manifests,
+                variants=variants,
             )
 
-        self.assertEqual(discovery.targets, (name,))
-        capture = discovery.node(discovery.node(name).inputs[0])
-        previous_capture = without_prior.node(without_prior.node(name).inputs[0])
-        self.assertNotEqual(capture.uid, previous_capture.uid)
+        expected_discovery = {node.name: node.uid for node in cold.nodes}
+        expected_build = {node.name: node.uid for node in cold_build.nodes}
+        self.assertEqual(
+            expected_discovery,
+            {node.name: node.uid for node in partial.nodes},
+        )
+        self.assertEqual(
+            expected_discovery,
+            {node.name: node.uid for node in full.nodes},
+        )
+        self.assertEqual(
+            expected_build,
+            {node.name: node.uid for node in partial_build.nodes},
+        )
+        self.assertEqual(
+            expected_build,
+            {node.name: node.uid for node in full_build.nodes},
+        )
+
+    def test_clang_discovery_signs_stable_header_coverage(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repository = self.repository(root / "repo")
+            toolchain = self.toolchain(root)
+            before = clang_dependency_discovery_slice(
+                repository,
+                toolchain,
+                project_names=("renpy",),
+                configuration="Coverage",
+                name_qualifier="coverage",
+            )
+            (repository / "src/renpy.h").write_text(
+                "#pragma once\n// dependency topology may have changed\n",
+                encoding="utf-8",
+            )
+            after = clang_dependency_discovery_slice(
+                repository,
+                toolchain,
+                project_names=("renpy",),
+                configuration="Coverage",
+                name_qualifier="coverage",
+            )
+
+        target = before.targets[0]
+        self.assertNotEqual(before.node(target).uid, after.node(target).uid)
+        before_capture = before.node(before.node(target).inputs[0])
+        after_capture = after.node(after.node(target).inputs[0])
+        self.assertNotEqual(before_capture.uid, after_capture.uid)
+
+    def test_instrumented_build_requires_declared_cross_directory_dependency(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repository = self.repository(root / "repo")
+            shared = repository / "src/shared/topology.h"
+            shared.parent.mkdir()
+            shared.write_text("#pragma once\n", encoding="utf-8")
+            toolchain = self.toolchain(root)
+            variants = (InstrumentedVariant("coverage", "x64"),)
+            discovery = instrumented_dependency_discovery_slice(
+                repository, toolchain, variants=variants
+            )
+            manifests = self.manifests(repository, discovery)
+            for target in discovery.targets:
+                if "-renpy-" in target:
+                    manifests[target] = json.dumps(
+                        {
+                            "Data": {
+                                "Source": str(
+                                    (repository / "src/renpy.cpp").resolve()
+                                ),
+                                "Includes": [str(shared.resolve())],
+                            }
+                        }
+                    ).encode()
+
+            with self.assertRaisesRegex(
+                ValueError, "first-party dependency is not covered.*src/shared/topology.h"
+            ):
+                instrumented_build_slice(
+                    repository,
+                    toolchain,
+                    discovery=discovery,
+                    manifests=manifests,
+                    variants=variants,
+                )
+
+            project = repository / "build/projects/renpy.vcxproj"
+            project.write_text(
+                project.read_text(encoding="utf-8").replace(
+                    "</Project>",
+                    "  <ItemGroup><ClInclude Include=\"$(RepositoryRoot)"
+                    "src/shared/topology.h\" /></ItemGroup>\n</Project>",
+                ),
+                encoding="utf-8",
+            )
+            declared_discovery = instrumented_dependency_discovery_slice(
+                repository, toolchain, variants=variants
+            )
+            declared = instrumented_build_slice(
+                repository,
+                toolchain,
+                discovery=declared_discovery,
+                manifests=manifests,
+                variants=variants,
+            )
+
+        self.assertIn("build-renpy-x64-coverage", declared.targets)
+
+    def test_clang_discovery_skips_unsupported_leak_architecture(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repository = self.repository(root / "repo")
+            discovery = clang_dependency_discovery_slice(
+                repository,
+                self.toolchain(root),
+                project_names=("leak-probe",),
+                configuration="Coverage",
+                name_qualifier="coverage",
+                architectures=("x86", "x64"),
+            )
+
+        self.assertEqual(len(discovery.targets), 1)
+        self.assertIn("-x64-coverage-leak-probe-", discovery.targets[0])
+
+    def test_asan_only_build_does_not_require_clang(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repository = self.repository(root / "repo")
+            toolchain = self.toolchain(root)
+            variants = (InstrumentedVariant("asan", "x64"),)
+            discovery = instrumented_dependency_discovery_slice(
+                repository, toolchain, variants=variants
+            )
+
+            with mock.patch(
+                "graphs.instrumented.resolve_llvm",
+                side_effect=AssertionError("ASan must stay on the MSVC path"),
+            ):
+                graph = instrumented_build_slice(
+                    repository,
+                    toolchain,
+                    discovery=discovery,
+                    manifests=self.manifests(repository, discovery),
+                    variants=variants,
+                )
+
+        self.assertEqual(len(graph.targets), 4)
+        self.assertTrue(all(name.endswith("-x64-asan") for name in graph.targets))
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

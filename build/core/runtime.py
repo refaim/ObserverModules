@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
-from contextlib import suppress
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 import shutil
+import time
 
 from filelock import AsyncFileLock
 
@@ -26,15 +28,11 @@ class _LeasedExecutor:
         self._executor = executor
 
     async def run(self) -> None:
-        coordination = self._runtime._lock(self._runtime.paths.coordination_lock())
-        lease = self._runtime._lock(self._runtime.paths.lease(self._runtime._run_id))
-        async with coordination:
-            self._runtime.paths.prepare()
-            await lease.acquire()
-        try:
+        if self._runtime.owned_run_id is not None:
             await self._executor.run()
-        finally:
-            await lease.release()
+            return
+        async with self._runtime.session():
+            await self._executor.run()
 
 
 class BuildRuntime:
@@ -50,9 +48,75 @@ class BuildRuntime:
         self.store = CasStore(self.paths, run_id)
         self._run_id = run_id
         self._runner = process_runner
+        self._observed: dict[str, Node] = {}
+        self._durations_ms: dict[str, int] = {}
+        self._session_lease: AsyncFileLock | None = None
+
+    @property
+    def owned_run_id(self) -> str | None:
+        return self._run_id if self._session_lease is not None else None
+
+    @asynccontextmanager
+    async def session(self) -> AsyncIterator[None]:
+        """Hold this runtime's run lease across a complete public operation."""
+
+        if self._session_lease is not None:
+            raise RuntimeError("build runtime session is already active")
+        coordination = self._lock(self.paths.coordination_lock())
+        lease = self._lock(self.paths.lease(self._run_id))
+        async with coordination:
+            self.paths.prepare()
+            await lease.acquire()
+        self._session_lease = lease
+        try:
+            yield
+        finally:
+            self._session_lease = None
+            await lease.release()
 
     def is_complete(self, current: Node) -> bool:
-        return self.store.is_complete(current)
+        complete = self.store.is_complete(current)
+        self._observed.setdefault(current.uid, current)
+        return complete
+
+    def _known_nodes(self, graph: Graph | None) -> dict[str, Node]:
+        known = dict(self._observed)
+        if graph is not None:
+            for current in graph.nodes:
+                known.setdefault(current.uid, current)
+        return known
+
+    def live_uids(self, graph: Graph | None = None) -> tuple[str, ...]:
+        """Return known graph nodes that have a published completion marker."""
+
+        return tuple(sorted(
+            uid for uid, current in self._known_nodes(graph).items()
+            if self.store.is_complete(current)
+        ))
+
+    def cache_report(self, graph: Graph | None = None) -> dict[str, object]:
+        """Describe deterministic node identities and their result in this process."""
+
+        nodes: list[dict[str, object]] = []
+        summary = {"executed": 0, "failed": 0, "hit": 0, "incomplete": 0}
+        for uid, current in sorted(
+            self._known_nodes(graph).items(), key=lambda item: (item[1].name, item[0])
+        ):
+            complete = self.store.is_complete(current)
+            if uid in self._durations_ms:
+                state = "executed" if complete else "failed"
+            elif complete:
+                state = "hit"
+            else:
+                state = "incomplete"
+            summary[state] += 1
+            nodes.append({
+                "duration_ms": self._durations_ms.get(uid, 0),
+                "name": current.name,
+                "state": state,
+                "uid": uid,
+            })
+        return {"schema": 1, "summary": summary, "nodes": nodes}
 
     @staticmethod
     def _lock(path: Path) -> AsyncFileLock:
@@ -68,6 +132,16 @@ class BuildRuntime:
         return self._lock(self.paths.lock(current.uid))
 
     async def run(self, current: Node) -> None:
+        self._observed.setdefault(current.uid, current)
+        started = time.perf_counter()
+        try:
+            await self._run_node(current)
+        finally:
+            self._durations_ms[current.uid] = max(
+                0, round((time.perf_counter() - started) * 1000)
+            )
+
+    async def _run_node(self, current: Node) -> None:
         reserved = ("OBSERVER_OUT_DIR", "OBSERVER_BUILD_DIR", "_MSPDBSRV_ENDPOINT_")
         existing = {key.casefold() for key, _value in current.command.env}
         for key in reserved:

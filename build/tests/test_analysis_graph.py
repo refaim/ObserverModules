@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
-import os
 from pathlib import Path
 import sys
 import tempfile
@@ -13,10 +12,9 @@ from unittest import mock
 BUILD_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BUILD_ROOT))
 
-from core.paths import BuildPaths, PathSafetyError  # noqa: E402
+from core.paths import BuildPaths  # noqa: E402
 import graphs.analysis as analysis  # noqa: E402
 from graphs.analysis import (  # noqa: E402
-    _manifest_index,
     analysis_discovery_slice,
     analysis_slice,
     load_dependency_manifests,
@@ -382,6 +380,55 @@ class AnalysisSliceTests(unittest.TestCase):
             package_changed.node(names["rpgmaker"]).uid,
         )
 
+    def test_cross_directory_first_party_dependency_must_be_declared(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repository = self.repository(root / "repo")
+            shared = repository / "src/shared/topology.h"
+            shared.parent.mkdir()
+            shared.write_text("#pragma once\n", encoding="utf-8")
+            toolchain = self.toolchain(root)
+            discovery = analysis_discovery_slice(repository, toolchain)
+            renpy = "discover-dependencies-x64-renpy-modules.renpy.pickle"
+            rpgmaker = "discover-dependencies-x64-rpgmaker-modules.rpgmaker.rpgmaker"
+            manifests = {
+                renpy: self.manifest(
+                    repository / "src/modules/renpy/pickle.cpp", shared
+                ),
+                rpgmaker: self.manifest(
+                    repository / "src/modules/rpgmaker/rpgmaker.cpp"
+                ),
+            }
+
+            with self.assertRaisesRegex(
+                ValueError, "first-party dependency is not covered.*src/shared/topology.h"
+            ):
+                analysis_slice(
+                    repository,
+                    toolchain,
+                    discovery=discovery,
+                    manifests=manifests,
+                )
+
+            project = repository / "build/projects/renpy.vcxproj"
+            project.write_text(
+                project.read_text(encoding="utf-8").replace(
+                    "</Project>",
+                    "  <ItemGroup><ClInclude Include=\"$(RepositoryRoot)"
+                    "src/shared/topology.h\" /></ItemGroup>\n</Project>",
+                ),
+                encoding="utf-8",
+            )
+            declared_discovery = analysis_discovery_slice(repository, toolchain)
+            declared = analysis_slice(
+                repository,
+                toolchain,
+                discovery=declared_discovery,
+                manifests=manifests,
+            )
+
+        self.assertIn("analysis-x64", declared.targets)
+
     def test_published_manifests_are_loaded_by_exact_discovery_uid(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -407,65 +454,6 @@ class AnalysisSliceTests(unittest.TestCase):
 
         self.assertEqual(loaded, expected)
 
-    def test_manifest_index_loads_only_the_exact_base_uid_without_scanning(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            repository = Path(temporary) / "repo"
-            repository.mkdir()
-            paths = BuildPaths(repository)
-            paths.prepare()
-            name = "discover-dependencies-x64-renpy-modules.renpy.pickle"
-            exact = paths.cas("1" * 32)
-            decoy = paths.cas("2" * 32)
-            for cas, content, timestamp in (
-                (exact, b"exact", 100),
-                (decoy, b"newer decoy", 200),
-            ):
-                cas.output.mkdir(parents=True)
-                (cas.output / "dependencies.json").write_bytes(content)
-                cas.touch.touch()
-                os.utime(cas.touch, ns=(timestamp, timestamp))
-
-            with mock.patch.object(
-                Path, "glob", side_effect=AssertionError("CAS must not be scanned")
-            ):
-                loaded = _manifest_index(repository, {name: "1" * 32})
-
-        self.assertEqual(loaded, {name: b"exact"})
-
-    def test_manifest_index_ignores_missing_and_incomplete_exact_entries(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            repository = Path(temporary) / "repo"
-            repository.mkdir()
-            paths = BuildPaths(repository)
-            paths.prepare()
-            incomplete = paths.cas("1" * 32)
-            incomplete.output.mkdir(parents=True)
-            (incomplete.output / "dependencies.json").write_bytes(b"partial")
-
-            loaded = _manifest_index(
-                repository,
-                {"missing": "2" * 32, "incomplete": "1" * 32},
-            )
-
-        self.assertEqual(loaded, {})
-
-    def test_manifest_index_rejects_reparse_manifest_leaf(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            repository = Path(temporary) / "repo"
-            repository.mkdir()
-            paths = BuildPaths(repository)
-            paths.prepare()
-            cas = paths.cas("1" * 32)
-            cas.output.mkdir(parents=True)
-            manifest = cas.output / "dependencies.json"
-            manifest.write_bytes(b"manifest")
-            cas.touch.touch()
-
-            with mock.patch(
-                "core.paths._is_reparse", side_effect=lambda path: Path(path) == manifest
-            ), self.assertRaisesRegex(PathSafetyError, "reparse point"):
-                _manifest_index(repository, {"node": "1" * 32})
-
     def test_incomplete_dependency_discovery_is_not_loadable(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -475,7 +463,111 @@ class AnalysisSliceTests(unittest.TestCase):
             with self.assertRaisesRegex(FileNotFoundError, "dependency discovery is incomplete"):
                 load_dependency_manifests(repository, discovery)
 
-    def test_base_manifest_seeds_header_only_invalidation_without_directory_scan(self) -> None:
+    def test_cached_manifests_do_not_change_discovery_or_downstream_uids(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repository = self.repository(root / "repo")
+            toolchain = self.toolchain(root)
+            cold = analysis_discovery_slice(repository, toolchain)
+            manifests = {}
+            for target in cold.targets:
+                source = repository / (
+                    "src/modules/renpy/pickle.cpp"
+                    if target.endswith("modules.renpy.pickle")
+                    else "src/modules/rpgmaker/rpgmaker.cpp"
+                )
+                content = self.manifest(source)
+                manifests[target] = content
+                cas = BuildPaths(repository).cas(cold.node(target).uid)
+                cas.output.mkdir(parents=True)
+                (cas.output / "dependencies.json").write_bytes(content)
+                cas.touch.touch()
+
+            cold_downstream = analysis_slice(
+                repository,
+                toolchain,
+                discovery=cold,
+                manifests=manifests,
+            )
+            warm = analysis_discovery_slice(repository, toolchain)
+            warm_downstream = analysis_slice(
+                repository,
+                toolchain,
+                discovery=warm,
+                manifests=manifests,
+            )
+
+        self.assertEqual(
+            {node.name: node.uid for node in cold.nodes},
+            {node.name: node.uid for node in warm.nodes},
+        )
+        self.assertEqual(
+            {node.name: node.uid for node in cold_downstream.nodes},
+            {node.name: node.uid for node in warm_downstream.nodes},
+        )
+
+    def test_partial_cached_manifests_do_not_mix_discovery_generations(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repository = self.repository(root / "repo")
+            toolchain = self.toolchain(root)
+            cold = analysis_discovery_slice(repository, toolchain)
+            target = cold.targets[0]
+            manifests = {
+                target: self.manifest(
+                    repository / "src/modules/renpy/pickle.cpp",
+                    repository / "src/modules/renpy/pickle.h",
+                ),
+                cold.targets[1]: self.manifest(
+                    repository / "src/modules/rpgmaker/rpgmaker.cpp"
+                ),
+            }
+            cold_downstream = analysis_slice(
+                repository,
+                toolchain,
+                discovery=cold,
+                manifests=manifests,
+            )
+            cas = BuildPaths(repository).cas(cold.node(target).uid)
+            cas.output.mkdir(parents=True)
+            (cas.output / "dependencies.json").write_bytes(manifests[target])
+            cas.touch.touch()
+
+            partial = analysis_discovery_slice(repository, toolchain)
+            partial_downstream = analysis_slice(
+                repository,
+                toolchain,
+                discovery=partial,
+                manifests=manifests,
+            )
+
+        self.assertEqual(
+            {node.name: node.uid for node in cold.nodes},
+            {node.name: node.uid for node in partial.nodes},
+        )
+        self.assertEqual(
+            {node.name: node.uid for node in cold_downstream.nodes},
+            {node.name: node.uid for node in partial_downstream.nodes},
+        )
+
+    def test_header_content_invalidates_discovery_without_cached_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repository = self.repository(root / "repo")
+            toolchain = self.toolchain(root)
+            before = analysis_discovery_slice(repository, toolchain)
+            (repository / "src/modules/renpy/pickle.h").write_text(
+                "#pragma once\n// dependency topology may have changed\n",
+                encoding="utf-8",
+            )
+            after = analysis_discovery_slice(repository, toolchain)
+
+        target = "discover-dependencies-x64-renpy-modules.renpy.pickle"
+        self.assertNotEqual(before.node(target).uid, after.node(target).uid)
+
+    def test_cached_manifest_does_not_replace_stable_header_invalidation_or_scan_cas(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             repository = self.repository(root / "repo")

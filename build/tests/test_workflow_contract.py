@@ -29,6 +29,7 @@ class WorkflowContractTests(unittest.TestCase):
         )
         self.assertEqual(workflow.count("./build.ps1 verify-source"), 1)
         self.assertEqual(workflow.count("./build.ps1 verify-arch"), 1)
+        self.assertEqual(workflow.count("-PruneCas"), 1)
         self.assertNotIn("./build.ps1 verify -Arch", workflow)
         self.assertNotIn("continue-on-error", workflow)
 
@@ -52,14 +53,23 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn("/packages", workflow)
         self.assertNotIn("if-no-files-found: ignore", workflow)
         self.assertIn("permissions:\n  contents: read", workflow)
-        self.assertEqual(workflow.count("path: out/cas"), 1)
+        self.assertEqual(workflow.count("path: out/cas"), 2)
+        self.assertIn("id: restore-build-cas", workflow)
+        self.assertIn("uses: actions/cache/restore@", workflow)
+        self.assertIn("uses: actions/cache/save@", workflow)
         self.assertIn(
-            "key: cas-v1-${{ steps.runner-image.outputs.identity }}-${{ matrix.job }}-"
-            "${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}",
+            "key: cas-v1-${{ matrix.job }}-${{ github.sha }}-${{ github.run_id }}-"
+            "${{ github.run_attempt }}",
             workflow,
         )
-        self.assertIn("cas-v1-${{ steps.runner-image.outputs.identity }}-${{ matrix.job }}-", workflow)
-        self.assertIn("save-always: true", workflow)
+        self.assertIn("cas-v1-${{ matrix.job }}-${{ github.sha }}-", workflow)
+        self.assertIn("cas-v1-${{ matrix.job }}-", workflow)
+        self.assertNotIn("cas-v1-${{ steps.runner-image.outputs.identity }}", workflow)
+        self.assertIn("if: always() && matrix.job != 'source'", workflow)
+        self.assertIn(
+            "key: ${{ steps.restore-build-cas.outputs.cache-primary-key }}", workflow
+        )
+        self.assertNotIn("save-always", workflow)
         self.assertNotIn("out/work", workflow)
         self.assertNotIn("contents: write", workflow)
         self.assertNotIn("download-artifact", workflow)
@@ -73,6 +83,8 @@ class WorkflowContractTests(unittest.TestCase):
                 "actions/checkout": "d23441a48e516b6c34aea4fa41551a30e30af803",
                 "astral-sh/setup-uv": "08807647e7069bb48b6ef5acd8ec9567f424441b",
                 "actions/cache": "caa296126883cff596d87d8935842f9db880ef25",
+                "actions/cache/restore": "caa296126883cff596d87d8935842f9db880ef25",
+                "actions/cache/save": "caa296126883cff596d87d8935842f9db880ef25",
                 "actions/upload-artifact": "043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
             },
         )

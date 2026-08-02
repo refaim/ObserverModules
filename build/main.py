@@ -69,6 +69,7 @@ _OPTIONS: dict[str, tuple[tuple[str, ...], dict[str, object]]] = {
         "type": _integer(0, 1_073_741_824), "default": 0,
     }),
     "export_dir": (("-ExportDir", "--export-dir"), {"type": Path}),
+    "prune_cas": (("-PruneCas", "--prune-cas"), {"action": "store_true"}),
     "clean_mode": (("-CleanMode", "--clean-mode"), {"choices": ("all", "stale-work"), "default": "all"}),
 }
 
@@ -147,7 +148,8 @@ _COMMANDS: dict[str, tuple[tuple[str, ...], Invoker]] = {
         export_dir=args.export_dir,
     )),
     "verify-arch": (("arch", "corpus", "shards", "fuzz_seconds", "leak_warmup",
-                     "leak_iterations", "leak_windows", "leak_tolerance", "export_dir"),
+                     "leak_iterations", "leak_windows", "leak_tolerance", "export_dir",
+                     "prune_cas"),
                     lambda driver, args, _toolchain: driver.verify_arch(
         args.arch, corpus=args.corpus, run_nonce=args.run_nonce, fuzz_seconds=args.fuzz_seconds,
         test_shards=args.shards, warmup=args.leak_warmup, iterations=args.leak_iterations,
@@ -155,7 +157,8 @@ _COMMANDS: dict[str, tuple[tuple[str, ...], Invoker]] = {
         export_dir=args.export_dir,
     )),
     "verify": (("arch", "corpus", "shards", "fuzz_seconds", "leak_warmup",
-                "leak_iterations", "leak_windows", "leak_tolerance", "export_dir"),
+                "leak_iterations", "leak_windows", "leak_tolerance", "export_dir",
+                "prune_cas"),
                lambda driver, args, _toolchain: driver.verify(
         args.arch, corpus=args.corpus, run_nonce=args.run_nonce, fuzz_seconds=args.fuzz_seconds,
         test_shards=args.shards, warmup=args.leak_warmup, iterations=args.leak_iterations,
@@ -182,7 +185,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.error("verify-arch requires exactly one architecture")
     args.run_nonce = _run_id()
     toolchain = discover_msvc_toolchain()
-    driver = BuildDriver(args.repository, args.run_nonce, toolchain, jobs=args.jobs)
+    driver = BuildDriver(
+        args.repository, args.run_nonce, toolchain,
+        jobs=args.jobs, prune_cas=getattr(args, "prune_cas", False),
+    )
     outputs = asyncio.run(_COMMANDS[args.command][1](driver, args, toolchain))
     if args.command in {"verify", "verify-arch"}:
         for item in verify_route(args.arch).deferred:

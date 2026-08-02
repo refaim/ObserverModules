@@ -6,6 +6,7 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 import psutil
 
+from core.clean import sweep_cas
 from core.graph import Graph, merge_graphs
 from core.host import require_runnable, runnable_architectures, verify_route
 from core.node import NodeFactory
@@ -69,46 +70,86 @@ class Driver:
     """Own one repository-local runtime and compose command-specific graph families."""
 
     def __init__(self, repository: Path, run_id: str, toolchain: MsvcToolchain,
-                 *, jobs: int | None = None) -> None:
+                 *, jobs: int | None = None, prune_cas: bool = False) -> None:
         self.repository = repository.resolve(strict=True)
         self.jobs = (psutil.cpu_count() or 1) if jobs is None else jobs
         require_positive_integers((self.jobs,), "jobs must be a positive integer")
         self.toolchain = toolchain
         self.runtime = BuildRuntime(self.repository, run_id)
         self._last_graph: Graph | None = None
+        self._prune_cas = prune_cas
+        self._prune_ready = False
+
+    def _sweep_cas(self) -> None:
+        if self._prune_cas and self._prune_ready and self._last_graph is not None:
+            sweep_cas(
+                self.repository, self.runtime.live_uids(self._last_graph),
+                owned_run_id=self.runtime.owned_run_id,
+            )
 
     async def _run(self, graph: Graph) -> tuple[Path, ...]:
         self._last_graph = graph
         await self.runtime.executor(graph).run()
         return tuple(self.runtime.store.paths_for(graph.node(name)).output for name in graph.targets)
 
+    async def _run_final(self, graph: Graph) -> tuple[Path, ...]:
+        self._prune_ready = True
+        return await self._run(graph)
+
     async def _public(
         self, command: str, export_dir: Path | None,
         action: Callable[[], Awaitable[tuple[Path, ...]]],
     ) -> tuple[Path, ...]:
         self._last_graph = None
-        try:
-            outputs = await action()
-        except Exception as error:
-            if export_dir is not None and self._last_graph is not None:
-                failures = tuple(getattr(error, "failed_nodes", ()))
-                try:
-                    export_results(
-                        self._last_graph, self.runtime.store, export_dir,
-                        command, "failed", failures=failures,
-                    )
-                except Exception as export_error:
-                    raise ExceptionGroup(
-                        f"{command} and result export failed", (error, export_error)
-                    ) from None
-            raise
-        if export_dir is not None:
-            assert self._last_graph is not None
-            export_results(
-                self._last_graph, self.runtime.store, export_dir,
-                command, "success", failures=(),
-            )
-        return outputs
+        self._prune_ready = False
+        async with self.runtime.session():
+            try:
+                outputs = await action()
+            except Exception as error:
+                if export_dir is not None and self._last_graph is not None:
+                    failures = tuple(getattr(error, "failed_nodes", ()))
+                    try:
+                        export_results(
+                            self._last_graph, self.runtime.store, export_dir,
+                            command, "failed", failures=failures,
+                            cache=self.runtime.cache_report(self._last_graph),
+                        )
+                    except Exception as export_error:
+                        raise ExceptionGroup(
+                            f"{command} and result export failed", (error, export_error)
+                        ) from None
+                    try:
+                        self._sweep_cas()
+                    except Exception as prune_error:
+                        raise ExceptionGroup(
+                            f"{command} and cache pruning failed", (error, prune_error)
+                        ) from None
+                raise
+            try:
+                self._sweep_cas()
+            except Exception as prune_error:
+                if export_dir is not None:
+                    assert self._last_graph is not None
+                    try:
+                        export_results(
+                            self._last_graph, self.runtime.store, export_dir,
+                            command, "failed", failures=(),
+                            cache=self.runtime.cache_report(self._last_graph),
+                        )
+                    except Exception as export_error:
+                        raise ExceptionGroup(
+                            "cache pruning and result export failed",
+                            (prune_error, export_error),
+                        ) from None
+                raise
+            if export_dir is not None:
+                assert self._last_graph is not None
+                export_results(
+                    self._last_graph, self.runtime.store, export_dir,
+                    command, "success", failures=(),
+                    cache=self.runtime.cache_report(self._last_graph),
+                )
+            return outputs
 
     async def _staged(self, discovery: Graph, compose: Callable[..., Graph],
                       **options: object) -> Graph:
@@ -280,7 +321,7 @@ class Driver:
             self.repository, audited, architectures=architectures,
             smoke_architectures=runnable_architectures(architectures), jobs=self.jobs,
         )
-        await self._run(graph)
+        await self._run_final(graph)
         return package_outputs(self.repository, graph)
 
     async def package(self, architectures: tuple[str, ...] = ("x64",), *,
@@ -420,7 +461,7 @@ class Driver:
                     windows=windows, tolerance_bytes=tolerance_bytes, jobs=self.jobs,
                 ),
             ))
-        return await self._run(merge_graphs(*graphs))
+        return await self._run_final(merge_graphs(*graphs))
 
     async def verify_source(self, *, export_dir: Path | None = None) -> tuple[Path, ...]:
         async def operation() -> tuple[Path, ...]:
@@ -429,7 +470,7 @@ class Driver:
                 common_source_checks(self.repository, tools, jobs=self.jobs),
                 python_coverage_graph(self.repository),
             )
-            return await self._run(graph)
+            return await self._run_final(graph)
 
         return await self._public("verify-source", export_dir, operation)
 

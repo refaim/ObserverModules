@@ -103,7 +103,10 @@ class MainTests(unittest.TestCase):
             with self.subTest(command=method):
                 result = self.invoke([command_names.get(method, method), "-Repository", str(repository), *options])
                 instance = FakeDriver.instances[-1]
-                self.assertEqual(instance.constructor, ((repository, "run-id", mock.ANY), {"jobs": None}))
+                self.assertEqual(instance.constructor, (
+                    (repository, "run-id", mock.ANY),
+                    {"jobs": None, "prune_cas": False},
+                ))
                 self.assertEqual(instance.calls, [(method, positional, keywords)])
                 self.assertEqual(result.result, 0)
                 self.assertEqual(result.stdout.strip(), str(Path("out") / method))
@@ -207,6 +210,21 @@ class MainTests(unittest.TestCase):
         ):
             main.main(["verify", "-Arch", "arm64"])
         self.assertEqual(stdout.getvalue(), "")
+
+    def test_verify_prune_cas_flag_enables_driver_sweep(self) -> None:
+        result = self.invoke([
+            "verify-arch", "-Arch", "x64", "-PruneCas",
+        ])
+
+        instance = FakeDriver.instances[-1]
+        self.assertEqual(
+            instance.constructor,
+            ((Path(__file__).parents[2], "run-id", mock.ANY), {
+                "jobs": None,
+                "prune_cas": True,
+            }),
+        )
+        self.assertEqual(result.result, 0)
 
     def test_help_and_removed_skip_restore_contract(self) -> None:
         for argv in ([], ["help"]):
