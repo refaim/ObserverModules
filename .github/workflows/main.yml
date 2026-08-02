@@ -2,97 +2,236 @@ name: CI
 
 on:
   push:
-    branches: [ "master" ]
+    branches: [master]
   pull_request:
-    branches: [ "master" ]
+    branches: [master]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
-  contents: write
+  contents: read
 
 env:
-  VCPKG_DEFAULT_BINARY_CACHE: "C:/vcpkg-binary-cache"
+  VCPKG_ROOT: C:\vcpkg
+  VCPKG_DEFAULT_BINARY_CACHE: C:\vcpkg-binary-cache
 
 jobs:
-  build:
+  verification:
+    name: ${{ matrix.job }}
     runs-on: windows-2022
+    timeout-minutes: 120
     strategy:
+      fail-fast: false
       matrix:
-        arch: [ x64, x86 ]
+        include:
+          - job: source
+            arch: none
+          - job: x86
+            arch: x86
+          - job: x64
+            arch: x64
+          - job: arm64-cross
+            arch: arm64
+
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Developer Command Prompt
-        uses: ilammy/msvc-dev-cmd@v1
+      - name: Check out the repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          arch: ${{ matrix.arch }}
+          persist-credentials: false
 
-      - name: Get project vcpkg baseline
+      - name: Set up uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.12.1"
+          enable-cache: true
+          cache-dependency-glob: build/uv.lock
+          cache-suffix: ${{ matrix.job }}
+
+      - name: Identify the hosted runner image
+        id: runner-image
         shell: pwsh
         run: |
-          $baseline = (Get-Content -Path vcpkg.json | ConvertFrom-Json).'builtin-baseline'
-          echo "VCPKG_BASELINE=$baseline" >> $env:GITHUB_ENV
+          if ([string]::IsNullOrWhiteSpace($env:ImageOS) -or
+              [string]::IsNullOrWhiteSpace($env:ImageVersion)) {
+            throw 'GitHub runner image identity is unavailable.'
+          }
+          "identity=$($env:ImageOS)-$($env:ImageVersion)" | Add-Content -Path $env:GITHUB_OUTPUT
 
-      - name: Cache vcpkg
-        uses: actions/cache@v4
+      - name: Cache vcpkg binaries
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
-          key: vcpkg-${{ matrix.arch }}-${{ hashFiles('vcpkg.json') }}
+          path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
+          key: vcpkg-${{ steps.runner-image.outputs.identity }}-${{ matrix.arch }}-${{ hashFiles('vcpkg.json', 'build/vcpkg/triplets/*.cmake') }}
+
+      - name: Restore completed build nodes
+        id: restore-build-cas
+        if: matrix.job != 'source'
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: out/cas
+          key: cas-v1-${{ matrix.job }}-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            cas-v1-${{ matrix.job }}-${{ github.sha }}-
+            cas-v1-${{ matrix.job }}-
+
+      - name: Prepare the pinned Python environment
+        shell: pwsh
+        run: |
+          "TEMP=$env:RUNNER_TEMP" | Add-Content -Path $env:GITHUB_ENV
+          "TMP=$env:RUNNER_TEMP" | Add-Content -Path $env:GITHUB_ENV
+          New-Item -ItemType Directory -Force -Path $env:VCPKG_DEFAULT_BINARY_CACHE | Out-Null
+          $baseline = (Get-Content -Raw -LiteralPath 'vcpkg.json' | ConvertFrom-Json).'builtin-baseline'
+          if ($baseline -notmatch '^[0-9a-f]{40}$') {
+            throw "Invalid vcpkg builtin baseline: $baseline"
+          }
+          git -C $env:VCPKG_ROOT cat-file -e "$baseline^{commit}" 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            git -C $env:VCPKG_ROOT fetch --no-tags --depth=1 origin $baseline
+            if ($LASTEXITCODE -ne 0) {
+              throw "Unable to fetch vcpkg baseline $baseline."
+            }
+          }
+          git -C $env:VCPKG_ROOT -c advice.detachedHead=false `
+            checkout --detach --force $baseline
+          if ($LASTEXITCODE -ne 0) {
+            throw "Unable to check out vcpkg baseline $baseline."
+          }
+          & (Join-Path $env:VCPKG_ROOT 'bootstrap-vcpkg.bat') -disableMetrics
+          if ($LASTEXITCODE -ne 0) {
+            throw "Unable to bootstrap vcpkg baseline $baseline."
+          }
+          uv sync --project build --frozen
+
+      - name: Provision external verification tools
+        shell: pwsh
+        run: |
+          choco install cppcheck --version=2.19.0 --yes --no-progress
+          $cppcheck = 'C:\Program Files\Cppcheck\cppcheck.exe'
+          if (-not (Test-Path -LiteralPath $cppcheck -PathType Leaf)) {
+            throw "Cppcheck was not found after installation: $cppcheck"
+          }
+          (Split-Path -Parent $cppcheck) | Add-Content -Path $env:GITHUB_PATH
+          Install-Module PSScriptAnalyzer -RequiredVersion 1.25.0 -Repository PSGallery -Scope CurrentUser -Force
+          $binskimRoot = Join-Path $env:RUNNER_TEMP 'binskim'
+          nuget install Microsoft.CodeAnalysis.BinSkim -Version 4.4.9.11 `
+            -OutputDirectory $binskimRoot -DirectDownload -NonInteractive
+          $binskim = Join-Path $binskimRoot `
+            'Microsoft.CodeAnalysis.BinSkim.4.4.9.11\tools\net9.0\win-x64\BinSkim.exe'
+          if (-not (Test-Path -LiteralPath $binskim -PathType Leaf)) {
+            throw "BinSkim was not found after installation: $binskim"
+          }
+          (Split-Path -Parent $binskim) | Add-Content -Path $env:GITHUB_PATH
+
+          $programFilesX86 = [Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFilesX86)
+          $umdh = Join-Path $programFilesX86 'Windows Kits\10\Debuggers\x64\umdh.exe'
+          if (-not (Test-Path -LiteralPath $umdh -PathType Leaf)) {
+            $installer = Join-Path $env:RUNNER_TEMP 'winsdksetup.exe'
+            Invoke-WebRequest -Uri 'https://go.microsoft.com/fwlink/?linkid=2349110' -OutFile $installer
+            $signature = Get-AuthenticodeSignature -LiteralPath $installer
+            if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'Microsoft') {
+              throw "Windows SDK installer signature validation failed: $($signature.Status)"
+            }
+            $process = Start-Process -FilePath $installer -ArgumentList @(
+              '/features', 'OptionId.WindowsDesktopDebuggers',
+              '/quiet', '/norestart', '/ceip', 'off'
+            ) -Wait -PassThru
+            if ($process.ExitCode -notin @(0, 3010)) {
+              throw "Windows Debugging Tools installation failed with exit code $($process.ExitCode)."
+            }
+          }
+          if (-not (Test-Path -LiteralPath $umdh -PathType Leaf)) {
+            throw "UMDH was not found after Windows Debugging Tools setup: $umdh"
+          }
+
+      - name: Provision the Windows 10 UMDH workaround
+        if: matrix.job == 'x64'
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP 'winsdk-19041'
+          $extract = Join-Path $root 'extracted'
+          $msi = Join-Path $root 'debuggers-x64.msi'
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+          Invoke-WebRequest -Uri 'https://download.microsoft.com/download/e119c04b-71aa-4067-ac3c-360c2e13d209/windowssdk/Installers/X64%20Debuggers%20And%20Tools-x64_en-us.msi' -OutFile $msi
+          $expected = '354173D844D5C061050EE2638AA94FAFB4835AC3DE836E220F6A74A992849A3B'
+          if ((Get-FileHash -LiteralPath $msi -Algorithm SHA256).Hash -ne $expected) {
+            throw 'Windows 10 Debugging Tools payload hash validation failed.'
+          }
+          $signature = Get-AuthenticodeSignature -LiteralPath $msi
+          if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'Microsoft') {
+            throw "Windows 10 Debugging Tools payload signature validation failed: $($signature.Status)"
+          }
+          $arguments = @('/a', $msi, '/qn', '/norestart', "TARGETDIR=$extract")
+          $process = Start-Process -FilePath "$env:SystemRoot\System32\msiexec.exe" `
+            -ArgumentList $arguments -Wait -PassThru
+          if ($process.ExitCode -ne 0) {
+            throw "Windows 10 Debugging Tools extraction failed with exit code $($process.ExitCode)."
+          }
+          $debuggers = Join-Path $extract 'Windows Kits\10\Debuggers\x64'
+          $umdh = Join-Path $debuggers 'umdh.exe'
+          $gflags = Join-Path $debuggers 'gflags.exe'
+          if (-not (Test-Path -LiteralPath $umdh -PathType Leaf)) {
+            throw "Windows 10 UMDH was not found after setup: $umdh"
+          }
+          if (-not (Test-Path -LiteralPath $gflags -PathType Leaf)) {
+            throw "Windows 10 GFlags was not found after setup: $gflags"
+          }
+          $version = [Diagnostics.FileVersionInfo]::GetVersionInfo($umdh).FileVersion
+          if (-not $version.StartsWith('10.0.19041.', [StringComparison]::Ordinal)) {
+            throw "Unexpected Windows 10 UMDH version: $version"
+          }
+          "OBSERVER_UMDH=$umdh" | Add-Content -Path $env:GITHUB_ENV
+
+      - name: Check prerequisites through the public entry point
+        shell: pwsh
+        run: ./build.ps1 doctor
+
+      - name: Verify repository sources
+        id: verify-source
+        if: matrix.job == 'source'
+        shell: pwsh
+        run: |
+          $evidence = Join-Path $env:RUNNER_TEMP 'evidence-source'
+          ./build.ps1 verify-source -ExportDir $evidence
+
+      - name: Verify one architecture
+        id: verify-arch
+        if: matrix.job != 'source'
+        shell: pwsh
+        run: |
+          $evidence = Join-Path $env:RUNNER_TEMP 'evidence-${{ matrix.job }}'
+          $fuzzSeconds = if ('${{ github.event_name }}' -eq 'pull_request') { 5 } else { 60 }
+          $leakWarmup = if ('${{ github.event_name }}' -eq 'pull_request') { 1 } else { 8 }
+          $leakIterations = if ('${{ github.event_name }}' -eq 'pull_request') { 1 } else { 100 }
+          ./build.ps1 verify-arch -Arch '${{ matrix.arch }}' -ExportDir $evidence `
+            -TestShards 4 -FuzzSeconds $fuzzSeconds -LeakWarmup $leakWarmup `
+            -LeakIterations $leakIterations -LeakWindows 3 -PruneCas
+
+      - name: Save completed build nodes
+        if: always() && matrix.job != 'source'
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: out/cas
+          key: ${{ steps.restore-build-cas.outputs.cache-primary-key }}
+
+      - name: Upload verification evidence
+        if: always() && (steps.verify-source.outcome != 'skipped' || steps.verify-arch.outcome != 'skipped')
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: evidence-${{ matrix.job }}
           path: |
-            ${{env.VCPKG_DEFAULT_BINARY_CACHE}}
+            ${{ runner.temp }}/evidence-${{ matrix.job }}/manifest.json
+            ${{ runner.temp }}/evidence-${{ matrix.job }}/reports
+            ${{ runner.temp }}/evidence-${{ matrix.job }}/logs
+          if-no-files-found: error
+          retention-days: ${{ github.event_name == 'pull_request' && 7 || 30 }}
 
-      - name: Setup vcpkg
-        run: |
-          New-Item -ItemType Directory -Path C:/my-vcpkg
-          Set-Location -Path C:/my-vcpkg
-          git init
-          git remote add --no-tags origin https://github.com/microsoft/vcpkg.git
-          git fetch --depth 1 --no-write-fetch-head origin ${{env.VCPKG_BASELINE}}
-          git branch master ${{env.VCPKG_BASELINE}}
-          git checkout
-          ./bootstrap-vcpkg.bat
-          New-Item -ItemType Directory -Path ${{env.VCPKG_DEFAULT_BINARY_CACHE}} -Force
-          echo "VCPKG_ROOT=C:/my-vcpkg" >> $env:GITHUB_ENV
-
-      - name: Configure CMake
-        run: cmake --preset ${{ matrix.arch }}-release
-
-      - name: Build
-        run: cmake --build ${{github.workspace}}/build/${{ matrix.arch }}-release
-
-      - name: Pack
-        run: |
-          cd ${{github.workspace}}/build/${{ matrix.arch }}-release
-          cpack --config CPackConfig.cmake -C RelWithDebInfo
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+      - name: Upload master packages and symbols
+        if: success() && github.event_name == 'push' && matrix.job != 'source'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: observer-modules-${{ matrix.arch }}
-          path: ${{github.workspace}}/build/${{ matrix.arch }}-release/*.zip
-
-  release:
-    needs: build
-    runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
-    steps:
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          merge-multiple: true
-          path: ./artifacts
-
-      - name: Generate release tag
-        id: tag
-        run: echo "tag=$(date +'%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: release-${{ steps.tag.outputs.tag }}
-          name: 'Release ${{ steps.tag.outputs.tag }}'
-          body: |
-            Automated release from master branch.
-
-            Download the *-dll.zip files if you need Observer modules.
-            Download the *-pdb.zip files if you need debug symbols.
-          files: ./artifacts/*.zip
-          prerelease: false
+          name: packages-${{ matrix.job }}
+          path: ${{ runner.temp }}/evidence-${{ matrix.job }}/packages
+          if-no-files-found: error
+          retention-days: 30

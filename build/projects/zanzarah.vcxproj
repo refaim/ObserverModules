@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="Current" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Import Project="..\ObserverProjectConfigurations.props" />
+  <PropertyGroup Label="Globals">
+    <VCProjectVersion>17.0</VCProjectVersion>
+    <ProjectGuid>{B313D87B-B15E-4E0E-92F9-DA04231CC41A}</ProjectGuid>
+    <Keyword>Win32Proj</Keyword>
+    <RootNamespace>zanzarah</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+    <ObserverConfigurationType>DynamicLibrary</ObserverConfigurationType>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <Import Project="..\ObserverConfiguration.props" />
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <Import Project="..\ObserverProject.props" />
+  <Import Project="$(VcpkgRoot)\scripts\buildsystems\msbuild\vcpkg.props" />
+
+  <PropertyGroup>
+    <TargetName>zanzarah</TargetName>
+    <TargetExt>.so</TargetExt>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <Link>
+      <ModuleDefinitionFile>$(RepositoryRoot)src\modules\zanzarah\zanzarah.def</ModuleDefinitionFile>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="$(RepositoryRoot)src\core\io\bounded_stream.cpp" />
+    <ClInclude Include="$(RepositoryRoot)src\core\archive_limits.h" />
+    <ClCompile Include="$(RepositoryRoot)src\dll.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\archive.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\modules\zanzarah\zanzarah.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="$(RepositoryRoot)src\core\io\bounded_stream.h" />
+    <ClInclude Include="$(RepositoryRoot)src\api.h" />
+    <ClInclude Include="$(RepositoryRoot)src\archive.h" />
+    <ClInclude Include="$(RepositoryRoot)src\modules\extractor.h" />
+  </ItemGroup>
+
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <Import Project="$(VcpkgRoot)\scripts\buildsystems\msbuild\vcpkg.targets" />
+</Project>

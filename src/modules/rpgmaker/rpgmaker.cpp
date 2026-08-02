@@ -1,3 +1,5 @@
+#include "../../core/archive_limits.h"
+#include "../../core/io/bounded_stream.h"
 #include "../extractor.h"
 
 #include <fstream>
@@ -8,11 +10,12 @@ namespace extractor
     {
         return {
             {0xc4674077, 0x464a, 0x425b, {0x89, 0x80, 0x9e, 0x14, 0xe8, 0x16, 0x49, 0x00}},
-            1, 0,
+            1,
+            0,
         };
     }
 
-    std::vector<std::byte> extractor::get_signature() noexcept
+    std::vector<std::byte> extractor::get_signature()
     {
         const std::string str = "RGSSAD";
         std::vector<std::byte> signature(str.size());
@@ -22,40 +25,42 @@ namespace extractor
         return signature;
     }
 
-    // ReSharper disable once CppMemberFunctionMayBeStatic
-    archive_info extractor::get_archive_info(const std::span<const std::byte> &data) noexcept // NOLINT(*-convert-member-functions-to-static)
+    archive_info extractor::get_archive_info(
+        const std::span<const std::byte> &data) // NOLINT(*-convert-member-functions-to-static)
     {
+        static_cast<void>(data);
         return archive_info{L"RGSS3", L"-", L"RPG Maker VX Ace"};
     }
 
-    static uint32_t read_u32(std::ifstream &stream)
+    std::vector<std::unique_ptr<file>> extractor::list_files(
+        std::istream &stream) // NOLINT(*-convert-member-functions-to-static)
     {
-        uint32_t value;
-        stream.read(reinterpret_cast<char *>(&value), sizeof(value));
-        return value;
-    }
+        observer::io::bounded_stream input(stream);
+        input.seek_absolute(static_cast<std::streamoff>(get_signature().size()));
+        const auto archive_size = input.size();
 
-    // ReSharper disable once CppMemberFunctionMayBeStatic
-    std::vector<std::unique_ptr<file> > extractor::list_files(std::ifstream &stream) // NOLINT(*-convert-member-functions-to-static)
-    {
-        stream.seekg(static_cast<std::streamoff>(get_signature().size()));
-
-        std::vector<std::unique_ptr<file> > files;
-        const uint32_t magic = read_u32(stream) * 9 + 3;
+        std::vector<std::unique_ptr<file>> files;
+        const uint32_t magic = input.read_trivial<std::uint32_t>() * 9 + 3;
         while (true) {
-            const uint32_t offset = read_u32(stream) ^ magic;
-            if (offset == 0) break;
+            const uint32_t offset = input.read_trivial<std::uint32_t>() ^ magic;
+            if (offset == 0)
+                break;
 
-            const uint32_t size = read_u32(stream) ^ magic;
-            const uint32_t file_magic = read_u32(stream) ^ magic;
-            const uint32_t name_len = read_u32(stream) ^ magic;
+            const uint32_t size = input.read_trivial<std::uint32_t>() ^ magic;
+            const uint32_t file_magic = input.read_trivial<std::uint32_t>() ^ magic;
+            const uint32_t name_len = input.read_trivial<std::uint32_t>() ^ magic;
+
+            const auto name_position = input.position();
+            if (name_len > observer::archive_limits::max_path_bytes ||
+                static_cast<std::uint64_t>(name_len) > static_cast<std::uint64_t>(archive_size - name_position)) {
+                throw read_error();
+            }
 
             std::vector<char> name_buf(name_len);
-            stream.read(name_buf.data(), name_len);
+            input.read_exact(name_buf.data(), name_buf.size());
             for (size_t i = 0; i < name_len; ++i) {
-                name_buf[i] = static_cast<char>(
-                    static_cast<unsigned char>(name_buf[i]) ^
-                    static_cast<unsigned char>(magic >> (8 * (i % 4))));
+                name_buf[i] = static_cast<char>(static_cast<unsigned char>(name_buf[i]) ^
+                                                static_cast<unsigned char>(magic >> (8 * (i % 4))));
             }
 
             auto new_file = std::make_unique<file>();
@@ -76,8 +81,8 @@ namespace extractor
         return old;
     }
 
-    // ReSharper disable once CppMemberFunctionMayBeStatic
-    uint32_t extractor::decrypt(uint32_t magic, std::vector<char> &data) const // NOLINT(*-convert-member-functions-to-static)
+    uint32_t extractor::decrypt(uint32_t magic,
+                                std::vector<char> &data) const // NOLINT(*-convert-member-functions-to-static)
     {
         const size_t size = data.size();
         size_t i = 0;
@@ -98,4 +103,4 @@ namespace extractor
 
         return magic;
     }
-}
+} // namespace extractor

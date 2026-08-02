@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="Current" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemDefinitionGroup>
+    <Link>
+      <SubSystem>Console</SubSystem>
+      <AdditionalDependencies>$(LLVMRuntimeDir)\clang_rt.asan-x86_64.lib;$(LLVMRuntimeDir)\clang_rt.asan_cxx-x86_64.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalOptions>/WHOLEARCHIVE:"$(LLVMRuntimeDir)\clang_rt.fuzzer-x86_64.lib" /WHOLEARCHIVE:"$(LLVMRuntimeDir)\clang_rt.asan-x86_64.lib" /WHOLEARCHIVE:"$(LLVMRuntimeDir)\clang_rt.asan_cxx-x86_64.lib" /INFERASANLIBS:NO %(AdditionalOptions)</AdditionalOptions>
+    </Link>
+  </ItemDefinitionGroup>
+  <Target Name="ValidateFuzzConfiguration" BeforeTargets="PrepareForBuild">
+    <Error Condition="'$(ObserverCompileAnalysis)' != 'true' And '$(Configuration)|$(Platform)' != 'Fuzz|x64'"
+           Text="libFuzzer targets are intentionally supported only as x64 Fuzz executables." />
+  </Target>
+</Project>

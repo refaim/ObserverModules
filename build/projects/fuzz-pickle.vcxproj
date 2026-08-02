@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="Current" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Import Project="..\ObserverProjectConfigurations.props" />
+  <PropertyGroup Label="Globals">
+    <VCProjectVersion>17.0</VCProjectVersion>
+    <ProjectGuid>{202A197D-CF6A-47D3-A379-64241A579795}</ProjectGuid>
+    <Keyword>Win32Proj</Keyword>
+    <RootNamespace>fuzz_pickle</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+    <ObserverConfigurationType>Application</ObserverConfigurationType>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <Import Project="..\ObserverConfiguration.props" />
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <Import Project="..\ObserverProject.props" />
+  <Import Project="..\ObserverFuzz.props" />
+  <Import Project="$(VcpkgRoot)\scripts\buildsystems\msbuild\vcpkg.props" />
+
+  <PropertyGroup>
+    <TargetName>fuzz-pickle</TargetName>
+  </PropertyGroup>
+  <ItemGroup>
+    <ClCompile Include="$(RepositoryRoot)src\fuzz\pickle.cpp">
+      <ObjectFileName>$(IntDir)pickle_fuzzer.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="$(RepositoryRoot)src\modules\renpy\pickle.cpp">
+      <ObjectFileName>$(IntDir)pickle_parser.obj</ObjectFileName>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="$(RepositoryRoot)src\modules\renpy\pickle.h" />
+  </ItemGroup>
+
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <Import Project="$(VcpkgRoot)\scripts\buildsystems\msbuild\vcpkg.targets" />
+</Project>

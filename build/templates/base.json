@@ -1,0 +1,7 @@
+{
+  "name": {{ name | json }},
+  "pool": {{ pool | json }},
+  "inputs": {{ inputs | json }},
+  "results": {{ results | json }},
+  "script": {% block script %}null{% endblock %}
+}

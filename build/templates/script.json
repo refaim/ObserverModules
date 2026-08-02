@@ -1,0 +1,8 @@
+{% extends "base.json" %}
+
+{% block script %}
+{
+  "exec": {{ self.script_exec() | trim }},
+  "data": {{ self.script_body() | trim | json }}
+}
+{% endblock %}
