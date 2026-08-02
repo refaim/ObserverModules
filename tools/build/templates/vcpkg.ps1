@@ -3,6 +3,9 @@
 Invoke-Checked {{ vcpkg | ps_quote }} @(
     'install'
     "--x-install-root=$outDir"
+    "--x-buildtrees-root=$buildDir\b"
+    "--x-packages-root=$buildDir\p"
+    "--downloads-root=$buildDir\d"
     '--triplet'
     {{ triplet | ps_quote }}
     {{ ('--x-manifest-root=' ~ repository) | ps_quote }}

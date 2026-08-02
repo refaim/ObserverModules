@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdint>
 #include <cstring>
 #include <limits>
 #include <sstream>
@@ -214,7 +215,12 @@ TEST_CASE("bounded stream: normalizes seek and read failures")
     {
         std::istringstream source("abc");
         observer::io::bounded_stream input(source);
-        constexpr auto impossible_size = static_cast<std::size_t>(std::numeric_limits<std::streamsize>::max()) + 1;
-        REQUIRE_THROWS_AS(input.read_exact(nullptr, impossible_size), observer::io::read_error);
+        if constexpr (std::numeric_limits<std::size_t>::max() >
+                      static_cast<std::uintmax_t>(std::numeric_limits<std::streamsize>::max())) {
+            constexpr auto impossible_size = static_cast<std::size_t>(std::numeric_limits<std::streamsize>::max()) + 1;
+            REQUIRE_THROWS_AS(input.read_exact(nullptr, impossible_size), observer::io::read_error);
+        } else {
+            SUCCEED("size_t cannot represent a request larger than streamsize on this ABI");
+        }
     }
 }

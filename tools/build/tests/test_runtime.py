@@ -77,7 +77,7 @@ class BuildRuntimeTests(unittest.IsolatedAsyncioTestCase):
             runtime.paths.prepare()
             current = node(env=(("Alpha", "one"),))
 
-            work = runtime.paths.run_work(RUN_ID) / f"{current.uid}-{current.name}"
+            work = runtime.paths.run_work(RUN_ID) / current.uid
             with (
                 mock.patch("core.runtime.shutil.rmtree", wraps=shutil.rmtree) as remove,
                 mock.patch("asyncio.to_thread", wraps=asyncio.to_thread) as offload,
@@ -95,6 +95,7 @@ class BuildRuntimeTests(unittest.IsolatedAsyncioTestCase):
                     "Alpha": "one",
                     "OBSERVER_BUILD_DIR": str(work),
                     "OBSERVER_OUT_DIR": str(cas.output),
+                    "_MSPDBSRV_ENDPOINT_": f"observer_{current.uid}",
                 },
             )
             remove.assert_called_once_with(work)
@@ -105,15 +106,55 @@ class BuildRuntimeTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(cas.log.read_bytes(), b"runner log")
             self.assertFalse(cas.touch.exists())
 
+    async def test_long_node_name_does_not_enter_mutable_scratch_path(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            repository = Path(temporary) / "repo"
+            repository.mkdir()
+            runner = FakeRunner()
+            runtime = BuildRuntime(repository, RUN_ID, process_runner=runner)
+            runtime.paths.prepare()
+            current = node("restore-vcpkg-asan-x86-" + "dependency" * 10)
+
+            await runtime.run(current)
+
+            command, _log_path = runner.calls[0]
+            work = Path(dict(command.env)["OBSERVER_BUILD_DIR"])
+            self.assertEqual(work, runtime.paths.run_work(RUN_ID) / current.uid)
+            self.assertNotIn(current.name, str(work))
+
+    async def test_runtime_injects_unique_mspdbsrv_endpoint_per_uid(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            repository = Path(temporary) / "repo"
+            repository.mkdir()
+            runner = FakeRunner()
+            runtime = BuildRuntime(repository, RUN_ID, process_runner=runner)
+            runtime.paths.prepare()
+            nodes = (node("build-renpy-x86-debug"), node("build-renpy-x64-debug"))
+
+            for current in nodes:
+                await runtime.run(current)
+
+            endpoints = tuple(
+                dict(command.env)["_MSPDBSRV_ENDPOINT_"] for command, _log in runner.calls
+            )
+            self.assertEqual(endpoints, tuple(f"observer_{current.uid}" for current in nodes))
+            self.assertEqual(len(set(endpoints)), len(nodes))
+
     async def test_run_rejects_case_insensitive_runtime_environment_conflicts(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             repository = Path(temporary) / "repo"
             repository.mkdir()
             runner = FakeRunner()
             runtime = BuildRuntime(repository, RUN_ID, process_runner=runner)
+            runtime.paths.prepare()
 
             with self.assertRaisesRegex(ValueError, "OBSERVER_OUT_DIR"):
                 await runtime.run(node(env=(("observer_out_dir", "hostile"),)))
+
+            self.assertEqual(runner.calls, [])
+
+            with self.assertRaisesRegex(ValueError, "_MSPDBSRV_ENDPOINT_"):
+                await runtime.run(node(env=(("_mspdbsrv_endpoint_", "shared"),)))
 
             self.assertEqual(runner.calls, [])
 
@@ -190,7 +231,7 @@ class BuildRuntimeTests(unittest.IsolatedAsyncioTestCase):
                 await runtime.run(current)
 
             cas = runtime.store.paths_for(current)
-            work = runtime.paths.run_work(RUN_ID) / f"{current.uid}-{current.name}"
+            work = runtime.paths.run_work(RUN_ID) / current.uid
             self.assertTrue(cas.entry.is_dir())
             self.assertTrue(work.is_dir())
             self.assertFalse(cas.touch.exists())
@@ -207,7 +248,7 @@ class BuildRuntimeTests(unittest.IsolatedAsyncioTestCase):
             runtime = BuildRuntime(repository, RUN_ID, process_runner=CancelledRunner())
             runtime.paths.prepare()
             current = node()
-            work = runtime.paths.run_work(RUN_ID) / f"{current.uid}-{current.name}"
+            work = runtime.paths.run_work(RUN_ID) / current.uid
 
             with self.assertRaises(asyncio.CancelledError):
                 await runtime.run(current)
@@ -229,7 +270,7 @@ class BuildRuntimeTests(unittest.IsolatedAsyncioTestCase):
             runtime = BuildRuntime(repository, RUN_ID, process_runner=ReplacingRunner())
             runtime.paths.prepare()
             current = node()
-            work = runtime.paths.run_work(RUN_ID) / f"{current.uid}-{current.name}"
+            work = runtime.paths.run_work(RUN_ID) / current.uid
 
             with (
                 mock.patch("core.paths._is_reparse", side_effect=lambda path: reparse and path == work),
@@ -256,7 +297,7 @@ class BuildRuntimeTests(unittest.IsolatedAsyncioTestCase):
 
             quarantine = runtime.paths.run_work(RUN_ID) / "quarantine" / old.entry.name
             self.assertEqual((quarantine / "out/partial.obj").read_bytes(), b"partial")
-            self.assertFalse((runtime.paths.run_work(RUN_ID) / f"{current.uid}-{current.name}").exists())
+            self.assertFalse((runtime.paths.run_work(RUN_ID) / current.uid).exists())
 
 
 if __name__ == "__main__":

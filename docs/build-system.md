@@ -2,8 +2,8 @@
 
 ## Status
 
-This document records the agreed target design. The MSBuild migration is implemented alongside it; coverage growth and
-additional fuzz targets remain ongoing engineering work.
+This document describes the implemented local build. The repository uses a Python/Jinja content-addressed DAG for
+orchestration and keeps MSBuild as the native compile/link backend.
 
 ## Non-negotiable release contract
 
@@ -21,10 +21,10 @@ additional fuzz targets remain ongoing engineering work.
 build.ps1 / build.cmd        stable command-line entry point
         |
         v
-build/build.ps1             environment discovery and task orchestration
+tools/build/main.py         command contract and graph composition
         |
         v
-build/ObserverModules.proj  aggregate MSBuild targets
+tools/build/graphs/*        fine-grained content-addressed DAG
         |
         v
 build/projects/*.vcxproj    compile/link graph
@@ -33,10 +33,26 @@ build/projects/*.vcxproj    compile/link graph
 cl.exe / link.exe / lib.exe / rc.exe
 ```
 
-PowerShell is not the build engine. The root script is intentionally tiny and contains no source list, compiler flags,
-or dependency graph. NMAKE was rejected because it would require hand-maintaining the platform/configuration matrix,
-header dependency tracking, vcpkg integration, and project graph while still needing another tool for testing,
-coverage, binary auditing, and packaging.
+The five-line root PowerShell script only enters the exact-pinned `uv` environment and forwards arguments. Python
+builds and executes the outer DAG; short inherited Jinja templates render tool recipes. MSBuild still owns native
+project evaluation, compilation, linking, and C++ header dependencies. Replacing that mature backend would duplicate
+substantial toolchain behavior without a demonstrated critical-path benefit.
+
+### DAG and content-addressed storage
+
+The outer engine adapts the small model used by [pg83/ix](https://github.com/pg83/ix): a node declares `in_dir`,
+`out_dir`, dependencies, data, one resource pool, and a Jinja recipe. Templates use inheritance and `StrictUndefined`;
+PowerShell-specific quoting is centralized instead of repeated in every leaf.
+
+Canonical MD5 covers the fully rendered recipe, descriptor/argv data, declared input bytes and paths, dependency UIDs,
+toolchain/platform identity, and the executor schema. MD5 is a fast local content identity, not a cryptographic trust
+boundary for remote artifacts. A CAS hit requires both the expected entry and its `touch` marker; failed or cancelled
+work cannot publish the marker.
+
+`filelock` coordinates node publication and clean operations between cooperating local processes. Mutable paths are
+confined below the exact repository output root and existing reparse points are rejected. `psutil` launches and
+observes processes; a Windows Job Object terminates the complete descendant tree on failure or cancellation. These are
+explicit local-build guarantees, not a claim of hostile-process isolation.
 
 ## Supported commands
 
@@ -55,30 +71,30 @@ coverage, binary auditing, and packaging.
 .\build.ps1 audit-binaries -Arch x86,x64,arm64
 .\build.ps1 package -Arch x86,x64,arm64
 .\build.ps1 verify -Arch x64
+.\build.ps1 clean -CleanMode stale-work
 ```
 
-`build.cmd` is a convenience shim for `cmd.exe`; both entry points execute the same PowerShell implementation.
+`build.cmd` is a convenience shim for `cmd.exe`; both entry points execute the same Python driver through the root
+PowerShell launcher.
 Use `-FuzzTarget pickle|renpy|rpgmaker|zanzarah` for a focused local regression run; the default `all` runs every
 format target.
 
-The IX-derived replacement is intentionally separate until it reaches complete command parity. Its current 533-node
-analysis graph runs MSVC `/analyze` and clang-tidy independently per supported project/TU/architecture, normalizes each
-report independently, and then executes deterministic per-architecture SARIF merge and semantic clean gates. From the
-repository root, run the pinned environment without syncing or downloading:
-
-```powershell
-uv run --project tools/build --frozen --no-sync python tools/build/main.py analysis-slice --repository . --arch all
-```
-
-Results are printed as exact paths below `out/cas`; a second identical run is served from touch-marker cache entries.
-This pilot does not replace any documented `build.ps1` command yet.
+The implementation is derived from IX's small recipe/DAG/CAS model. A node identity is canonical MD5 over its rendered
+recipe, declared inputs, toolchain/configuration data, and dependency identities. A hit requires the immutable CAS
+entry and its `touch` marker. Results are printed as exact paths below `out/cas`; mutable intermediates and locks live
+below `out/work`.
 
 `verify` is the complete host-capable aggregate. It builds Debug and Release for every requested architecture, runs
 deterministic tests only where the current host can execute them, and then runs source/compiler analysis, coverage,
 the supported sanitizer/leak/fuzz gates, binary audit, package-content validation, and package runtime smoke. A
-non-native runtime check is reported explicitly as deferred and must be completed on its native CI runner; it is not
-reported as executed locally. The verify fuzz phase always covers all four format targets; `-FuzzSeconds` controls its
-bounded duration.
+non-native runtime check is reported explicitly as deferred rather than falsely reported as executed. All gates are
+designed to be runnable locally; the later WSL2 backend will supply Linux-only sanitizer and mutation capabilities.
+The verify fuzz work covers all four format targets; `-FuzzSeconds` controls each bounded run.
+
+All graph families are merged into one executor. Ready nodes from builds, tests, analyzers, coverage, sanitizers,
+fuzzing, leak checks, audit, and packaging may overlap whenever their real dependencies allow it. `-Jobs` sets the
+shared global capacity; narrower named pools additionally protect tools such as UMDH and BinSkim without adding fake
+phase-wide edges.
 
 ## Configurations
 
@@ -99,23 +115,26 @@ copied into release packages.
 
 Library dependencies are declared by `vcpkg.json` in manifest mode. Repository-owned overlay triplets explicitly set
 both `VCPKG_CRT_LINKAGE` and `VCPKG_LIBRARY_LINKAGE` to `static` for all three architectures. The vcpkg baseline is
-pinned in source control and packages are restored into architecture-specific directories below
-`.artifacts/vcpkg_installed`; global vcpkg integration is not required. Separate install roots keep manifest-mode vcpkg
-from pruning another architecture while switching targets.
+pinned in source control and packages are restored into architecture/flavor-specific CAS nodes; global vcpkg
+integration is not required. Separate install roots keep manifest-mode vcpkg from pruning another architecture while
+switching targets.
 
-Normal public commands restore their required dependencies by default. The experimental DAG uses one serial
-`restore -RestoreFlavor all` before its parallel fork; `all` prepares both default and ASan dependency flavors (and
-skips the unsupported ARM64 ASan flavor). Its later leaf commands pass `-SkipDependencyRestore`, which is reserved for
-orchestration that has already completed that prerequisite. Calling `restore` itself with the skip switch is rejected.
+Normal public commands include the exact restore nodes they require. Independent architecture/flavor restores may run
+concurrently; ARM64 ASan is omitted because that configuration is unsupported. `-SkipDependencyRestore` remains a
+deprecated compatibility no-op and is rejected on `restore` itself.
 
 Developer tools are not library dependencies and are discovered by `doctor`:
 
+- `uv` and the repository environment initialized once with `uv sync --project tools/build --frozen`;
 - Visual Studio Build Tools 2022 with MSVC x86/x64 and ARM64 tools plus a Windows SDK;
 - PowerShell 7.4 or newer;
 - vcpkg;
 - LLVM tools (`clang-format` and `clang-tidy`);
 - Cppcheck;
 - PSScriptAnalyzer for PowerShell sources.
+
+Normal `build.ps1` commands use `uv --frozen --no-sync`: they neither resolve nor download Python packages while a
+build is running. `tools/build/uv.lock` exact-pins Python 3.14.6 and the small runtime dependency set.
 
 ## Compiler and static-analysis policy
 
@@ -137,20 +156,23 @@ Header self-containment checks and clang-tidy's include diagnostics come first.
 
 Cppcheck suppressions must be narrow and documented. Repository-wide suppression of a diagnostic is not acceptable.
 
-### CI analysis evidence
+### Analysis evidence
 
-Analysis gates and report publication are deliberately separate. CI lets each analyzer finish, retains its report even
-when the gate fails, and only then enforces the analyzer exit status. Cppcheck emits one SARIF file per architecture.
+Analysis work and the semantic gate are deliberately separate. Each analyzer may finish and preserve its report before
+the deterministic merge/gate enforces findings. Cppcheck emits one SARIF file per architecture.
 MSVC `/analyze` keeps one raw SARIF file per first-party project and assigns every run a stable
 `msvc-analyze/<arch>/<project>/` identity before the architecture directory is uploaded. The clang-tidy logs produced
 by that same compile-only graph are converted into a deduplicated first-party SARIF file with the stable identity
 `clang-tidy/<arch>/`.
 
-CodeQL uploads through its native action and retains both raw and post-processed SARIF as workflow artifacts. BinSkim
-emits and uploads one release-binary SARIF file per architecture. Cppcheck, MSVC, clang-tidy, CodeQL, and BinSkim use
-distinct code-scanning categories, so a later upload cannot replace another engine or architecture. Third-party SARIF
-uploads are skipped for untrusted fork pull requests where the workflow token cannot write security events; their
-reports are still archived as ordinary workflow evidence.
+BinSkim emits one release-binary SARIF file per architecture. Reports remain separate by analyzer and architecture and
+are stored as local CAS evidence. A CI job may repeat these commands, but it must not be the only way to execute or
+inspect any mandatory gate.
+
+The main GitHub workflow is therefore a thin client: it provisions an otherwise empty hosted runner, then invokes the
+same public `doctor` and bounded `verify` commands used locally. It contains no private gate graph, report parser,
+artifact-path protocol, or release logic. The temporary mutation workflow remains separate only until its work moves
+to the supported local WSL2 backend.
 
 ### Future analysis backlog
 
@@ -172,7 +194,7 @@ architecture is being stabilized:
   out-of-range access; whole-project model checking is not a goal.
 
 PC-lint Plus has been considered and explicitly rejected for this project. Do not add it to the required toolchain or
-CI matrix.
+local verification matrix.
 
 ## Tests
 
@@ -230,7 +252,7 @@ must pass under MSVC Debug before their clang-cl coverage result is accepted.
 ## Sanitizers and fuzzing
 
 The primary ASan path links production core code into a test executable. A dedicated loader smoke test also exercises
-the actual instrumented module DLL inside a controlled host process; real FAR/Observer is not a CI dependency.
+the actual instrumented module DLL inside a controlled host process; real FAR/Observer is not a test dependency.
 
 Windows ASan does not detect memory leaks, and a debug-CRT leak check in the test executable cannot account for all
 allocations made by separately linked shipping module DLLs. Leak testing is therefore a separate required layer rather
@@ -263,15 +285,31 @@ lifecycle.
 Leak freedom and bounded memory consumption are different requirements. A separate memory-budget stress test should
 measure peak private bytes while processing synthetic large/sparse archives and verify that archive contents are not
 buffered wholesale. The external real-world corpus remains useful as an opt-in local compatibility and stress layer,
-but the required CI leak gate must use small, repository-owned fixtures and finish deterministically.
+but the required local leak gate uses small, repository-owned fixtures and finishes deterministically.
 
 Fuzzers are standalone executables. They never fuzz through the FAR process. The initial target is the Ren'Py Pickle
-parser; archive-index, path, and decompression fuzzers are added as parsing is separated from filesystem I/O. Pull
-requests replay every checked-in seed before running each of the four format targets for 30 seconds. The weekly
-Saturday 18:17 UTC schedule runs Pickle, Ren'Py, RPG Maker, and Zanzarah for 30 minutes per target (approximately two
-hours of coverage-guided execution after the build). Checked-in seeds include minimized regression inputs and compact
-representative structures derived from the opt-in external corpus; the external archives themselves are not committed.
-Every crash is minimized and committed as a deterministic regression input after triage.
+parser; archive-index, path, and decompression fuzzers are added as parsing is separated from filesystem I/O. The local
+gate replays every checked-in seed and then runs Pickle, Ren'Py, RPG Maker, and Zanzarah independently. Checked-in seeds
+include minimized regression inputs and compact representative structures derived from the opt-in external corpus;
+the external archives themselves are not committed. Every crash is minimized and committed as a deterministic
+regression input after triage.
+
+## Output and cleanup
+
+`out/cas` contains immutable successful node results. `out/work` contains in-flight scratch space, failed-run evidence,
+and `.locks`. Successful node scratch is removed immediately. Each active execution holds a run lease; `clean` takes a
+coordination lock and refuses to race active runs or node publishers.
+
+`clean -CleanMode stale-work` removes only inactive scratch. `clean -CleanMode all` removes CAS entries, completed run
+data, and inactive locks while retaining the minimal coordination-lock skeleton. Both modes validate that every target
+is the exact repository `out` layout and reject reparse points or unknown entries.
+
+## Planned WSL2 backend
+
+After the portable parser core exists, the same Python graph/signing model will gain short POSIX-shell recipes and run
+natively inside WSL2. Windows must not launch one `wsl.exe` per leaf. Platform, shell, and toolchain identity are signed,
+so Linux and Windows outputs cannot alias. This local backend will add Mull mutation testing and the Linux
+ASan/UBSan/LSan surface; shipping modules remain Windows/MSVC artifacts.
 
 ## Release audit and packaging
 

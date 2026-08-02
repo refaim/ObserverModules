@@ -89,5 +89,4 @@ Catch2 tests live in `src/tests/`. Unit tests exercise parser logic directly, wh
 load the actual module binaries without requiring FAR Manager. Small repository-owned fixtures are mandatory. The
 external golden corpus is an optional compatibility/stress layer selected with `-Corpus`.
 
-See `docs/build-system.md` for the current command contract and `docs/autonomous-work-log.md` for unresolved decisions
-from ongoing build-system work.
+See `docs/build-system.md` for the current command contract and build architecture.

@@ -44,6 +44,15 @@ class VcpkgTemplateTests(unittest.TestCase):
         )
         self.assertIn("throw 'vcpkg restore did not produce the include directory'", script)
 
+    def test_mutable_vcpkg_scratch_is_confined_to_the_node_build_directory(self) -> None:
+        recipe = json.loads(self.renderer.render("vcpkg.ps1", self.variables))
+        script = recipe["script"]["data"]
+
+        self.assertIn('\n    "--x-buildtrees-root=$buildDir\\b"\n', script)
+        self.assertIn('\n    "--x-packages-root=$buildDir\\p"\n', script)
+        self.assertIn('\n    "--downloads-root=$buildDir\\d"\n', script)
+        self.assertIn('\n    "--x-install-root=$outDir"\n', script)
+
     def test_triplet_is_required(self) -> None:
         del self.variables["triplet"]
 

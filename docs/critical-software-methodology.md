@@ -98,7 +98,7 @@ documentation. At minimum it answers:
 Required tests include valid minimal and representative archives, every error category, zero/one/maximum boundaries,
 one-past-limit cases, truncation at meaningful byte positions, arithmetic edges, callback failures, cancellation, and
 resource cleanup after every failure path. Multi-gigabyte external corpora remain optional compatibility/stress input;
-small generated repository fixtures are the deterministic CI contract.
+small generated repository fixtures are the deterministic local contract.
 
 ## Verification ladder
 
@@ -109,11 +109,12 @@ Every layer finds a different defect class; passing one does not substitute for 
    that reach each branch.
 3. **Mutation testing:** mutate first-party parser/application logic and require every non-equivalent reached mutant to
    be killed. Surviving mutants are fixed with stronger behavioral tests; they are not hidden by lowering a percentage
-   threshold. Mutation reports are retained as CI evidence.
+   threshold. Mutation reports are retained as local evidence.
 4. **Exact-toolchain tests:** MSVC Debug and shippable MSVC Release on x86, x64, and ARM64 where the runner is native.
-5. **Static analysis:** compiler warnings-as-errors, MSVC `/analyze`, clang-tidy, Cppcheck, CodeQL, and PowerShell
-   analysis. Diagnostics are fixed or narrowly justified, never globally muted.
-6. **Dynamic analysis:** MSVC AddressSanitizer locally/CI where supported; clang-cl AddressSanitizer and
+5. **Static analysis:** compiler warnings-as-errors, MSVC `/analyze`, clang-tidy, Cppcheck, and PowerShell analysis.
+   Diagnostics are fixed or narrowly justified, never globally muted. Additional services such as CodeQL may repeat or
+   extend this evidence but cannot replace a local gate.
+6. **Dynamic analysis:** MSVC AddressSanitizer where supported; clang-cl AddressSanitizer and
    UndefinedBehaviorSanitizer as independent diagnostic builds; UMDH across repeated real-DLL operations and repeated
    load/unload cycles. Peak private bytes and resource budgets are checked separately from leak growth.
 7. **Coverage-guided fuzzing:** every parser and its meaningful decoding surfaces receive libFuzzer targets, curated
@@ -136,9 +137,9 @@ The repository does not need bureaucratic documents for trivial refactors, but a
 the change exists, which failure it prevents, which test demonstrates it, which binary contains it, and whether it
 changes an ABI, parser limit, dependency, or accepted risk.
 
-Security- and reliability-relevant deviations are recorded in `docs/autonomous-work-log.md` until accepted and moved to
-a durable decision record. Analyzer suppressions include the rule, exact scope, rationale, and a test or other evidence
-that covers the residual risk.
+Security- and reliability-relevant deviations are recorded beside the affected code/configuration and in the owning
+issue or commit. Analyzer suppressions include the rule, exact scope, rationale, and a test or other evidence that
+covers the residual risk.
 
 ## Standards adapted, not claimed
 
@@ -163,6 +164,7 @@ that covers the residual risk.
    with a local lifetime rationale?
 4. **Mutation engine:** select and pin a practical engine. Mull is LLVM-based and produces machine-readable reports,
    but does not provide a supported native-Windows workflow; the current leading design is to mutate the portable
-   parser core under Clang in Linux CI while keeping all shipped binaries MSVC-built and independently tested.
+   parser core under Clang in the local WSL2 backend while keeping all shipped binaries MSVC-built and independently
+   tested.
 5. **Release provenance:** whether reproducible-build comparison, SBOM, signing, and SLSA-style provenance become
    mandatory release gates.

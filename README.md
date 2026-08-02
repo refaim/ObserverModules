@@ -87,12 +87,14 @@ specific files as needed without having to unpack the entire archive.
 - Visual Studio Build Tools 2022 with the v143 MSVC tools for x86/x64 and ARM64, Spectre-mitigated libraries, and a
   Windows 11 SDK
 - PowerShell 7.4 or newer
+- [uv](https://docs.astral.sh/uv/) for the exact-pinned Python build-driver environment
 - vcpkg available on `PATH` or through `VCPKG_ROOT`
 
 No IDE, Visual Studio developer prompt, global vcpkg integration, or repository-level CMake generation is required.
 From a normal Windows console:
 
 ```powershell
+uv sync --project tools/build --frozen
 .\build.ps1 doctor
 .\build.ps1 build -Arch all -Config Release
 .\build.ps1 test -Arch x86,x64 -Config Debug

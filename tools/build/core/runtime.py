@@ -68,7 +68,7 @@ class BuildRuntime:
         return self._lock(self.paths.lock(current.uid))
 
     async def run(self, current: Node) -> None:
-        reserved = ("OBSERVER_OUT_DIR", "OBSERVER_BUILD_DIR")
+        reserved = ("OBSERVER_OUT_DIR", "OBSERVER_BUILD_DIR", "_MSPDBSRV_ENDPOINT_")
         existing = {key.casefold() for key, _value in current.command.env}
         for key in reserved:
             if key.casefold() in existing:
@@ -76,9 +76,7 @@ class BuildRuntime:
 
         cas = self.store.prepare_entry(current)
         run_root = self.paths.run_work(self._run_id)
-        work = self.paths.require_confined(
-            run_root / f"{current.uid}-{current.name}", self.paths.work_root
-        )
+        work = self.paths.require_confined(run_root / current.uid, self.paths.work_root)
         work.mkdir(exist_ok=False)
         command = Command(
             current.command.argv,
@@ -86,6 +84,7 @@ class BuildRuntime:
             + (
                 ("OBSERVER_OUT_DIR", str(cas.output)),
                 ("OBSERVER_BUILD_DIR", str(work)),
+                ("_MSPDBSRV_ENDPOINT_", f"observer_{current.uid}"),
             ),
             cwd=current.command.cwd,
             stdin=current.command.stdin,

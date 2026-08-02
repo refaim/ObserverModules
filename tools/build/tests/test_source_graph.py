@@ -72,7 +72,10 @@ class SourceGraphTests(unittest.TestCase):
         )
         contracts = sorted((REPOSITORY / "build/tests").glob("*.Tests.ps1"))
 
-        self.assertEqual(len(graph.nodes), 80)
+        self.assertEqual(
+            len(graph.nodes),
+            len(cpp_sources) + len(powershell_sources) + len(contracts) + 8,
+        )
         self.assertEqual(graph.targets, ("source-checks",))
         self.assertEqual(dict(graph.pools), {"restore": 1, "slot": 7})
         self.assertEqual(
@@ -178,11 +181,13 @@ class SourceGraphTests(unittest.TestCase):
         self.assertNotIn("PSScriptAnalyzer reported", pssa_script)
         self.assertIn("'psscriptanalyzer/build.ps1/'", pssa_script)
 
-        contract = graph.node("contract-build.tests.analysis-reporting.tests.ps1")
-        self.assertIn(
-            str(REPOSITORY / "build/tests/analysis-reporting.Tests.ps1"),
-            contract.command.stdin.decode(),
-        )
+        contracts = sorted((REPOSITORY / "build/tests").glob("*.Tests.ps1"))
+        self.assertTrue(contracts)
+        for test in contracts:
+            relative = test.relative_to(REPOSITORY).as_posix()
+            contract = graph.node(f"contract-{relative.lower().replace('/', '.')}")
+            self.assertEqual(contract.command.argv[0], r"C:\tools\pwsh.exe")
+            self.assertIn(str(test), contract.command.stdin.decode())
 
         merge = graph.node("merge-source-findings")
         self.assertEqual(merge.command.argv[1:4], ("-m", "core.sarif", "merge"))
@@ -238,13 +243,9 @@ class SourceGraphTests(unittest.TestCase):
     def test_rendered_powershell_is_parseable(self) -> None:
         graph = self.graph()
         scripts = "\n".join(
-            graph.node(name).command.stdin.decode()
-            for name in (
-                "format-src.modules.renpy.pickle.cpp",
-                "cppcheck-x64",
-                "pssa-build.ps1",
-                "contract-build.tests.analysis-reporting.tests.ps1",
-            )
+            node.command.stdin.decode()
+            for node in graph.nodes
+            if node.command.argv[0] == r"C:\tools\pwsh.exe"
         )
         parser = """
 $tokens = $null
