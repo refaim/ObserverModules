@@ -76,6 +76,17 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn('version: "0.12.1"', workflow)
         self.assertIn("id: runner-image", workflow)
         self.assertIn("${{ steps.runner-image.outputs.identity }}", workflow)
+        self.assertIn('"TEMP=$env:RUNNER_TEMP" | Add-Content -Path $env:GITHUB_ENV', workflow)
+        self.assertIn('"TMP=$env:RUNNER_TEMP" | Add-Content -Path $env:GITHUB_ENV', workflow)
+        self.assertIn(
+            "$baseline = (Get-Content -Raw -LiteralPath 'vcpkg.json' | "
+            "ConvertFrom-Json).'builtin-baseline'",
+            workflow,
+        )
+        self.assertIn(
+            "git -C $env:VCPKG_ROOT fetch --no-tags --depth=1 origin $baseline",
+            workflow,
+        )
         self.assertIn("C:\\Program Files\\Cppcheck", workflow)
         self.assertIn("nuget install Microsoft.CodeAnalysis.BinSkim", workflow)
         self.assertIn("tools\\net9.0\\win-x64\\BinSkim.exe", workflow)

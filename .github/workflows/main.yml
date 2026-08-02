@@ -68,7 +68,20 @@ jobs:
       - name: Prepare the pinned Python environment
         shell: pwsh
         run: |
+          "TEMP=$env:RUNNER_TEMP" | Add-Content -Path $env:GITHUB_ENV
+          "TMP=$env:RUNNER_TEMP" | Add-Content -Path $env:GITHUB_ENV
           New-Item -ItemType Directory -Force -Path $env:VCPKG_DEFAULT_BINARY_CACHE | Out-Null
+          $baseline = (Get-Content -Raw -LiteralPath 'vcpkg.json' | ConvertFrom-Json).'builtin-baseline'
+          if ($baseline -notmatch '^[0-9a-f]{40}$') {
+            throw "Invalid vcpkg builtin baseline: $baseline"
+          }
+          git -C $env:VCPKG_ROOT cat-file -e "$baseline^{commit}" 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            git -C $env:VCPKG_ROOT fetch --no-tags --depth=1 origin $baseline
+            if ($LASTEXITCODE -ne 0) {
+              throw "Unable to fetch vcpkg baseline $baseline."
+            }
+          }
           uv sync --project build --frozen
 
       - name: Provision external verification tools
