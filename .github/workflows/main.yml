@@ -81,8 +81,15 @@ jobs:
           }
           (Split-Path -Parent $cppcheck) | Add-Content -Path $env:GITHUB_PATH
           Install-Module PSScriptAnalyzer -RequiredVersion 1.25.0 -Repository PSGallery -Scope CurrentUser -Force
-          dotnet tool install --global Microsoft.CodeAnalysis.BinSkim --version 4.4.9.11
-          (Join-Path $env:USERPROFILE '.dotnet\tools') | Add-Content -Path $env:GITHUB_PATH
+          $binskimRoot = Join-Path $env:RUNNER_TEMP 'binskim'
+          nuget install Microsoft.CodeAnalysis.BinSkim -Version 4.4.9.11 `
+            -OutputDirectory $binskimRoot -DirectDownload -NonInteractive
+          $binskim = Join-Path $binskimRoot `
+            'Microsoft.CodeAnalysis.BinSkim.4.4.9.11\tools\net9.0\win-x64\BinSkim.exe'
+          if (-not (Test-Path -LiteralPath $binskim -PathType Leaf)) {
+            throw "BinSkim was not found after installation: $binskim"
+          }
+          (Split-Path -Parent $binskim) | Add-Content -Path $env:GITHUB_PATH
 
           $programFilesX86 = [Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFilesX86)
           $umdh = Join-Path $programFilesX86 'Windows Kits\10\Debuggers\x64\umdh.exe'
@@ -110,6 +117,7 @@ jobs:
         run: ./build.ps1 doctor
 
       - name: Verify repository sources
+        id: verify-source
         if: matrix.job == 'source'
         shell: pwsh
         run: |
@@ -117,6 +125,7 @@ jobs:
           ./build.ps1 verify-source -ExportDir $evidence
 
       - name: Verify one architecture
+        id: verify-arch
         if: matrix.job != 'source'
         shell: pwsh
         run: |
@@ -129,7 +138,7 @@ jobs:
             -LeakIterations $leakIterations -LeakWindows 3
 
       - name: Upload verification evidence
-        if: always()
+        if: always() && (steps.verify-source.outcome != 'skipped' || steps.verify-arch.outcome != 'skipped')
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: evidence-${{ matrix.job }}

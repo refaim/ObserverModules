@@ -33,7 +33,13 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertNotIn("continue-on-error", workflow)
 
         self.assertIn("upload-artifact", workflow)
-        self.assertIn("if: always()", workflow)
+        self.assertIn("id: verify-source", workflow)
+        self.assertIn("id: verify-arch", workflow)
+        self.assertIn(
+            "if: always() && (steps.verify-source.outcome != 'skipped' || "
+            "steps.verify-arch.outcome != 'skipped')",
+            workflow,
+        )
         self.assertIn("/manifest.json", workflow)
         self.assertIn("/reports", workflow)
         self.assertIn("/logs", workflow)
@@ -71,6 +77,9 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn("id: runner-image", workflow)
         self.assertIn("${{ steps.runner-image.outputs.identity }}", workflow)
         self.assertIn("C:\\Program Files\\Cppcheck", workflow)
+        self.assertIn("nuget install Microsoft.CodeAnalysis.BinSkim", workflow)
+        self.assertIn("tools\\net9.0\\win-x64\\BinSkim.exe", workflow)
+        self.assertNotIn("dotnet tool install --global Microsoft.CodeAnalysis.BinSkim", workflow)
         self.assertIn("$env:GITHUB_PATH", workflow)
 
         for duplicated_gate in (
