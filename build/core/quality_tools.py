@@ -96,6 +96,12 @@ def resolve_binskim() -> ResolvedTool:
 
 
 def resolve_umdh() -> ResolvedTool:
+    override = os.environ.get("OBSERVER_UMDH")
+    if override:
+        path = Path(override)
+        if not path.is_file():
+            raise FileNotFoundError(f"missing UMDH override: {path}")
+        return resolve_tool(path, "UMDH")
     program_files = os.environ.get("ProgramFiles(x86)")
     candidates = (() if not program_files else tuple(
         Path(program_files) / f"Windows Kits/{version}/Debuggers/x64/umdh.exe"

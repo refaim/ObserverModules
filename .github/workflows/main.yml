@@ -134,6 +134,39 @@ jobs:
             throw "UMDH was not found after Windows Debugging Tools setup: $umdh"
           }
 
+      - name: Provision the Windows 10 UMDH workaround
+        if: matrix.job == 'x64'
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP 'winsdk-19041'
+          $installer = Join-Path $env:RUNNER_TEMP 'winsdksetup-19041.exe'
+          Invoke-WebRequest -Uri 'https://go.microsoft.com/fwlink/?linkid=2311805' -OutFile $installer
+          $signature = Get-AuthenticodeSignature -LiteralPath $installer
+          if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'Microsoft') {
+            throw "Windows 10 SDK installer signature validation failed: $($signature.Status)"
+          }
+          $process = Start-Process -FilePath $installer -ArgumentList @(
+            '/features', 'OptionId.WindowsDesktopDebuggers',
+            '/installpath', $root,
+            '/quiet', '/norestart', '/ceip', 'off'
+          ) -Wait -PassThru
+          if ($process.ExitCode -notin @(0, 3010)) {
+            throw "Windows 10 Debugging Tools installation failed with exit code $($process.ExitCode)."
+          }
+          $umdh = Join-Path $root 'Debuggers\x64\umdh.exe'
+          $gflags = Join-Path $root 'Debuggers\x64\gflags.exe'
+          if (-not (Test-Path -LiteralPath $umdh -PathType Leaf)) {
+            throw "Windows 10 UMDH was not found after setup: $umdh"
+          }
+          if (-not (Test-Path -LiteralPath $gflags -PathType Leaf)) {
+            throw "Windows 10 GFlags was not found after setup: $gflags"
+          }
+          $version = [Diagnostics.FileVersionInfo]::GetVersionInfo($umdh).FileVersion
+          if (-not $version.StartsWith('10.0.19041.', [StringComparison]::Ordinal)) {
+            throw "Unexpected Windows 10 UMDH version: $version"
+          }
+          "OBSERVER_UMDH=$umdh" | Add-Content -Path $env:GITHUB_ENV
+
       - name: Check prerequisites through the public entry point
         shell: pwsh
         run: ./build.ps1 doctor

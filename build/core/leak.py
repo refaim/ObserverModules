@@ -159,11 +159,16 @@ def _enable_stack_traces(gflags: Path, image: str) -> bool:
     current = _run_gflags(gflags, image)
     if current.returncode:
         raise LeakError(f"GFlags query failed ({current.returncode}): {current.stdout}")
-    match = re.search(r"are:\s*([0-9A-Fa-f]+)\s*$", current.stdout)
+    match = re.search(
+        r"are:\s*([0-9A-Fa-f]{8}(?:\s*:\s*[0-9A-Fa-f]{8})*)\s*$",
+        current.stdout,
+    )
     if current.stdout.startswith("No Registry Settings for "):
         flags = 0
     elif match is not None:
-        flags = int(match.group(1), 16)
+        flags = 0
+        for value in match.group(1).split(":"):
+            flags |= int(value.strip(), 16)
     else:
         raise LeakError(f"GFlags returned an unrecognized setting: {current.stdout}")
     if flags & 0x1000:
@@ -177,8 +182,18 @@ def _enable_stack_traces(gflags: Path, image: str) -> bool:
     return True
 
 
-def _snapshot(umdh: Path, pid: int, destination: Path, baseline: bool) -> None:
-    result = subprocess.run([str(umdh), f"-p:{pid}", f"-f:{destination}"], text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, encoding="utf-8", errors="replace")
+def _snapshot(
+    umdh: Path, pid: int, destination: Path, baseline: bool, environment: dict[str, str]
+) -> None:
+    result = subprocess.run(
+        [str(umdh), f"-p:{pid}", f"-f:{destination}"],
+        env=environment,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        encoding="utf-8",
+        errors="replace",
+    )
     text = destination.read_text(encoding="utf-8", errors="replace") if destination.is_file() else ""
     if baseline:
         if result.returncode not in (0, 1) or (result.returncode == 1 and "enabled allocation stack collection" not in text):
@@ -215,7 +230,13 @@ def _capture(args: Sequence[str]) -> None:
                 line = _read(process, "SNAPSHOT", label)
                 if not re.search(rf"\|pid={process.pid}\|", line):
                     raise LeakError("leak SNAPSHOT marker has the wrong PID")
-                _snapshot(umdh, process.pid, snapshot_dir / f"{label}.txt", label == "baseline")
+                _snapshot(
+                    umdh,
+                    process.pid,
+                    snapshot_dir / f"{label}.txt",
+                    label == "baseline",
+                    environment,
+                )
                 assert process.stdin is not None
                 process.stdin.write(f"continue|{label}\n")
                 process.stdin.flush()

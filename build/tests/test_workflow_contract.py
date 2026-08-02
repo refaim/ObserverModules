@@ -94,6 +94,11 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn("tools\\net9.0\\win-x64\\BinSkim.exe", workflow)
         self.assertNotIn("dotnet tool install --global Microsoft.CodeAnalysis.BinSkim", workflow)
         self.assertIn("$env:GITHUB_PATH", workflow)
+        self.assertIn("if: matrix.job == 'x64'", workflow)
+        self.assertIn("https://go.microsoft.com/fwlink/?linkid=2311805", workflow)
+        self.assertIn("'10.0.19041.'", workflow)
+        self.assertIn("'Debuggers\\x64\\gflags.exe'", workflow)
+        self.assertIn('"OBSERVER_UMDH=$umdh" | Add-Content -Path $env:GITHUB_ENV', workflow)
 
         for duplicated_gate in (
             "./build.ps1 source-checks",

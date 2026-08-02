@@ -295,6 +295,10 @@ The workflow first runs `doctor`, then exactly one public verification command. 
 evidence bundle and uploads the separate package bundle only from successful `master` architecture jobs. Branch
 protection requires `source`, `x86`, `x64`, and `arm64-cross`.
 
+The hosted x64 job selects UMDH from the serviced Windows 10 SDK 2004 line explicitly. This avoids the documented
+allocation-stack capture defect in the UMDH shipped with Windows 11 SDKs without changing the locally runnable leak
+gate or the SDK used to compile production binaries.
+
 ### Future analysis backlog
 
 The following tools are deliberately recorded for later work so that they are not lost while the build and test

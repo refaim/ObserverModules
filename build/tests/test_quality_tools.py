@@ -138,6 +138,17 @@ class QualityToolsTests(unittest.TestCase):
                 tools = discover_quality_tools(toolchain)  # type: ignore[arg-type]
         self.assertIn("Windows Kits\\10", str(tools.umdh.path))
 
+    def test_explicit_umdh_override_is_strict(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            umdh = Path(temporary) / "sdk-19041/Debuggers/x64/umdh.exe"
+            umdh.parent.mkdir(parents=True)
+            umdh.write_bytes(b"umdh-19041")
+            with mock.patch.dict(os.environ, {"OBSERVER_UMDH": str(umdh)}, clear=False):
+                self.assertEqual(umdh.resolve(), resolve_umdh().path)
+                umdh.unlink()
+                with self.assertRaisesRegex(FileNotFoundError, "missing UMDH override"):
+                    resolve_umdh()
+
     def test_selective_resolvers_are_lazy_and_match_the_aggregate(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             toolchain, binskim, program_files = self.fixture(Path(temporary))

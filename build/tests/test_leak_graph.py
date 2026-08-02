@@ -399,6 +399,8 @@ class LeakWorkerTests(unittest.TestCase):
                 if Path(argv[0]) == gflags:
                     output = "Current Registry Settings for leak-probe.exe executable are: 00000000" if len(argv) == 3 else ""
                     return subprocess.CompletedProcess(argv, 0, output)
+                self.assertEqual(str(root), _options["env"]["_NT_SYMBOL_PATH"])
+                self.assertEqual("1", _options["env"]["OANOCACHE"])
                 Path(argv[-1].removeprefix("-f:")).write_text("BackTrace 1\n", encoding="utf-8")
                 return subprocess.CompletedProcess(argv, 0, "")
 
@@ -549,6 +551,13 @@ class LeakWorkerTests(unittest.TestCase):
             with mock.patch("core.leak.subprocess.run", side_effect=(absent, changed)):
                 self.assertTrue(leak._enable_stack_traces(gflags, "probe.exe"))
 
+            dual_view = mock.Mock(
+                returncode=0,
+                stdout="Current Registry Settings for probe.exe executable are: 00000000 : 00000000",
+            )
+            with mock.patch("core.leak.subprocess.run", side_effect=(dual_view, changed)):
+                self.assertTrue(leak._enable_stack_traces(gflags, "probe.exe"))
+
             for result, message in (
                 (mock.Mock(returncode=1, stdout="denied"), "query failed"),
                 (mock.Mock(returncode=0, stdout="unexpected"), "unrecognized"),
@@ -661,7 +670,7 @@ class LeakWorkerTests(unittest.TestCase):
                 with self.subTest(snapshot=(result.returncode, baseline, content)), mock.patch(
                     "core.leak.subprocess.run", return_value=result
                 ), self.assertRaises(LeakError):
-                    leak._snapshot(Path("umdh"), 1, destination, baseline)
+                    leak._snapshot(Path("umdh"), 1, destination, baseline, {})
 
             report = root / "report.txt"
 
