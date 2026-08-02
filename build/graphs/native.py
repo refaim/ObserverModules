@@ -5,36 +5,26 @@ from __future__ import annotations
 from collections.abc import Mapping
 from pathlib import Path
 
-from core.graph import Graph, Node, merge_graphs
+from core.graph import Graph, Node, Result, merge_graphs
 from core.node import NodeFactory
 from core.paths import BuildPaths
-from core.render import TemplateRenderer
 from core.toolchain import MsvcToolchain
 from graphs.analysis import (
     dependency_discovery_slice,
-    dependency_inputs,
-    dependency_node_name,
+    project_build,
+    project_inventory,
 )
 from graphs.common import (
     BINARIES,
-    BUILD_ROOT,
-    COMMON_PROJECT_INPUTS,
     PLATFORMS,
     PROJECTS,
-    project_inputs,
-    project_path,
-    project_sources,
+    recipe_factory,
     require_positive_integers,
     tool_environment,
 )
 
 
 _CONFIGURATIONS = ("Debug", "Release")
-_COMMON_INPUTS = COMMON_PROJECT_INPUTS
-_project_inputs = project_inputs
-_relative = project_path
-
-
 def _validate_matrix(
     jobs: int, architectures: tuple[str, ...], configurations: tuple[str, ...]
 ) -> None:
@@ -76,57 +66,6 @@ def native_dependency_discovery_slice(
     return merge_graphs(*graphs)
 
 
-def _build(
-    repository: Path,
-    toolchain: MsvcToolchain,
-    factory: NodeFactory,
-    discovery: Graph,
-    manifests: Mapping[str, bytes],
-    restore_output: Path,
-    project_name: str,
-    architecture: str,
-    configuration: str,
-    platform: str,
-) -> Node:
-    project = repository / "build/projects" / f"{project_name}.vcxproj"
-    inputs = project_inputs(repository, project)
-    files = {path: (repository / path).read_bytes() for path in inputs}
-    dependencies = []
-    for source in project_sources(repository, project):
-        name = dependency_node_name(
-            repository, architecture, project_name, source, configuration.lower()
-        )
-        dependencies.append(discovery.node(name))
-        try:
-            manifest = manifests[name]
-        except KeyError as error:
-            raise ValueError(f"missing dependency manifest: {name}") from error
-        files.update(dependency_inputs(repository, restore_output, source, manifest))
-    return factory.make(
-        "native-build.ps1",
-        f"build-{project_name}-{architecture}-{configuration.lower()}",
-        "slot",
-        {
-            "pwsh": str(toolchain.pwsh),
-            "msbuild": str(toolchain.msbuild),
-            "project": str(project),
-            "target": "Build",
-            "configuration": configuration,
-            "platform": platform,
-            "vcpkg_root": str(toolchain.vcpkg_root),
-            "vcpkg_installed": str(restore_output),
-        },
-        files=files,
-        dependencies=tuple(dependencies),
-        config={
-            "action": "build",
-            "architecture": architecture,
-            "configuration": configuration,
-            "project": project_name,
-        },
-    )
-
-
 def _test_shard(
     repository: Path,
     toolchain: MsvcToolchain,
@@ -143,11 +82,12 @@ def _test_shard(
     artifacts = [
         {
             "name": BINARIES[project],
-            "source": str(paths.cas(node.uid, node.name).output / BINARIES[project]),
+            "source": str(paths.cas(node.uid).output / BINARIES[project]),
         }
         for project, node in zip(PROJECTS, builds, strict=True)
     ]
     prefix = "corpus" if corpus is not None else "test"
+    result_scope = "corpus" if corpus is not None else "unit"
     name = f"{prefix}-shard-{architecture}-{configuration.lower()}-{shard_index}"
     config = {
         "action": "test",
@@ -174,6 +114,13 @@ def _test_shard(
         },
         files={},
         dependencies=builds,
+        results=(Result(
+            f"reports/tests/{architecture}/{configuration.lower()}/{result_scope}/"
+            f"shard-{shard_index}.xml",
+            "test",
+            "application/xml",
+            "tests.xml",
+        ),),
         config=config,
         **options,
     )
@@ -212,49 +159,37 @@ def native_graph(
         raise ValueError("native dependency discovery is required")
 
     root = repository.resolve(strict=True)
-    renderer = TemplateRenderer(BUILD_ROOT / "templates")
-    factory = NodeFactory(
-        renderer, root, dict(toolchain.identity), tool_environment(toolchain)
-    )
+    factory = recipe_factory(root, dict(toolchain.identity), tool_environment(toolchain))
     paths = BuildPaths(root)
     nodes: list[Node] = list(discovery.nodes)
     targets: list[str] = []
     runnable = set(runnable_architectures)
+    projects = project_inventory(root, PROJECTS)
 
     for architecture in architectures:
         restore = discovery.node(f"restore-vcpkg-{architecture}")
-        restore_output = paths.cas(restore.uid, restore.name).output
+        restore_output = paths.cas(restore.uid).output
         for configuration in configurations:
-            builds = tuple(
-                _build(
-                    root,
-                    toolchain,
-                    factory,
-                    discovery,
-                    manifests,
-                    restore_output,
-                    project,
-                    architecture,
-                    configuration,
-                    PLATFORMS[architecture],
+            def build(project):
+                return project_build(
+                    root, factory, discovery, manifests, restore_output, project,
+                    architecture, configuration.lower(), "native-build.ps1", {
+                        "pwsh": str(toolchain.pwsh), "msbuild": str(toolchain.msbuild),
+                        "project": str(project.path), "target": "Build",
+                        "configuration": configuration, "platform": PLATFORMS[architecture],
+                        "vcpkg_root": str(toolchain.vcpkg_root),
+                        "vcpkg_installed": str(restore_output),
+                    }, config={
+                        "action": "build", "architecture": architecture,
+                        "configuration": configuration, "project": project.name,
+                    },
                 )
-                for project in PROJECTS
-            )
+
+            builds = tuple(build(project) for project in projects)
             nodes.extend(builds)
             leak_probe = None
             if include_leak_probe and architecture == "x64" and configuration == "Release":
-                leak_probe = _build(
-                    root,
-                    toolchain,
-                    factory,
-                    discovery,
-                    manifests,
-                    restore_output,
-                    "leak-probe",
-                    architecture,
-                    configuration,
-                    PLATFORMS[architecture],
-                )
+                leak_probe = build(project_inventory(root, ("leak-probe",))[0])
                 nodes.append(leak_probe)
 
             if architecture in runnable:

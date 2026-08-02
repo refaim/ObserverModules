@@ -156,7 +156,7 @@ class InstrumentedBuildGraphTests(unittest.TestCase):
             discovery = instrumented_dependency_discovery_slice(
                 repository, toolchain, variants=variants, jobs=8
             )
-            graph, artifacts = instrumented_build_slice(
+            graph = instrumented_build_slice(
                 repository,
                 toolchain,
                 discovery=discovery,
@@ -200,10 +200,9 @@ class InstrumentedBuildGraphTests(unittest.TestCase):
                 ("-m", "core.clang_dependencies", "scan"),
             )
         self.assertNotIn("PlatformToolset=v143", asan_discovery)
-        self.assertEqual(len(graph.nodes), len(discovery.nodes) + len(artifacts))
+        self.assertEqual(len(graph.nodes), len(discovery.nodes) + len(graph.targets))
         self.assertEqual(len(graph.targets), 16)
         self.assertEqual(graph.pools, {"restore": 1, "slot": 8})
-        self.assertEqual(len(artifacts), 16)
 
         for variant in variants:
             restore = (
@@ -211,12 +210,7 @@ class InstrumentedBuildGraphTests(unittest.TestCase):
                 if variant.kind == "asan"
                 else f"restore-vcpkg-{variant.architecture}"
             )
-            for project, filename in (
-                ("renpy", "renpy.so"),
-                ("rpgmaker", "rpgmaker.so"),
-                ("zanzarah", "zanzarah.so"),
-                ("tests", "tests.exe"),
-            ):
+            for project in ("renpy", "rpgmaker", "zanzarah", "tests"):
                 build = graph.node(
                     f"build-{project}-{variant.architecture}-{variant.kind}"
                 )
@@ -228,7 +222,7 @@ class InstrumentedBuildGraphTests(unittest.TestCase):
                 self.assertIn(f"'/p:Configuration={variant.configuration}'", script)
                 self.assertIn("'/m:1'", script)
                 self.assertIn("'/p:BuildProjectReferences=false'", script)
-                self.assertIn(str(paths.cas(graph.node(restore).uid, restore).output), script)
+                self.assertIn(str(paths.cas(graph.node(restore).uid).output), script)
                 if variant.kind in {"coverage", "ubsan"}:
                     self.assertIn("'/p:LLVMInstallDir=", script)
                 else:
@@ -237,14 +231,6 @@ class InstrumentedBuildGraphTests(unittest.TestCase):
                     self.assertIn("'/p:LLVMRuntimeDir=", script)
                 else:
                     self.assertNotIn("'/p:LLVMRuntimeDir=", script)
-                artifact = next(
-                    item
-                    for item in artifacts
-                    if (item.kind, item.architecture, item.name)
-                    == (variant.kind, variant.architecture, project)
-                )
-                self.assertEqual(artifact.producer, build)
-                self.assertEqual(artifact.path, paths.cas(build.uid, build.name).output / filename)
 
     def test_invalid_variants_manifests_and_runtime_contracts_fail_closed(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -412,7 +398,7 @@ class InstrumentedBuildGraphTests(unittest.TestCase):
                 repository, toolchain, variants=variants
             )
             manifests = self.manifests(repository, discovery)
-            before, _artifacts = instrumented_build_slice(
+            before = instrumented_build_slice(
                 repository,
                 toolchain,
                 discovery=discovery,
@@ -424,7 +410,7 @@ class InstrumentedBuildGraphTests(unittest.TestCase):
             clang_discovery = instrumented_dependency_discovery_slice(
                 repository, toolchain, variants=variants
             )
-            clang_changed, _artifacts = instrumented_build_slice(
+            clang_changed = instrumented_build_slice(
                 repository,
                 toolchain,
                 discovery=clang_discovery,
@@ -437,7 +423,7 @@ class InstrumentedBuildGraphTests(unittest.TestCase):
             scanner_discovery = instrumented_dependency_discovery_slice(
                 repository, toolchain, variants=variants
             )
-            scanner_changed, _artifacts = instrumented_build_slice(
+            scanner_changed = instrumented_build_slice(
                 repository,
                 toolchain,
                 discovery=scanner_discovery,
@@ -450,7 +436,7 @@ class InstrumentedBuildGraphTests(unittest.TestCase):
                 variants[1],
                 InstrumentedVariant("ubsan", "x64", runtime, {"hash": "after"}),
             )
-            runtime_changed, _artifacts = instrumented_build_slice(
+            runtime_changed = instrumented_build_slice(
                 repository,
                 toolchain,
                 discovery=discovery,
@@ -460,7 +446,7 @@ class InstrumentedBuildGraphTests(unittest.TestCase):
             (repository / "src/renpy.h").write_text(
                 "#pragma once\n// changed\n", encoding="utf-8"
             )
-            source_changed, _artifacts = instrumented_build_slice(
+            source_changed = instrumented_build_slice(
                 repository,
                 toolchain,
                 discovery=discovery,
@@ -473,7 +459,7 @@ class InstrumentedBuildGraphTests(unittest.TestCase):
             changed_discovery = instrumented_dependency_discovery_slice(
                 repository, changed_toolchain, variants=variants
             )
-            toolchain_changed, _artifacts = instrumented_build_slice(
+            toolchain_changed = instrumented_build_slice(
                 repository,
                 changed_toolchain,
                 discovery=changed_discovery,

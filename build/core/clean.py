@@ -91,7 +91,7 @@ def _require_inactive(paths: BuildPaths) -> tuple[Path, ...]:
 
 
 def clean(repository: Path | str, mode: str = "all") -> tuple[Path, ...]:
-    """Remove all output or inactive run work, never anything outside exact ``out``."""
+    """Remove all output or inactive work, including legacy CAS entry names."""
 
     if mode not in _MODES:
         raise ValueError(f"unsupported clean mode: {mode}")

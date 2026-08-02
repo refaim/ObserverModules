@@ -19,7 +19,6 @@ from core.cpp_coverage import CoverageError, main as coverage_main, require_full
 from core.graph import Command, Graph, Node  # noqa: E402
 from core.paths import BuildPaths  # noqa: E402
 from graphs.coverage import (  # noqa: E402
-    CoverageArtifact,
     coverage_artifact_graph,
     coverage_dependency_discovery_slice,
     coverage_graph,
@@ -40,12 +39,10 @@ def node(name: str, *, inputs: tuple[str, ...] = ()) -> Node:
 class CppCoverageGraphTests(unittest.TestCase):
     def fixture(
         self, root: Path, architectures: tuple[str, ...] = ("x64", "x86")
-    ) -> tuple[Path, Graph, tuple[CoverageArtifact, ...], dict[str, Path]]:
+    ) -> tuple[Path, Graph, dict[str, Path]]:
         repository = root / "repo"
         repository.mkdir()
-        paths = BuildPaths(repository)
         nodes = []
-        artifacts = []
         for architecture in architectures:
             restore = node(f"restore-vcpkg-{architecture}")
             discovery = node(f"coverage-dependencies-{architecture}", inputs=(restore.name,))
@@ -60,14 +57,6 @@ class CppCoverageGraphTests(unittest.TestCase):
                     f"build-{name}-{architecture}-coverage", inputs=(discovery.name,)
                 )
                 nodes.append(producer)
-                artifacts.append(
-                    CoverageArtifact(
-                        architecture,
-                        name,
-                        producer,
-                        paths.cas(producer.uid, producer.name).output / filename,
-                    )
-                )
         upstream = Graph(tuple(nodes), tuple(item.name for item in nodes[1:]), {"build": 8})
         tools = root / "tools"
         tools.mkdir()
@@ -77,16 +66,15 @@ class CppCoverageGraphTests(unittest.TestCase):
         }
         for path in selected.values():
             path.touch()
-        return repository, upstream, tuple(artifacts), selected
+        return repository, upstream, selected
 
     def graph(self, root: Path, **options: object) -> Graph:
-        repository, upstream, artifacts, tools = self.fixture(
-            root, options.pop("architectures", ("x64", "x86"))  # type: ignore[arg-type]
-        )
+        architectures = options.pop("architectures", ("x64", "x86"))
+        repository, upstream, tools = self.fixture(root, architectures)  # type: ignore[arg-type]
         return coverage_artifact_graph(
             repository,
             upstream,
-            artifacts,
+            architectures=architectures,  # type: ignore[arg-type]
             pwsh=tools["pwsh.exe"],
             pwsh_identity={"version": options.pop("pwsh_version", "7.5")},
             llvm_profdata=tools["llvm-profdata.exe"],
@@ -134,6 +122,13 @@ class CppCoverageGraphTests(unittest.TestCase):
                 self.assertIn("'2'", script)
                 self.assertIn("'--shard-index'", script)
                 self.assertIn(f"'{index}'", script)
+                self.assertEqual(
+                    tuple((item.id, item.relative_path) for item in shard.results),
+                    ((
+                        f"reports/coverage/cpp/{architecture}/tests/shard-{index}.xml",
+                        "tests.xml",
+                    ),),
+                )
 
             merge = graph.node(f"coverage-merge-{architecture}")
             self.assertEqual(merge.inputs, tuple(item.name for item in shards))
@@ -144,7 +139,7 @@ class CppCoverageGraphTests(unittest.TestCase):
             self.assertIn("$arguments = @('merge', '-sparse') + $profiles", merge_script)
             self.assertIn("llvm-profdata.exe' $arguments", merge_script)
             for shard in shards:
-                self.assertIn(str(paths.cas(shard.uid, shard.name).output), merge_script)
+                self.assertIn(str(paths.cas(shard.uid).output), merge_script)
 
             reports = tuple(
                 graph.node(f"coverage-{kind}-{architecture}") for kind in ("json", "lcov")
@@ -158,6 +153,23 @@ class CppCoverageGraphTests(unittest.TestCase):
                 self.assertIn("--ignore-filename-regex", script)
                 for module in ("renpy.so", "rpgmaker.so", "zanzarah.so"):
                     self.assertIn(module, script)
+            self.assertEqual(
+                tuple((item.id, item.kind, item.media_type, item.relative_path)
+                      for item in reports[0].results),
+                ((
+                    f"reports/coverage/cpp/{architecture}/coverage.json",
+                    "coverage", "application/json", "coverage.json",
+                ),),
+            )
+            self.assertEqual(
+                tuple((item.id, item.kind, item.media_type, item.relative_path)
+                      for item in reports[1].results),
+                ((
+                    f"reports/coverage/cpp/{architecture}/coverage.lcov",
+                    "coverage", "text/plain", "coverage.lcov",
+                ),),
+            )
+            self.assertEqual(merge.results, ())
             self.assertIn("--summary-only", reports[0].command.stdin.decode("utf-8"))
             self.assertIn("--format=lcov", reports[1].command.stdin.decode("utf-8"))
 
@@ -166,17 +178,18 @@ class CppCoverageGraphTests(unittest.TestCase):
             self.assertEqual(gate.pool, "coverage-gate")
             self.assertEqual(gate.command.argv[1:4], ("-m", "core.cpp_coverage", "gate"))
             self.assertNotIn("threshold", " ".join(gate.command.argv).casefold())
+            self.assertEqual(gate.results, ())
 
     def test_tool_identities_invalidate_only_their_nodes_and_semantic_consumers(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            repository, upstream, artifacts, tools = self.fixture(root, ("x64",))
+            repository, upstream, tools = self.fixture(root, ("x64",))
 
             def build(profdata_version: str, cov_version: str) -> Graph:
                 return coverage_artifact_graph(
                     repository,
                     upstream,
-                    artifacts,
+                    architectures=("x64",),
                     pwsh=tools["pwsh.exe"],
                     pwsh_identity={"version": "7.5"},
                     llvm_profdata=tools["llvm-profdata.exe"],
@@ -201,7 +214,7 @@ class CppCoverageGraphTests(unittest.TestCase):
     def test_external_corpus_adds_independent_profile_shards_and_signs_only_path_and_nonce(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            repository, upstream, artifacts, tools = self.fixture(root, ("x64",))
+            repository, upstream, tools = self.fixture(root, ("x64",))
             corpus = root / "corpus"
             moved_corpus = root / "moved-corpus"
             corpus.mkdir()
@@ -211,7 +224,7 @@ class CppCoverageGraphTests(unittest.TestCase):
                 return coverage_artifact_graph(
                     repository,
                     upstream,
-                    artifacts,
+                    architectures=("x64",),
                     pwsh=tools["pwsh.exe"],
                     pwsh_identity={"version": "7.5"},
                     llvm_profdata=tools["llvm-profdata.exe"],
@@ -230,6 +243,13 @@ class CppCoverageGraphTests(unittest.TestCase):
             content_changed = build(corpus, "run-one")
             rerun = build(corpus, "run-two")
             moved = build(moved_corpus, "run-one")
+            cas_outputs = {
+                name: BuildPaths(repository).cas(first.node(name).uid).output
+                for name in (
+                    *(f"coverage-test-x64-{index}" for index in range(2)),
+                    *(f"coverage-corpus-x64-{index}" for index in range(2)),
+                )
+            }
 
         standard_names = tuple(f"coverage-test-x64-{index}" for index in range(2))
         corpus_names = tuple(f"coverage-corpus-x64-{index}" for index in range(2))
@@ -250,26 +270,36 @@ class CppCoverageGraphTests(unittest.TestCase):
             script = shard.command.stdin.decode("utf-8")
             self.assertIn("'[compatibility]'", script)
             self.assertIn("LLVM_PROFILE_FILE", script)
+            self.assertEqual(
+                tuple((item.id, item.relative_path) for item in shard.results),
+                ((
+                    f"reports/coverage/cpp/x64/corpus/shard-{index}.xml",
+                    "tests.xml",
+                ),),
+            )
         merge = first.node("coverage-merge-x64")
         self.assertEqual(merge.inputs, standard_names + corpus_names)
         for name in (*standard_names, *corpus_names):
-            output = repository / "out/cas" / f"{first.node(name).uid}-{name}" / "out"
-            self.assertIn(str(output), merge.command.stdin.decode())
+            self.assertIn(str(cas_outputs[name]), merge.command.stdin.decode())
         self.assertTrue(all(
             "OBSERVER_TEST_CORPUS" not in dict(node.command.env)
             for node in first.nodes if not node.name.startswith("coverage-corpus-")
         ))
 
-    def test_adapter_rejects_incomplete_ambiguous_or_untrusted_build_outputs(self) -> None:
+    def test_rejects_invalid_axes_lineage_tools_pools_and_corpus(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            repository, upstream, artifacts, tools = self.fixture(root, ("x64",))
+            repository, upstream, tools = self.fixture(root, ("x64",))
 
-            def invoke(selected: tuple[CoverageArtifact, ...], source: Graph = upstream, **options: object) -> Graph:
+            def invoke(
+                source: Graph = upstream,
+                architectures: tuple[str, ...] = ("x64",),
+                **options: object,
+            ) -> Graph:
                 return coverage_artifact_graph(
                     repository,
                     source,
-                    selected,
+                    architectures=architectures,
                     pwsh=options.pop("pwsh", tools["pwsh.exe"]),  # type: ignore[arg-type]
                     pwsh_identity={"version": "7.5"},
                     llvm_profdata=tools["llvm-profdata.exe"],
@@ -279,51 +309,22 @@ class CppCoverageGraphTests(unittest.TestCase):
                     **options,
                 )
 
-            with self.assertRaisesRegex(ValueError, "complete.*set"):
-                invoke(artifacts[:-1])
-            with self.assertRaisesRegex(ValueError, "at least one"):
-                invoke(())
-            with self.assertRaisesRegex(ValueError, "duplicate"):
-                invoke(artifacts + (artifacts[0],))
-            with self.assertRaisesRegex(ValueError, "identity"):
-                invoke((CoverageArtifact("armv7", "renpy", artifacts[0].producer, artifacts[0].path),))
-            with self.assertRaisesRegex(ValueError, "identity"):
-                invoke((CoverageArtifact("x64", "bad", artifacts[0].producer, artifacts[0].path),))
+            for invalid in ((), ("x64", "x64"), ("armv7",)):
+                with self.subTest(invalid=invalid), self.assertRaisesRegex(ValueError, "architectures"):
+                    invoke(architectures=invalid)
 
-            impostor = Node(
-                artifacts[0].producer.name,
-                hashlib.md5(b"impostor", usedforsecurity=False).hexdigest(),
-                "build",
-                artifacts[0].producer.command,
-                ("restore-vcpkg-x64",),
+            missing = Graph(
+                tuple(item for item in upstream.nodes if item.name != "build-tests-x64-coverage"),
+                tuple(name for name in upstream.targets if name != "build-tests-x64-coverage"),
+                upstream.pools,
             )
-            with self.assertRaisesRegex(ValueError, "producer CAS"):
-                invoke((CoverageArtifact("x64", "renpy", impostor, artifacts[0].path), *artifacts[1:]))
-            wrong_producer = node("build-renpy-x64-debug", inputs=("restore-vcpkg-x64",))
-            wrong_source = Graph(upstream.nodes + (wrong_producer,), upstream.targets, upstream.pools)
-            with self.assertRaisesRegex(ValueError, "producer CAS"):
-                invoke(
-                    (
-                        CoverageArtifact(
-                            "x64", "renpy", wrong_producer,
-                            BuildPaths(repository).cas(wrong_producer.uid, wrong_producer.name).output / "renpy.so",
-                        ),
-                        *artifacts[1:],
-                    ),
-                    wrong_source,
-                )
-            with self.assertRaisesRegex(ValueError, "producer CAS"):
-                invoke((CoverageArtifact("x64", "renpy", artifacts[0].producer, root / "outside.so"), *artifacts[1:]))
-            wrong_name = artifacts[0].path.with_name("wrong.so")
-            with self.assertRaisesRegex(ValueError, "producer CAS"):
-                invoke((CoverageArtifact("x64", "renpy", artifacts[0].producer, wrong_name), *artifacts[1:]))
+            with self.assertRaisesRegex(ValueError, "unknown node"):
+                invoke(missing)
 
             shared = node("detached-shared")
             left = node("detached-left", inputs=(shared.name,))
             right = node("detached-right", inputs=(shared.name,))
-            detached = node(
-                "build-renpy-x64-coverage", inputs=(left.name, right.name)
-            )
+            detached = node("build-renpy-x64-coverage", inputs=(left.name, right.name))
             detached_upstream = Graph(
                 tuple(
                     detached if current.name == detached.name else current
@@ -332,37 +333,32 @@ class CppCoverageGraphTests(unittest.TestCase):
                 upstream.targets,
                 upstream.pools,
             )
-            detached_artifacts = (
-                CoverageArtifact(
-                    "x64", "renpy", detached,
-                    BuildPaths(repository).cas(detached.uid, detached.name).output / "renpy.so",
-                ),
-                *artifacts[1:],
-            )
             with self.assertRaisesRegex(ValueError, "restore ancestor"):
-                invoke(detached_artifacts, detached_upstream)
+                invoke(detached_upstream)
 
-            for options in (
-                {"test_shards": 0}, {"jobs": True}, {"report_jobs": 0},
-            ):
+            for options in ({"test_shards": 0}, {"jobs": True}, {"report_jobs": 0}):
                 with self.subTest(options=options), self.assertRaisesRegex(ValueError, "positive integer"):
-                    invoke(artifacts, **options)
+                    invoke(**options)
             with self.assertRaisesRegex(FileNotFoundError, "not a file"):
-                invoke(artifacts, pwsh=tools["pwsh.exe"].parent)
-            conflicting = Graph(upstream.nodes, upstream.targets, dict(upstream.pools) | {"coverage-report": 1})
+                invoke(pwsh=tools["pwsh.exe"].parent)
+            conflicting = Graph(
+                upstream.nodes,
+                upstream.targets,
+                dict(upstream.pools) | {"coverage-report": 1},
+            )
             with self.assertRaisesRegex(ValueError, "conflicting pool"):
-                invoke(artifacts, conflicting, report_jobs=2)
+                invoke(conflicting, report_jobs=2)
             corpus = root / "corpus"
             corpus.mkdir()
             for nonce in ("", True, "bad\0nonce"):
                 with self.subTest(nonce=nonce), self.assertRaisesRegex(ValueError, "run nonce"):
-                    invoke(artifacts, corpus=corpus, run_nonce=nonce)
+                    invoke(corpus=corpus, run_nonce=nonce)
             with self.assertRaises(FileNotFoundError):
-                invoke(artifacts, corpus=root / "missing", run_nonce="run")
+                invoke(corpus=root / "missing", run_nonce="run")
             file_corpus = root / "corpus.bin"
             file_corpus.touch()
             with self.assertRaises(NotADirectoryError):
-                invoke(artifacts, corpus=file_corpus, run_nonce="run")
+                invoke(corpus=file_corpus, run_nonce="run")
 
     def test_complete_graph_discovers_and_builds_coverage_artifacts_itself(self) -> None:
         helper = instrumented_fixture.InstrumentedBuildGraphTests()

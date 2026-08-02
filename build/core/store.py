@@ -47,7 +47,7 @@ class CasStore:
         self._run_work = paths.run_work(run_identifier)
 
     def paths_for(self, current: Node) -> CasPaths:
-        return self._paths.cas(current.uid, current.name)
+        return self._paths.cas(current.uid)
 
     def is_complete(self, current: Node) -> bool:
         return _complete(self.paths_for(current))

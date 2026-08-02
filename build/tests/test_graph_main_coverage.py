@@ -258,23 +258,6 @@ class CommonAndFuzzCoverageTests(unittest.TestCase):
 
 
 class NativeCoverageTests(unittest.TestCase):
-    def test_project_metadata_rejects_external_input_and_ignores_empty_items(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            repository = Path(temporary) / "repo"
-            project = write(
-                repository,
-                "build/projects/sample.vcxproj",
-                '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">'
-                "<ItemGroup><ClCompile /><ModuleDefinitionFile /></ItemGroup></Project>",
-            )
-
-            inputs = native._project_inputs(repository, project)
-
-            self.assertEqual(inputs[-1], "build/projects/sample.vcxproj")
-            self.assertEqual(len(inputs), len(native._COMMON_INPUTS) + 1)
-            with self.assertRaisesRegex(ValueError, "unsupported project input"):
-                native._relative(repository, "C:\\external.cpp", project)
-
     def test_invalid_job_capacity_and_nonrunnable_release_leak_probe_contract(self) -> None:
         with self.assertRaisesRegex(ValueError, "jobs must be a positive integer"):
             native.native_graph(

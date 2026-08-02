@@ -28,6 +28,7 @@ class TemplateRendererTests(unittest.TestCase):
             "name": "build-renpy-x64",
             "pool": "slot",
             "inputs": ["src/modules/renpy/renpy.vcxproj"],
+            "results": [],
             "pwsh": "pwsh.exe",
             "msbuild": r"C:\Program Files\O'Brien Tools\MSBuild.exe",
             "project": r"C:\repo\RPG's\renpy.vcxproj",
@@ -44,6 +45,7 @@ class TemplateRendererTests(unittest.TestCase):
         self.assertEqual(recipe["name"], "build-renpy-x64")
         self.assertEqual(recipe["pool"], "slot")
         self.assertNotIn("outputs", recipe)
+        self.assertEqual(recipe["results"], [])
         self.assertEqual(
             recipe["script"]["exec"],
             [
@@ -89,6 +91,21 @@ class TemplateRendererTests(unittest.TestCase):
         with self.assertRaisesRegex(UndefinedError, "platform.*undefined"):
             self.renderer.render("msbuild.ps1", variables)
 
+    def test_inherited_recipe_renders_declared_typed_results(self) -> None:
+        variables = self.variables()
+        variables["results"] = [
+            {
+                "id": "binary/renpy/x64",
+                "kind": "module",
+                "media_type": "application/vnd.microsoft.portable-executable",
+                "path": "bin/renpy.dll",
+            }
+        ]
+
+        recipe = json.loads(self.renderer.render("msbuild.ps1", variables))
+
+        self.assertEqual(recipe["results"], variables["results"])
+
     def test_power_shell_quote_is_a_single_literal(self) -> None:
         self.assertEqual(ps_quote("plain"), "'plain'")
         self.assertEqual(ps_quote("O'Brien"), "'O''Brien'")
@@ -103,6 +120,36 @@ class TemplateRendererTests(unittest.TestCase):
 
         self.assertLessEqual(len(meaningful_lines), 18)
 
+    def test_output_postconditions_share_one_strict_template_macro(self) -> None:
+        helper = self.templates / "_output.ps1"
+        leaves = (
+            "catch2-test.ps1",
+            "clang-command.ps1",
+            "clang-tidy.ps1",
+            "fuzz-build.ps1",
+            "msvc-analyze.ps1",
+            "sanitizer-test.ps1",
+            "source-dependencies.ps1",
+            "vcpkg.ps1",
+        )
+
+        self.assertTrue(helper.is_file())
+        self.assertIn("macro require_output", helper.read_text(encoding="utf-8"))
+        for name in leaves:
+            with self.subTest(template=name):
+                content = (self.templates / name).read_text(encoding="utf-8")
+                self.assertIn('from "_output.ps1" import require_output', content)
+                self.assertNotIn("if (-not (Test-Path", content)
+
+        variables = self.variables() | {
+            "llvm_dir": "llvm",
+            "source": "unit.cpp",
+            "vcpkg_installed": "installed",
+            "vcpkg_root": "vcpkg",
+        }
+        with self.assertRaisesRegex(UndefinedError, "project_name.*undefined"):
+            self.renderer.render("msvc-analyze.ps1", variables)
+
     def test_catch2_shards_share_a_short_base_without_changing_rendered_bytes(self) -> None:
         base = self.templates / "catch2-test.ps1"
         self.assertTrue(base.is_file(), "Catch2 shard recipes must share one inherited base")
@@ -111,6 +158,7 @@ class TemplateRendererTests(unittest.TestCase):
             "name": "fixture",
             "pool": "slot",
             "inputs": ["build-tests"],
+            "results": [],
             "pwsh": "pwsh.exe",
             "artifacts": [
                 {"name": "tests.exe", "source": "C:/cas/tests.exe"},
@@ -122,15 +170,15 @@ class TemplateRendererTests(unittest.TestCase):
         cases = {
             "native-test.ps1": (
                 variables,
-                "8e8be23fd290ead07b8a09d6ded0dcf6cd24c56cee6dc8b5f532bb06ad8581d4",
+                "7c5777763ff4cd93f343b773511bec55c61acc717128c9bfff8d6735bcb96f83",
             ),
             "native-corpus-test.ps1": (
                 variables,
-                "525b016aaf8d444d342412bc5ac81221587d562f65ad895eba88891a2c80685a",
+                "85e7f28d606dac5a70d01be851b5e17ed47a650a8287c32163881dbce21a6033",
             ),
             "coverage-test.ps1": (
                 variables,
-                "65e2c48ac05288cf82e4691e3bd3eb5b745fef71dd2ff6212992a706012868d2",
+                "2ea01c93809ed7985d11147e0a2a060b945c7b2f6645c5d0c7375c023ecaeacc",
             ),
             "sanitizer-test.ps1": (
                 variables
@@ -142,7 +190,7 @@ class TemplateRendererTests(unittest.TestCase):
                     "options_name": "ASAN_OPTIONS",
                     "options_value": "halt_on_error=1",
                 },
-                "6fac2869ac98cb3c3f3fb65f9b1e0856f41a2fabcd3e018f347ddb8e28d1455b",
+                "261dc649182fe2353fcb0393a3eeb2a70ff9f17879adb654048305d6ae4289f1",
             ),
             "sanitizer-test.ps1:ubsan": (
                 variables
@@ -151,7 +199,7 @@ class TemplateRendererTests(unittest.TestCase):
                     "options_name": "UBSAN_OPTIONS",
                     "options_value": "halt_on_error=1",
                 },
-                "c885f92dd881d55c2bd017bed98ded28e409cb2c3db1f386869ecfe789618ca6",
+                "47ddf49be4a5df8279eb7a6bf5229550da255d3256395493e30fad45d8726800",
             ),
         }
         for case, (values, expected) in cases.items():

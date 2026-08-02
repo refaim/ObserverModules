@@ -5,6 +5,9 @@
 This document describes the implemented local build. The repository uses a Python/Jinja content-addressed DAG for
 orchestration and keeps MSBuild as the native compile/link backend.
 
+The IX-aligned build model and automatic CI sections below record implemented contracts. A feature described as
+future or deferred is not part of the current gate.
+
 ## Non-negotiable release contract
 
 - Windows-only native C++23, compiled with the MSVC `cl.exe` toolchain.
@@ -54,6 +57,65 @@ confined below the exact repository output root and existing reparse points are 
 observes processes; a Windows Job Object terminates the complete descendant tree on failure or cancellation. These are
 explicit local-build guarantees, not a claim of hostile-process isolation.
 
+## IX-aligned build model
+
+The goal is not to import IX's package manager. It is to keep the small, proven part that this repository needs: short
+inherited recipes, a dependency DAG, demand execution, content identities, and immutable successful outputs. The
+native compiler backend remains MSBuild; replacing project evaluation, C++ dependency handling, compilation, and
+linking is explicitly outside this stage.
+
+### Recipe model
+
+- One rendered recipe describes one cacheable node: readable name, direct dependencies, `in_dir`, `out_dir`, data,
+  one logical pool, and either an argv command or a shell body.
+- Jinja inheritance owns command construction and repeated tool policy. The intended hierarchy is a small JSON base,
+  an argv or PowerShell base, an MSBuild base where relevant, and a short leaf containing only operation-specific data.
+  `StrictUndefined` remains mandatory.
+- Graph-building Python enumerates targets and real dependency edges and supplies semantic data. It must stop rebuilding
+  the same argv, environment, path, and script boilerplate in every graph family.
+- The rendered artifact remains a JSON/argv descriptor. PowerShell is one recipe backend, not the graph language. A
+  future local WSL2 implementation can add a POSIX-shell base without changing the node, DAG, or CAS model.
+- Typed `results` become part of the recipe contract. Each result has a stable logical id, kind, media type, and a path
+  relative to the node output; graph code and CI must not infer results by scanning directories.
+
+### Identity and storage
+
+- Keep canonical MD5 and the zero-byte `touch` publication marker. MD5 identifies local content; any imported or
+  downloaded artifact must be authenticated separately.
+- The UID covers the rendered recipe, declared input paths and bytes, dependency UIDs, semantic configuration, and a
+  normalized toolchain fingerprint.
+- Absolute checkout/CAS/export paths, `GITHUB_*`, commit and PR ids, run timestamps, log destinations, `Jobs`, pool
+  capacities, and scheduler order do not affect the UID.
+- Change the physical successful-entry key to `out/cas/<uid>`. The readable node name remains in graph diagnostics,
+  logs, and exported manifests instead of being duplicated in the CAS directory name.
+- Keep mutable scratch, locks, leases, failed work, and incomplete-entry quarantine below `out/work`. There is no
+  permanent IX-style trash directory: quarantine is recoverable during the run and stale work is removed by the
+  existing safe cleanup contract.
+
+### Execution
+
+- Every runnable node consumes one shared `Jobs` slot. A recipe declares at most one additional logical pool, but a
+  narrower pool is introduced only for a measured resource limit or a demonstrated tool serialization requirement.
+  UMDH and BinSkim have no speculative `2` and `1` caps; by default they use the shared budget like other nodes.
+- Preserve all real fine-grained edges and shards: individual translation units/analyzers, test shards, fuzz targets,
+  leak scenarios and diffs, binary audits, and packages may overlap whenever their inputs are ready.
+- The executor uses keep-going semantics. A failed node blocks only its descendants; independent ready work continues,
+  all failures are collected, successfully produced diagnostics remain publishable, and the command finally exits
+  nonzero.
+- Continue using `filelock`, `psutil`, and the Windows Job Object rather than maintaining substitutes. Prefer a small,
+  well-maintained open-source dependency whenever it removes repository code without weakening the contract.
+
+### Public result boundary
+
+`-ExportDir` on verification and packaging commands copies only declared typed results to stable paths such
+as `reports/sarif/x64/...`, `reports/coverage/x64/...`, and `packages/x64/...`; it never exposes the internal CAS
+layout. The root `manifest.json` describes the self-contained evidence bundle. Successful package exports have a
+separate `packages/manifest.json`, whose paths are relative to that bundle, so CI can publish evidence after failure
+without publishing release ZIPs from pull requests. Manifests are written after their files and record command status,
+result ids, relative paths, producer UIDs, sizes, and SHA-256 digests. Diagnostics produced before a later gate failure
+are exported; release packages are exported only after their complete package gates pass. The export destination is
+not part of recipe identity.
+
 ## Supported commands
 
 ```powershell
@@ -70,6 +132,8 @@ explicit local-build guarantees, not a claim of hostile-process isolation.
 .\build.ps1 fuzz -Arch x64 -FuzzTarget all -FuzzSeconds 60
 .\build.ps1 audit-binaries -Arch x86,x64,arm64
 .\build.ps1 package -Arch x86,x64,arm64
+.\build.ps1 verify-source -ExportDir <directory>
+.\build.ps1 verify-arch -Arch x64 -ExportDir <directory>
 .\build.ps1 verify -Arch x64
 .\build.ps1 clean -CleanMode stale-work
 ```
@@ -79,10 +143,8 @@ PowerShell launcher.
 Use `-FuzzTarget pickle|renpy|rpgmaker|zanzarah` for a focused local regression run; the default `all` runs every
 format target.
 
-The implementation is derived from IX's small recipe/DAG/CAS model. A node identity is canonical MD5 over its rendered
-recipe, declared inputs, toolchain/configuration data, and dependency identities. A hit requires the immutable CAS
-entry and its `touch` marker. Results are printed as exact paths below `out/cas`; mutable intermediates and locks live
-below `out/work`.
+Without `-ExportDir`, commands may print their internal target paths for local diagnostics. Stable consumers use the
+typed export boundary; mutable intermediates and locks remain below `out/work`.
 
 `verify` is the complete host-capable aggregate. It builds Debug and Release for every requested architecture, runs
 deterministic tests only where the current host can execute them, and then runs source/compiler analysis, coverage,
@@ -93,8 +155,8 @@ The verify fuzz work covers all four format targets; `-FuzzSeconds` controls eac
 
 All graph families are merged into one executor. Ready nodes from builds, tests, analyzers, coverage, sanitizers,
 fuzzing, leak checks, audit, and packaging may overlap whenever their real dependencies allow it. `-Jobs` sets the
-shared global capacity; narrower named pools additionally protect tools such as UMDH and BinSkim without adding fake
-phase-wide edges.
+shared global capacity. The implementation has no unmeasured UMDH or BinSkim limits encoded as
+scheduler policy.
 
 ## Configurations
 
@@ -120,8 +182,8 @@ integration is not required. Separate install roots keep manifest-mode vcpkg fro
 switching targets.
 
 Normal public commands include the exact restore nodes they require. Independent architecture/flavor restores may run
-concurrently; ARM64 ASan is omitted because that configuration is unsupported. `-SkipDependencyRestore` remains a
-deprecated compatibility no-op and is rejected on `restore` itself.
+concurrently; ARM64 ASan is omitted because that configuration is unsupported. There is no restore-skipping switch:
+restore is an ordinary content-addressed graph node and a valid hit is already a no-op.
 
 Developer tools are not library dependencies and are discovered by `doctor`:
 
@@ -169,22 +231,79 @@ BinSkim emits one release-binary SARIF file per architecture. Reports remain sep
 are stored as local CAS evidence. A CI job may repeat these commands, but it must not be the only way to execute or
 inspect any mandatory gate.
 
-The main GitHub workflow is therefore a thin client: it provisions an otherwise empty hosted runner, then invokes the
-same public `doctor` and bounded `verify` commands used locally. It contains no private gate graph, report parser,
-artifact-path protocol, or release logic.
+The main GitHub workflow remains a thin client: it provisions an otherwise empty hosted runner, invokes public local
+commands, and transports their declared results. It contains no private gate graph, report parser, CAS-path protocol,
+or release logic.
+
+## Automatic CI
+
+CI contains no CI-only quality gate. Everything mandatory in GitHub must remain runnable from an ordinary local
+console through the same public entry points:
+
+```powershell
+.\build.ps1 verify-source -ExportDir <directory>
+.\build.ps1 verify-arch -Arch x86 -ExportDir <directory>
+.\build.ps1 verify-arch -Arch x64 -ExportDir <directory>
+.\build.ps1 verify-arch -Arch arm64 -ExportDir <directory>
+.\build.ps1 verify -Arch all -ExportDir <directory>
+```
+
+`verify-source` runs architecture-independent formatting, PowerShell analysis, Python tests/100% coverage, and
+repository contracts exactly once. `verify-arch` runs the complete applicable graph for one architecture. The existing
+`verify -Arch all` remains the local aggregate and composes source plus every architecture into one executor for
+maximum local overlap; the split entry points do not define different gates.
+
+Only two automatic triggers are allowed:
+
+```yaml
+on:
+  pull_request:
+    branches: [master]
+  push:
+    branches: [master]
+```
+
+There is no `workflow_dispatch`, scheduled workflow, or ARM64-native runner. The four required jobs are:
+
+| Job | Public command | Contract |
+|---|---|---|
+| `source` | `verify-source` | architecture-independent gates |
+| `x86` | `verify-arch -Arch x86` | Debug/Release, runnable tests, analysis, ASan, audit, package validation |
+| `x64` | `verify-arch -Arch x64` | x86-class gates plus coverage, UBSan, fuzzing, UMDH leaks, and package smoke |
+| `arm64-cross` | `verify-arch -Arch arm64` | MSVC cross-build, analysis, binary audit, and package validation |
+
+ARM64 runtime tests are explicitly deferred; a successful cross job must not report them as executed. All four jobs
+are required for pull requests and pushes to `master`. GitHub matrix/job fail-fast is disabled, and the graph's own
+keep-going behavior preserves independent evidence inside each job. Superseded pull-request runs are cancelled;
+`master` runs are never cancelled by a newer push.
+
+Pull requests use the same gates and thresholds with shorter explicit bounded-work parameters, for example a small
+`-FuzzSeconds` value and minimal leak warm-up/iterations. Pushes to `master` use the full local defaults. There is no
+hidden `pr`/`full` gate composition and no manual profile; changing a bounded duration never removes a target or
+weakens the 100% coverage and zero-finding gates.
+
+The workflow may cache only dependency transport data: uv downloads/environment data and the vcpkg binary cache keyed
+by pinned manifests, triplets, and toolchain identity. It does not cache `out/cas`, `out/work`, completed packages, or
+an installed vcpkg tree. A cold cache may make a run slower but can never change its gates.
+
+Each job uploads its `-ExportDir` with `if: always()` so reports from completed independent branches survive a later
+failure. Pull-request evidence is retained for seven days; `master` evidence for thirty days. Release ZIPs and PDBs are
+uploaded only from successful `master` jobs. Actions are pinned to full commit SHAs, permissions default to
+`contents: read`, untrusted pull requests receive no secrets, and `pull_request_target` is forbidden.
+
+The workflow first runs `doctor`, then exactly one public verification command. It always uploads the self-contained
+evidence bundle and uploads the separate package bundle only from successful `master` architecture jobs. Branch
+protection requires `source`, `x86`, `x64`, and `arm64-cross`.
 
 ### Future analysis backlog
 
 The following tools are deliberately recorded for later work so that they are not lost while the build and test
 architecture is being stabilized:
 
-- **Coverity Scan:** add an independent Windows x64 deep-analysis pass after the repository is eligible and registered
-  with the service. Run it on a manual or scheduled cadence rather than as a pull-request gate because submissions are
-  external and rate-limited. Keep its project token in CI secrets and treat findings as an additional engine alongside
-  CodeQL, not as a replacement for the blocking local analyzers.
-- **Infer:** evaluate it only after the portable parser-core boundary can be compiled with Clang on Linux. Start with a
-  non-blocking parser-core job and publish its SARIF output; do not add a second build path for the Windows DLL adapters
-  merely to accommodate Infer.
+- **Coverity Scan:** evaluate it only if it can be integrated into the locally runnable verification contract. It is
+  not part of the approved CI workflow while submissions require a separate external/manual path.
+- **Infer:** evaluate it locally under the future WSL2 parser-core workflow. Do not add a separate CI-only build path
+  for the Windows DLL adapters merely to accommodate Infer.
 - **Include What You Use:** introduce it after parser/header separation has stabilized. Pin an IWYU release compatible
   with the selected LLVM version, generate its compile commands from the canonical build graph, and review suggestions
   rather than applying fixes automatically. It checks direct/minimal include ownership, not runtime correctness.

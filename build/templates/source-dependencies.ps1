@@ -1,9 +1,7 @@
-{% extends "selected-compile.ps1" %}
+{% extends "selected-compile.ps1" %}{% from "_output.ps1" import require_output %}
 {% block compile_args %}
     "/p:ObserverSourceDependenciesPath=$outDir\dependencies.json"
 {% endblock %}
 {% block post_msbuild %}
-if (-not (Test-Path -LiteralPath (Join-Path $outDir 'dependencies.json') -PathType Leaf)) {
-    throw 'MSVC did not produce dependencies.json'
-}
+{{ require_output('dependencies.json', 'MSVC did not produce dependencies.json') }}
 {% endblock %}

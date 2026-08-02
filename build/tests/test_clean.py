@@ -36,8 +36,12 @@ class CleanTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             repository, paths = self.repository(Path(temporary))
             paths.prepare()
-            (paths.cas_root / "entry").mkdir()
-            (paths.cas_root / "entry/data").write_text("generated", encoding="utf-8")
+            current = paths.cas(UID).entry
+            current.mkdir()
+            (current / "data").write_text("generated", encoding="utf-8")
+            legacy = paths.cas_root / f"{UID}-legacy-node"
+            legacy.mkdir()
+            (legacy / "data").write_text("old generated", encoding="utf-8")
             run = paths.run_work("old-run")
             run.mkdir()
             inactive_lock = paths.lock(UID)
@@ -64,9 +68,12 @@ class CleanTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             repository, paths = self.repository(Path(temporary))
             paths.prepare()
-            cached = paths.cas_root / "entry/out"
+            cached = paths.cas(UID).output
             cached.mkdir(parents=True)
             (cached / "module.so").touch()
+            legacy = paths.cas_root / f"{UID}-legacy-node" / "out"
+            legacy.mkdir(parents=True)
+            (legacy / "module.so").touch()
             runs = tuple(paths.run_work(name) for name in ("run-b", "run-a"))
             for run in runs:
                 run.mkdir()
@@ -80,6 +87,7 @@ class CleanTests(unittest.TestCase):
 
             self.assertEqual(removed, tuple(sorted(runs)))
             self.assertTrue((cached / "module.so").is_file())
+            self.assertTrue((legacy / "module.so").is_file())
             self.assertTrue(paths.locks_root.is_dir())
             self.assertTrue(paths.lock(UID).is_file())
             self.assertTrue(all(not run.exists() for run in runs))
@@ -147,9 +155,10 @@ class CleanTests(unittest.TestCase):
 
             reparse_repository, reparse = self.repository(root / "reparse")
             reparse.prepare()
-            (reparse.cas_root / "entry").mkdir()
+            reparse_entry = reparse.cas(UID).entry
+            reparse_entry.mkdir()
             with mock.patch(
-                "core.paths._is_reparse", side_effect=lambda path: Path(path) == reparse.cas_root / "entry"
+                "core.paths._is_reparse", side_effect=lambda path: Path(path) == reparse_entry
             ), self.assertRaisesRegex(PathSafetyError, "reparse point"):
                 clean(reparse_repository)
 
@@ -169,7 +178,7 @@ class CleanTests(unittest.TestCase):
 
             special_repository, special = self.repository(root / "special")
             special.prepare()
-            special_entry = special.cas_root / "special"
+            special_entry = special.cas(UID).entry
             special_entry.touch()
             original_lstat = os.lstat
 

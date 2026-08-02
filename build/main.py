@@ -52,12 +52,6 @@ def _integer(minimum: int, maximum: int | None = None) -> Callable[[str], int]:
     return parse
 
 
-def _threshold(value: str) -> int:
-    if value != "100":
-        raise argparse.ArgumentTypeError("coverage threshold is fixed at 100")
-    return 100
-
-
 _OPTIONS: dict[str, tuple[tuple[str, ...], dict[str, object]]] = {
     "arch": (("-Arch", "--arch"), {"type": _selection(_ARCHITECTURES), "default": ("x64",)}),
     "config": (("-Config", "--config"), {"type": _selection(_CONFIGURATIONS), "default": ("Debug",)}),
@@ -74,40 +68,23 @@ _OPTIONS: dict[str, tuple[tuple[str, ...], dict[str, object]]] = {
     "leak_tolerance": (("-LeakToleranceBytes", "--leak-tolerance-bytes"), {
         "type": _integer(0, 1_073_741_824), "default": 0,
     }),
-    "threshold": (("-CoverageThreshold", "--coverage-threshold"), {"type": _threshold, "default": 100}),
+    "export_dir": (("-ExportDir", "--export-dir"), {"type": Path}),
     "clean_mode": (("-CleanMode", "--clean-mode"), {"choices": ("all", "stale-work"), "default": "all"}),
 }
-
-_COMMAND_OPTIONS = {
-    "restore": ("arch", "restore"), "build": ("arch", "config"),
-    "test": ("arch", "config", "corpus", "shards"), "source-checks": ("arch",),
-    "compiler-analysis": ("arch",),
-    "test-coverage": ("arch", "corpus", "shards", "threshold"),
-    "test-asan": ("arch", "shards"), "test-ubsan": ("arch", "shards"),
-    "test-leaks": ("arch", "leak_warmup", "leak_iterations", "leak_windows", "leak_tolerance"),
-    "fuzz": ("arch", "fuzz_seconds", "fuzz_target"),
-    "audit-binaries": ("arch",), "package": ("arch",),
-    "verify": ("arch", "corpus", "shards", "fuzz_seconds", "leak_warmup",
-               "leak_iterations", "leak_windows", "leak_tolerance", "threshold"),
-}
-
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="observer-build")
     commands = parser.add_subparsers(dest="command", required=True)
-    doctor = commands.add_parser("doctor")
-    doctor.add_argument("-SkipDependencyRestore", action="store_true", dest="skip_restore")
-    for name, options in _COMMAND_OPTIONS.items():
+    commands.add_parser("doctor")
+    for name, (options, _invoke) in _COMMANDS.items():
         command = commands.add_parser(name)
         command.add_argument("-Repository", "--repository", type=Path, default=Path(__file__).parents[1])
         command.add_argument("-Jobs", "--jobs", type=_integer(1))
-        command.add_argument("-SkipDependencyRestore", action="store_true", dest="skip_restore")
         for option in options:
             flags, settings = _OPTIONS[option]
             command.add_argument(*flags, dest=option, **settings)
     clean = commands.add_parser("clean")
     clean.add_argument("-Repository", "--repository", type=Path, default=Path(__file__).parents[1])
-    clean.add_argument("-SkipDependencyRestore", action="store_true", dest="skip_restore")
     flags, settings = _OPTIONS["clean_mode"]
     clean.add_argument(*flags, dest="clean_mode", **settings)
     return parser
@@ -136,40 +113,55 @@ async def _restore(driver: object, args: argparse.Namespace, _toolchain: object)
     return outputs
 
 
-_INVOKE: dict[str, Invoker] = {
-    "restore": _restore,
-    "build": lambda driver, args, _toolchain: driver.build(args.arch, args.config),
-    "test": lambda driver, args, _toolchain: driver.test(
+_COMMANDS: dict[str, tuple[tuple[str, ...], Invoker]] = {
+    "restore": (("arch", "restore"), _restore),
+    "build": (("arch", "config"), lambda driver, args, _toolchain: driver.build(args.arch, args.config)),
+    "test": (("arch", "config", "corpus", "shards"), lambda driver, args, _toolchain: driver.test(
         args.arch, args.config, test_shards=args.shards, corpus=args.corpus, run_nonce=args.run_nonce
-    ),
-    "source-checks": lambda driver, args, toolchain: driver.source_checks(
+    )),
+    "source-checks": (("arch",), lambda driver, args, toolchain: driver.source_checks(
         args.arch, discover_source_tools(toolchain)
-    ),
-    "compiler-analysis": lambda driver, args, _toolchain: driver.compiler_analysis(args.arch),
-    "test-coverage": lambda driver, args, _toolchain: driver.test_coverage(
+    )),
+    "compiler-analysis": (("arch",), lambda driver, args, _toolchain: driver.compiler_analysis(args.arch)),
+    "test-coverage": (("arch", "corpus", "shards"), lambda driver, args, _toolchain: driver.test_coverage(
         args.arch, test_shards=args.shards, corpus=args.corpus, run_nonce=args.run_nonce
-    ),
-    "test-asan": lambda driver, args, _toolchain: driver.test_asan(args.arch, test_shards=args.shards),
-    "test-ubsan": lambda driver, args, _toolchain: driver.test_ubsan(args.arch, test_shards=args.shards),
-    "test-leaks": lambda driver, args, toolchain: driver.test_leaks(
+    )),
+    "test-asan": (("arch", "shards"), lambda driver, args, _toolchain: driver.test_asan(args.arch, test_shards=args.shards)),
+    "test-ubsan": (("arch", "shards"), lambda driver, args, _toolchain: driver.test_ubsan(args.arch, test_shards=args.shards)),
+    "test-leaks": (("arch", "leak_warmup", "leak_iterations", "leak_windows", "leak_tolerance"), lambda driver, args, toolchain: driver.test_leaks(
         run_nonce=args.run_nonce, dumpbin=resolve_dumpbin(toolchain), binskim=resolve_binskim(),
         umdh=resolve_umdh(), warmup=args.leak_warmup, iterations=args.leak_iterations,
         windows=args.leak_windows, tolerance_bytes=args.leak_tolerance,
-    ),
-    "fuzz": lambda driver, args, _toolchain: driver.fuzz(
+    )),
+    "fuzz": (("arch", "fuzz_seconds", "fuzz_target"), lambda driver, args, _toolchain: driver.fuzz(
         run_nonce=args.run_nonce, seconds=args.fuzz_seconds, targets=args.fuzz_target
-    ),
-    "audit-binaries": lambda driver, args, toolchain: driver.audit(
+    )),
+    "audit-binaries": (("arch",), lambda driver, args, toolchain: driver.audit(
         args.arch, dumpbin=resolve_dumpbin(toolchain), binskim=resolve_binskim()
-    ),
-    "package": lambda driver, args, toolchain: driver.package(
-        args.arch, dumpbin=resolve_dumpbin(toolchain), binskim=resolve_binskim()
-    ),
-    "verify": lambda driver, args, _toolchain: driver.verify(
+    )),
+    "package": (("arch", "export_dir"), lambda driver, args, toolchain: driver.package(
+        args.arch, dumpbin=resolve_dumpbin(toolchain), binskim=resolve_binskim(),
+        export_dir=args.export_dir,
+    )),
+    "verify-source": (("export_dir",), lambda driver, args, _toolchain: driver.verify_source(
+        export_dir=args.export_dir,
+    )),
+    "verify-arch": (("arch", "corpus", "shards", "fuzz_seconds", "leak_warmup",
+                     "leak_iterations", "leak_windows", "leak_tolerance", "export_dir"),
+                    lambda driver, args, _toolchain: driver.verify_arch(
         args.arch, corpus=args.corpus, run_nonce=args.run_nonce, fuzz_seconds=args.fuzz_seconds,
         test_shards=args.shards, warmup=args.leak_warmup, iterations=args.leak_iterations,
         windows=args.leak_windows, tolerance_bytes=args.leak_tolerance,
-    ),
+        export_dir=args.export_dir,
+    )),
+    "verify": (("arch", "corpus", "shards", "fuzz_seconds", "leak_warmup",
+                "leak_iterations", "leak_windows", "leak_tolerance", "export_dir"),
+               lambda driver, args, _toolchain: driver.verify(
+        args.arch, corpus=args.corpus, run_nonce=args.run_nonce, fuzz_seconds=args.fuzz_seconds,
+        test_shards=args.shards, warmup=args.leak_warmup, iterations=args.leak_iterations,
+        windows=args.leak_windows, tolerance_bytes=args.leak_tolerance,
+        export_dir=args.export_dir,
+    )),
 }
 
 
@@ -180,19 +172,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.print_help()
         return 0
     args = parser.parse_args(arguments)
-    if args.command == "restore" and args.skip_restore:
-        parser.error("-SkipDependencyRestore is invalid for restore")
     if args.command == "doctor":
         return doctor_main(())
     if args.command == "clean":
         return run_clean(args.repository, args.clean_mode)
     if args.command in {"fuzz", "test-leaks"} and args.arch != ("x64",):
         parser.error(f"{args.command} requires -Arch x64")
+    if args.command == "verify-arch" and len(args.arch) != 1:
+        parser.error("verify-arch requires exactly one architecture")
     args.run_nonce = _run_id()
     toolchain = discover_msvc_toolchain()
     driver = BuildDriver(args.repository, args.run_nonce, toolchain, jobs=args.jobs)
-    outputs = asyncio.run(_INVOKE[args.command](driver, args, toolchain))
-    if args.command == "verify":
+    outputs = asyncio.run(_COMMANDS[args.command][1](driver, args, toolchain))
+    if args.command in {"verify", "verify-arch"}:
         for item in verify_route(args.arch).deferred:
             print(f"[DEFERRED] {item.gate} {item.architecture}: {item.reason}")
     for output in outputs:

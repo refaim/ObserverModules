@@ -1,17 +1,14 @@
-{% extends "pwsh.ps1" %}
+{% extends "pwsh.ps1" %}{% from "_output.ps1" import require_output %}
 {% block pwsh_body %}
 Invoke-Checked {{ vcpkg | ps_quote }} @(
     'install'
     "--x-install-root=$outDir"
     "--x-buildtrees-root=$buildDir\b"
     "--x-packages-root=$buildDir\p"
-    "--downloads-root=$buildDir\d"
     '--triplet'
     {{ triplet | ps_quote }}
     {{ ('--x-manifest-root=' ~ repository) | ps_quote }}
     {{ ('--overlay-triplets=' ~ repository ~ '\\build\\vcpkg\\triplets') | ps_quote }}
 )
-if (-not (Test-Path -LiteralPath (Join-Path $outDir {{ (triplet ~ '\\include') | ps_quote }}) -PathType Container)) {
-    throw 'vcpkg restore did not produce the include directory'
-}
+{{ require_output(triplet ~ '\\include', 'vcpkg restore did not produce the include directory', 'Container') }}
 {% endblock %}

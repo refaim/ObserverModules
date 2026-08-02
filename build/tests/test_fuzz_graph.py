@@ -209,6 +209,16 @@ class FuzzGraphTests(unittest.TestCase):
             self.assertEqual(run.inputs, (replay.name,))
             self.assertEqual(gate.inputs, (run.name,))
             self.assertEqual(
+                tuple((item.id, item.kind, item.media_type, item.relative_path)
+                      for item in run.results),
+                (
+                    (f"reports/fuzz/x64/{target}/status.txt", "fuzz", "text/plain", "status.txt"),
+                    (f"reports/fuzz/x64/{target}/corpus", "corpus", "application/octet-stream", "corpus"),
+                    (f"reports/fuzz/x64/{target}/artifacts", "evidence", "application/octet-stream", "artifacts"),
+                ),
+            )
+            self.assertTrue(all(not item.results for item in (build, replay, gate)))
+            self.assertEqual(
                 (build.pool, replay.pool, run.pool, gate.pool),
                 ("build", "fuzz", "fuzz", "fuzz"),
             )
@@ -356,7 +366,7 @@ class FuzzGraphTests(unittest.TestCase):
             toolchain = self.toolchain(root)
             _discovery, before = self.graph(repository, toolchain, run_nonce="same")
             producer = before.node("run-fuzz-x64-pickle")
-            cas = BuildPaths(repository).cas(producer.uid, producer.name)
+            cas = BuildPaths(repository).cas(producer.uid)
             (cas.output / "corpus").mkdir(parents=True)
             (cas.output / "corpus/evolved").write_bytes(b"first")
             cas.log.write_text("green\n", encoding="utf-8")
@@ -417,7 +427,7 @@ class FuzzGraphTests(unittest.TestCase):
             repository = self.repository(root / "repo")
             toolchain = self.toolchain(root)
             paths = BuildPaths(repository)
-            empty = paths.cas("1" * 32, "run-fuzz-x64-pickle")
+            empty = paths.cas("1" * 32)
             (empty.output / "corpus").mkdir(parents=True)
             empty.log.touch()
             empty.touch.touch()
@@ -429,7 +439,7 @@ class FuzzGraphTests(unittest.TestCase):
                     prior_corpora=(FuzzCorpusArtifact("pickle", "1" * 32),),
                 )
 
-            nonfile = paths.cas("2" * 32, "run-fuzz-x64-pickle")
+            nonfile = paths.cas("2" * 32)
             (nonfile.output / "corpus/directory").mkdir(parents=True)
             nonfile.log.touch()
             nonfile.touch.touch()

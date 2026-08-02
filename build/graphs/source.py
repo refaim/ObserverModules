@@ -5,12 +5,10 @@ from __future__ import annotations
 from collections.abc import Iterable
 from pathlib import Path
 
-from core.graph import Graph, Node
-from core.node import NodeFactory
+from core.graph import Graph, Node, Result
 from core.paths import BuildPaths
-from core.render import TemplateRenderer
 from core.source_tools import SourceTools
-from graphs.common import python_action, restore_node, tool_environment
+from graphs.common import python_action, recipe_factory, restore_node, tool_environment
 
 
 _BUILD_ROOT = Path(__file__).resolve().parents[1]
@@ -45,15 +43,37 @@ def source_checks(repository: Path, tools: SourceTools, jobs: int = 4,
     """Return independently cacheable format, analyzer, and contract checks."""
 
     selected_architectures = tuple(architectures)
-    if (not selected_architectures or len(set(selected_architectures)) != len(selected_architectures) or
+    if not selected_architectures:
+        raise ValueError("source architectures must be unique supported architecture names")
+    return _source_checks(repository, tools, jobs, selected_architectures, include_common=True)
+
+
+def common_source_checks(repository: Path, tools: SourceTools, jobs: int = 4) -> Graph:
+    """Return only architecture-independent repository checks."""
+
+    return _source_checks(repository, tools, jobs, (), include_common=True)
+
+
+def architecture_source_checks(repository: Path, tools: SourceTools,
+                               architectures: Iterable[str], jobs: int = 4) -> Graph:
+    """Return only architecture-parameterized Cppcheck gates."""
+
+    return _source_checks(
+        repository, tools, jobs, tuple(architectures), include_common=False
+    )
+
+
+def _source_checks(repository: Path, tools: SourceTools, jobs: int,
+                   selected_architectures: tuple[str, ...], *, include_common: bool) -> Graph:
+    if ((not selected_architectures and not include_common) or
+            len(set(selected_architectures)) != len(selected_architectures) or
             any(item not in _CPPCHECK_ARCHITECTURES for item in selected_architectures)):
         raise ValueError("source architectures must be unique supported architecture names")
     root = repository.resolve(strict=True)
-    renderer = TemplateRenderer(_BUILD_ROOT / "templates")
     identities = dict(tools.identity)
     restore_identity = {key: identities[key] for key in ("pwsh", "pwsh_version", "vcpkg_root")}
-    factory = NodeFactory(renderer, root, {}, tools.environment)
-    restore_factory = NodeFactory(renderer, root, restore_identity, tool_environment(tools))
+    factory = recipe_factory(root, {}, tools.environment)
+    restore_factory = recipe_factory(root, restore_identity, tool_environment(tools))
     paths = BuildPaths(root)
 
     def tool_identity(*names: str) -> dict[str, str]:
@@ -63,9 +83,15 @@ def source_checks(repository: Path, tools: SourceTools, jobs: int = 4,
         path for path in (root / "src").rglob("*")
         if path.is_file() and path.suffix in _CPP_SUFFIXES
     ))
+    template_root = root / "build/templates"
     powershell_sources = (root / "build.ps1",) + tuple(sorted(
         path for path in (root / "build").rglob("*")
-        if path.is_file() and path.suffix in _POWERSHELL_SUFFIXES
+        if (
+            path.is_file()
+            and path.suffix in _POWERSHELL_SUFFIXES
+            # Raw Jinja is not PowerShell; rendered recipes are parser-tested below this graph.
+            and not path.is_relative_to(template_root)
+        )
     ))
     contracts = tuple(sorted((root / "build/tests").glob("*.Tests.ps1")))
 
@@ -98,7 +124,7 @@ def source_checks(repository: Path, tools: SourceTools, jobs: int = 4,
             config={"action": "format", "source": _relative(root, source)},
         )
         for source in cpp_sources
-    )
+    ) if include_common else ()
 
     restore_nodes = []
     cppcheck_nodes = []
@@ -107,7 +133,7 @@ def source_checks(repository: Path, tools: SourceTools, jobs: int = 4,
         triplet = f"observer-{architecture}-windows-static"
         restore = restore_node(root, tools, restore_factory, architecture)
         restore_nodes.append(restore)
-        include_dir = paths.cas(restore.uid, restore.name).output / triplet / "include"
+        include_dir = paths.cas(restore.uid).output / triplet / "include"
         cppcheck_nodes.append(
             leaf(
                 "cppcheck.ps1",
@@ -118,6 +144,7 @@ def source_checks(repository: Path, tools: SourceTools, jobs: int = 4,
                     "repository": str(root),
                     "source_dir": str(root / "src"),
                     "include_dir": str(include_dir),
+                    "triplet": triplet,
                     "platform": platform,
                     "architecture_define": architecture_define,
                     "automation_id": f"cppcheck/{architecture}/",
@@ -149,7 +176,7 @@ def source_checks(repository: Path, tools: SourceTools, jobs: int = 4,
             config={"action": "psscriptanalyzer", "source": _relative(root, source)},
         )
         for source in powershell_sources
-    )
+    ) if include_common else ()
 
     contract_inputs = _repository_files(root)
     contract_nodes = tuple(
@@ -165,32 +192,43 @@ def source_checks(repository: Path, tools: SourceTools, jobs: int = 4,
             config={"action": "contract", "test": _relative(root, test)},
         )
         for test in contracts
-    )
+    ) if include_common else ()
 
     def output(current: Node) -> Path:
-        return paths.cas(current.uid, current.name).output
+        return paths.cas(current.uid).output
 
     def report(current: Node) -> Path:
         name = "cppcheck.sarif" if current.name.startswith("cppcheck-") else "psscriptanalyzer.sarif"
         return output(current) / name
 
     finding_nodes = cppcheck_nodes + pssa_nodes
+    qualifier = "-".join(selected_architectures)
+    merge_name = "merge-source-findings" if include_common else f"merge-cppcheck-findings-{qualifier}"
+    gate_name = "source-checks" if include_common else f"cppcheck-checks-{qualifier}"
+    result_id = (
+        "reports/sarif/source/analysis.sarif"
+        if include_common else f"reports/sarif/{qualifier}/cppcheck.sarif"
+    )
     merged = python_action(
         factory,
-        "merge-source-findings",
+        merge_name,
         "core.sarif",
         ("merge", *(str(report(current)) for current in finding_nodes)),
         finding_nodes,
         pool="slot",
+        results=(Result(
+            result_id, "report", "application/sarif+json", "analysis.sarif"
+        ),),
     )
     direct = format_nodes + contract_nodes
     gate = python_action(
         factory,
-        "source-checks",
+        gate_name,
         "core.sarif",
         ("gate", str(output(merged) / "analysis.sarif")),
         (merged,) + direct,
         pool="slot",
     )
     nodes = restore_nodes + format_nodes + cppcheck_nodes + pssa_nodes + contract_nodes + (merged, gate)
-    return Graph(nodes, (gate.name,), {"restore": 1, "slot": jobs})
+    pools = {"slot": jobs} | ({"restore": 1} if restore_nodes else {})
+    return Graph(nodes, (gate.name,), pools)

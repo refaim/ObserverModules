@@ -4,7 +4,7 @@ from dataclasses import dataclass
 import json
 from pathlib import Path
 
-from core.graph import Node
+from core.graph import Node, Result
 from core.recipe import Recipe
 from core.render import TemplateRenderer
 from core.sign import content_uid
@@ -26,6 +26,7 @@ class NodeFactory:
         *,
         files: dict[str, bytes],
         dependencies: tuple[Node, ...] = (),
+        results: tuple[Result, ...] = (),
         config: dict[str, str],
         identity: dict[str, str] | None = None,
         environment: tuple[tuple[str, str], ...] | None = None,
@@ -36,6 +37,15 @@ class NodeFactory:
             "pool": pool,
             "inputs": [node.name for node in dependencies],
         } | variables
+        descriptor["results"] = [
+            {
+                "id": result.id,
+                "kind": result.kind,
+                "media_type": result.media_type,
+                "path": result.relative_path,
+            }
+            for result in results
+        ]
         rendered = self.renderer.render(template, descriptor)
         node_environment = self.environment if environment is None else environment
         node_cwd = cwd or self.cwd

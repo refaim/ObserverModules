@@ -21,6 +21,7 @@ class VcpkgTemplateTests(unittest.TestCase):
             "name": "restore-vcpkg-x64",
             "pool": "slot",
             "inputs": [],
+            "results": [],
             "pwsh": "pwsh.exe",
             "vcpkg": r"C:\tools\vcpkg.exe",
             "repository": r"C:\repo with O'Brien",
@@ -44,13 +45,13 @@ class VcpkgTemplateTests(unittest.TestCase):
         )
         self.assertIn("throw 'vcpkg restore did not produce the include directory'", script)
 
-    def test_mutable_vcpkg_scratch_is_confined_to_the_node_build_directory(self) -> None:
+    def test_build_scratch_is_confined_while_vcpkg_manages_shared_downloads(self) -> None:
         recipe = json.loads(self.renderer.render("vcpkg.ps1", self.variables))
         script = recipe["script"]["data"]
 
         self.assertIn('\n    "--x-buildtrees-root=$buildDir\\b"\n', script)
         self.assertIn('\n    "--x-packages-root=$buildDir\\p"\n', script)
-        self.assertIn('\n    "--downloads-root=$buildDir\\d"\n', script)
+        self.assertNotIn("--downloads-root", script)
         self.assertIn('\n    "--x-install-root=$outDir"\n', script)
 
     def test_triplet_is_required(self) -> None:

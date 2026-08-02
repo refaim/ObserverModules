@@ -5,10 +5,10 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from core.graph import Graph
+from core.graph import Graph, Result
 from core.node import NodeFactory
 from core.render import TemplateRenderer
-from graphs.common import BUILD_ROOT, restore_node
+from graphs.common import BUILD_ROOT, recipe_factory, restore_node
 
 
 @dataclass(frozen=True)
@@ -27,6 +27,28 @@ def repository(root: Path) -> Path:
             f"triplet{flavor}\n", encoding="utf-8"
         )
     return root
+
+
+class RecipeFactoryTests(unittest.TestCase):
+    def test_matches_direct_node_factory_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            cwd = Path(temporary) / "working-directory"
+            identity = {"compiler": "exact-version", "tool": "exact-path"}
+            environment = (("ZED", "last"), ("ALPHA", "first"))
+            result = Result("reports/sample.json", "report", "application/json", "sample.json")
+
+            def make(factory: NodeFactory):
+                return factory.make(
+                    "argv.json", "sample", "slot", {"argv": ("tool.exe", "--probe")},
+                    files={}, results=(result,), config={"action": "probe"},
+                )
+
+            expected = make(NodeFactory(
+                TemplateRenderer(BUILD_ROOT / "templates"), cwd, identity, environment
+            ))
+            actual = make(recipe_factory(cwd, identity, environment))
+
+        self.assertEqual(actual, expected)
 
 
 class RestoreNodeTests(unittest.TestCase):

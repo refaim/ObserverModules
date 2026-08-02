@@ -3,28 +3,32 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 import json
 from pathlib import Path
 import xml.etree.ElementTree as ET
 
-from core.graph import Graph, Node
+from core.graph import Graph, Node, Result
 from core.node import NodeFactory
 from core.paths import BuildPaths
 from core.quality_tools import ResolvedTool, resolve_llvm
-from core.render import TemplateRenderer
 from core.toolchain import MsvcToolchain
-from graphs.common import python_action, restore_node, tool_environment
+from graphs.common import (
+    COMMON_PROJECT_INPUTS, PLATFORMS, project_path, python_action, recipe_factory,
+    restore_node, tool_environment,
+)
 
 
 _BUILD_ROOT = Path(__file__).resolve().parents[1]
 _MSBUILD_NS = "{http://schemas.microsoft.com/developer/msbuild/2003}"
-_PROJECT_PREFIX = "$(RepositoryRoot)"
-_COMMON_INPUTS = (
-    "build/ObserverProjectConfigurations.props",
-    "build/ObserverConfiguration.props",
-    "build/ObserverProject.props",
-)
-_PLATFORMS = {"x86": "Win32", "x64": "x64", "arm64": "ARM64"}
+
+
+@dataclass(frozen=True, slots=True)
+class MsbuildProject:
+    name: str
+    path: Path
+    inputs: tuple[str, ...]
+    sources: tuple[Path, ...]
 
 
 def _relative(repository: Path, path: Path) -> str:
@@ -33,23 +37,49 @@ def _relative(repository: Path, path: Path) -> str:
 
 def _platform(architecture: str) -> str:
     try:
-        return _PLATFORMS[architecture]
+        return PLATFORMS[architecture]
     except KeyError as error:
         raise ValueError(f"unsupported architecture: {architecture}") from error
 
 
+def project_inventory(
+    repository: Path, names: tuple[str, ...] | None = None, *,
+    include_link_inputs: bool = True,
+) -> tuple[MsbuildProject, ...]:
+    """Parse each selected project once into immutable signed inputs and sources."""
+
+    root = repository.resolve(strict=True)
+    paths = (tuple(sorted((root / "build/projects").glob("*.vcxproj"))) if names is None
+             else tuple(root / "build/projects" / f"{name}.vcxproj" for name in names))
+    projects = []
+    for project in paths:
+        document = ET.parse(project).getroot()
+        inputs = list(COMMON_PROJECT_INPUTS) + [project.relative_to(root).as_posix()]
+        if include_link_inputs:
+            inputs.extend(
+                project_path(root, item.text.strip(), project) for item in
+                document.iter(f"{_MSBUILD_NS}ModuleDefinitionFile") if item.text
+            )
+        sources = tuple(
+            root / project_path(root, item.get("Include", ""), project) for item in
+            document.iter(f"{_MSBUILD_NS}ClCompile") if item.get("Include")
+        )
+        projects.append(MsbuildProject(
+            project.stem, project, tuple(dict.fromkeys(inputs)), sources
+        ))
+    return tuple(projects)
+
+
 def _projects(repository: Path) -> tuple[tuple[str, Path, Path], ...]:
-    units = []
-    for project in sorted((repository / "build/projects").glob("*.vcxproj")):
-        for item in ET.parse(project).getroot().iter(f"{_MSBUILD_NS}ClCompile"):
-            include = item.get("Include", "")
-            if not include:
-                continue
-            if not include.startswith(_PROJECT_PREFIX):
-                raise ValueError(f"unsupported ClCompile path in {project}: {include}")
-            relative = include.removeprefix(_PROJECT_PREFIX).replace("\\", "/")
-            units.append((project.stem, project, (repository / relative).resolve(strict=True)))
-    return tuple(units)
+    try:
+        projects = project_inventory(repository, include_link_inputs=False)
+    except ValueError as error:
+        message = str(error).replace("unsupported project input", "unsupported ClCompile path", 1)
+        raise ValueError(message) from error
+    return tuple(
+        (project.name, project.path, source) for project in projects
+        for source in project.sources
+    )
 
 
 def _unit(repository: Path, source: Path) -> str:
@@ -68,7 +98,9 @@ def _project_files(
     repository: Path, project_name: str, project: Path, source: Path,
     extra: tuple[str, ...] = (),
 ) -> dict[str, bytes]:
-    inputs = list(_COMMON_INPUTS) + [_relative(repository, project), _relative(repository, source)]
+    inputs = list(COMMON_PROJECT_INPUTS) + [
+        _relative(repository, project), _relative(repository, source)
+    ]
     if project_name.startswith("fuzz-"):
         inputs.append("build/ObserverFuzz.props")
     inputs.extend(extra)
@@ -88,24 +120,18 @@ def _compile_variables(
     }
 
 
-def _manifest_index(repository: Path, requested: set[str]) -> dict[str, bytes]:
-    paths, latest = BuildPaths(repository), {}
-    if not paths.cas_root.is_dir():
-        return {}
-    for entry in paths.cas_root.glob("*-discover-dependencies-*"):
-        name = entry.name[33:]
-        if name not in requested:
-            continue
-        try:
-            cas = paths.cas(entry.name[:32], name)
-        except ValueError:
-            continue
-        manifest = cas.output / "dependencies.json"
+def _manifest_index(
+    repository: Path, requested: Mapping[str, str]
+) -> dict[str, bytes]:
+    paths, manifests = BuildPaths(repository), {}
+    for name, uid in requested.items():
+        cas = paths.cas(uid)
+        manifest = paths.require_confined(
+            cas.output / "dependencies.json", paths.cas_root
+        )
         if cas.touch.is_file() and not cas.touch.stat().st_size and manifest.is_file():
-            candidate = (cas.touch.stat().st_mtime_ns, entry.name, manifest)
-            if name not in latest or candidate[:2] > latest[name][:2]:
-                latest[name] = candidate
-    return {name: candidate[2].read_bytes() for name, candidate in latest.items()}
+            manifests[name] = manifest.read_bytes()
+    return manifests
 
 
 def dependency_inputs(
@@ -147,6 +173,32 @@ def dependency_inputs(
     return files
 
 
+def project_build(
+    repository: Path, factory: NodeFactory, discovery: Graph,
+    manifests: Mapping[str, bytes], restore_output: Path, project: MsbuildProject,
+    architecture: str, qualifier: str, template: str, variables: dict[str, object],
+    *, identity: dict[str, str] | None = None, config: dict[str, str],
+) -> Node:
+    """Create one build from the project's exact signed bytes and TU predecessors."""
+
+    files = {path: (repository / path).read_bytes() for path in project.inputs}
+    dependencies = []
+    for source in project.sources:
+        name = dependency_node_name(
+            repository, architecture, project.name, source, qualifier
+        )
+        dependencies.append(discovery.node(name))
+        try:
+            manifest = manifests[name]
+        except KeyError as error:
+            raise ValueError(f"missing dependency manifest: {name}") from error
+        files.update(dependency_inputs(repository, restore_output, source, manifest))
+    return factory.make(
+        template, f"build-{project.name}-{architecture}-{qualifier}", "slot", variables,
+        files=files, dependencies=tuple(dependencies), identity=identity, config=config,
+    )
+
+
 def _dependency_node(
     repository: Path, toolchain: MsvcToolchain, factory: NodeFactory, restore: Node,
     unit: tuple[str, Path, Path], namespace: str, architecture: str, platform: str,
@@ -156,7 +208,7 @@ def _dependency_node(
     name = dependency_node_name(
         repository, architecture, project_name, source, qualifier
     )
-    restore_output = BuildPaths(repository).cas(restore.uid, restore.name).output
+    restore_output = BuildPaths(repository).cas(restore.uid).output
     files = _project_files(repository, project_name, project, source)
     prior = previous.get(name)
     if prior is not None:
@@ -186,8 +238,7 @@ def dependency_discovery_slice(
     """Create cacheable per-TU MSVC ``/sourceDependencies`` nodes."""
 
     root = repository.resolve(strict=True)
-    factory = NodeFactory(TemplateRenderer(_BUILD_ROOT / "templates"), root,
-                          dict(toolchain.identity), tool_environment(toolchain))
+    factory = recipe_factory(root, dict(toolchain.identity), tool_environment(toolchain))
     namespace = "\n".join(
         _relative(root, path)
         for path in sorted(path for path in (root / "src").rglob("*") if path.is_file())
@@ -195,29 +246,31 @@ def dependency_discovery_slice(
     projects = tuple(
         unit for unit in _projects(root) if project_names is None or unit[0] in project_names
     )
-    requested = {
-        dependency_node_name(root, architecture, unit[0], unit[2], name_qualifier)
-        for architecture in architectures
-        for unit in projects
-        if unit[0] != "leak-probe" or architecture == "x64"
-    }
-    previous = _manifest_index(root, requested)
-    nodes, targets = [], []
-    for architecture in architectures:
-        platform = _platform(architecture)
-        restore = restore_node(root, toolchain, factory, architecture, flavor=restore_flavor)
-        nodes.append(restore)
-        for unit in projects:
-            project_name = unit[0]
-            if project_name == "leak-probe" and architecture != "x64":
-                continue
-            node = _dependency_node(
-                root, toolchain, factory, restore, unit, namespace, architecture,
-                platform, configuration, name_qualifier, previous,
+    def create(previous: Mapping[str, bytes]) -> Graph:
+        nodes, targets = [], []
+        for architecture in architectures:
+            platform = _platform(architecture)
+            restore = restore_node(
+                root, toolchain, factory, architecture, flavor=restore_flavor
             )
-            nodes.append(node)
-            targets.append(node.name)
-    return Graph(tuple(nodes), tuple(targets), {"restore": 1, "slot": jobs})
+            nodes.append(restore)
+            for unit in projects:
+                project_name = unit[0]
+                if project_name == "leak-probe" and architecture != "x64":
+                    continue
+                node = _dependency_node(
+                    root, toolchain, factory, restore, unit, namespace, architecture,
+                    platform, configuration, name_qualifier, previous,
+                )
+                nodes.append(node)
+                targets.append(node.name)
+        return Graph(tuple(nodes), tuple(targets), {"restore": 1, "slot": jobs})
+
+    base = create({})
+    previous = _manifest_index(
+        root, {name: base.node(name).uid for name in base.targets}
+    )
+    return create(previous) if previous else base
 
 
 def _exact_identity(prefix: str, tool: ResolvedTool) -> dict[str, str]:
@@ -233,18 +286,16 @@ def clang_dependency_discovery_slice(
     """Capture actual clang-cl commands and resolve their exact header graph."""
 
     root = repository.resolve(strict=True)
-    renderer = TemplateRenderer(_BUILD_ROOT / "templates")
     environment = tool_environment(toolchain)
     base_identity = dict(toolchain.identity)
     clang = resolve_llvm(toolchain, "clang-cl")
     scanner = resolve_llvm(toolchain, "clang-scan-deps")
-    clang_factory = NodeFactory(
-        renderer,
+    clang_factory = recipe_factory(
         root,
         base_identity | _exact_identity("clang_cl", clang),
         environment,
     )
-    scan_factory = NodeFactory(renderer, root, base_identity, environment)
+    scan_factory = recipe_factory(root, base_identity, environment)
     namespace = "\n".join(
         _relative(root, path)
         for path in sorted(path for path in (root / "src").rglob("*") if path.is_file())
@@ -252,70 +303,71 @@ def clang_dependency_discovery_slice(
     projects = tuple(
         unit for unit in _projects(root) if project_names is None or unit[0] in project_names
     )
-    requested = {
-        dependency_node_name(root, architecture, unit[0], unit[2], name_qualifier)
-        for architecture in architectures
-        for unit in projects
-        if unit[0] != "leak-probe" or architecture == "x64"
-    }
-    previous = _manifest_index(root, requested)
     paths = BuildPaths(root)
-    nodes: list[Node] = []
-    targets: list[str] = []
-    for architecture in architectures:
-        platform = _platform(architecture)
-        restore = restore_node(
-            root, toolchain, clang_factory, architecture, flavor=restore_flavor
-        )
-        nodes.append(restore)
-        restore_output = paths.cas(restore.uid, restore.name).output
-        for project_name, project, source in projects:
-            if project_name == "leak-probe" and architecture != "x64":
-                continue
-            name = dependency_node_name(
-                root, architecture, project_name, source, name_qualifier
+
+    def create(previous: Mapping[str, bytes]) -> Graph:
+        nodes: list[Node] = []
+        targets: list[str] = []
+        for architecture in architectures:
+            platform = _platform(architecture)
+            restore = restore_node(
+                root, toolchain, clang_factory, architecture, flavor=restore_flavor
             )
-            files = _project_files(root, project_name, project, source)
-            prior = previous.get(name)
-            if prior is not None:
-                files.update(dependency_inputs(root, restore_output, source, prior))
-            capture = clang_factory.make(
-                "clang-command.ps1",
-                name.replace("discover-dependencies-", "capture-clang-command-", 1),
-                "slot",
-                _compile_variables(
-                    toolchain,
-                    project,
-                    source,
-                    restore_output,
-                    configuration,
-                    platform,
-                ) | {"llvm_dir": str(toolchain.llvm_dir)},
-                files=files,
-                dependencies=(restore,),
-                config={"architecture": architecture, "source_namespace": namespace},
-            )
-            command_file = paths.cas(capture.uid, capture.name).output / "compile-command.json"
-            scan = python_action(
-                scan_factory,
-                name,
-                "core.clang_dependencies",
-                (
-                    "scan",
-                    str(source),
-                    str(command_file),
-                    str(scanner.path),
-                    str(clang.path),
-                ),
-                (capture,),
-                pool="slot",
-                environment=environment,
-                identity=_exact_identity("clang_scan_deps", scanner),
-                config={"architecture": architecture, "source_namespace": namespace},
-            )
-            nodes.extend((capture, scan))
-            targets.append(scan.name)
-    return Graph(tuple(nodes), tuple(targets), {"restore": 1, "slot": jobs})
+            nodes.append(restore)
+            restore_output = paths.cas(restore.uid).output
+            for project_name, project, source in projects:
+                if project_name == "leak-probe" and architecture != "x64":
+                    continue
+                name = dependency_node_name(
+                    root, architecture, project_name, source, name_qualifier
+                )
+                files = _project_files(root, project_name, project, source)
+                prior = previous.get(name)
+                if prior is not None:
+                    files.update(dependency_inputs(root, restore_output, source, prior))
+                capture = clang_factory.make(
+                    "clang-command.ps1",
+                    name.replace("discover-dependencies-", "capture-clang-command-", 1),
+                    "slot",
+                    _compile_variables(
+                        toolchain,
+                        project,
+                        source,
+                        restore_output,
+                        configuration,
+                        platform,
+                    ) | {"llvm_dir": str(toolchain.llvm_dir)},
+                    files=files,
+                    dependencies=(restore,),
+                    config={"architecture": architecture, "source_namespace": namespace},
+                )
+                command_file = paths.cas(capture.uid).output / "compile-command.json"
+                scan = python_action(
+                    scan_factory,
+                    name,
+                    "core.clang_dependencies",
+                    (
+                        "scan",
+                        str(source),
+                        str(command_file),
+                        str(scanner.path),
+                        str(clang.path),
+                    ),
+                    (capture,),
+                    pool="slot",
+                    environment=environment,
+                    identity=_exact_identity("clang_scan_deps", scanner),
+                    config={"architecture": architecture, "source_namespace": namespace},
+                )
+                nodes.extend((capture, scan))
+                targets.append(scan.name)
+        return Graph(tuple(nodes), tuple(targets), {"restore": 1, "slot": jobs})
+
+    base = create({})
+    previous = _manifest_index(
+        root, {name: base.node(name).uid for name in base.targets}
+    )
+    return create(previous) if previous else base
 
 
 def analysis_discovery_slice(
@@ -333,8 +385,10 @@ def load_dependency_manifests(repository: Path, discovery: Graph) -> dict[str, b
     paths, manifests = BuildPaths(repository.resolve(strict=True)), {}
     for name in discovery.targets:
         node = discovery.node(name)
-        cas = paths.cas(node.uid, node.name)
-        manifest = cas.output / "dependencies.json"
+        cas = paths.cas(node.uid)
+        manifest = paths.require_confined(
+            cas.output / "dependencies.json", paths.cas_root
+        )
         if not cas.touch.is_file() or cas.touch.stat().st_size or not manifest.is_file():
             raise FileNotFoundError(f"dependency discovery is incomplete: {name}")
         manifests[name] = manifest.read_bytes()
@@ -378,12 +432,11 @@ def analysis_slice(
     """Analyze compiler-discovered TU inputs, normalize, merge, and gate."""
 
     root = repository.resolve(strict=True)
-    factory = NodeFactory(TemplateRenderer(_BUILD_ROOT / "templates"), root,
-                          dict(toolchain.identity), tool_environment(toolchain))
+    factory = recipe_factory(root, dict(toolchain.identity), tool_environment(toolchain))
     paths = BuildPaths(root)
 
     def output(node: Node) -> Path:
-        return paths.cas(node.uid, node.name).output
+        return paths.cas(node.uid).output
 
     nodes, targets, projects = list(discovery.nodes), [], _projects(root)
     for architecture in architectures:
@@ -442,6 +495,12 @@ def analysis_slice(
             ("merge", *(str(output(node) / "renpy.sarif") for node in normalized)),
             tuple(normalized),
             pool="misc",
+            results=(Result(
+                f"reports/sarif/{architecture}/analysis.sarif",
+                "sarif",
+                "application/sarif+json",
+                "analysis.sarif",
+            ),),
         )
         gate = python_action(
             factory,

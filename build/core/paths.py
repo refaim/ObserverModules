@@ -6,13 +6,7 @@ import stat
 from dataclasses import dataclass
 from pathlib import Path
 
-from .graph import NODE_SLUG_MAX_LENGTH
-
-
 _UID_PATTERN = re.compile(r"[0-9a-f]{32}\Z")
-_NODE_PATTERN = re.compile(
-    rf"[a-z0-9][a-z0-9._-]{{0,{NODE_SLUG_MAX_LENGTH - 1}}}\Z"
-)
 _RUN_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
 
 
@@ -69,14 +63,9 @@ class BuildPaths:
         ):
             self.require_confined(path, root).mkdir(exist_ok=True)
 
-    def cas(self, uid: str, node: str) -> CasPaths:
+    def cas(self, uid: str) -> CasPaths:
         self._require_uid(uid)
-        if _NODE_PATTERN.fullmatch(node) is None:
-            raise PathSafetyError(
-                "invalid lowercase node slug; expected at most "
-                f"{NODE_SLUG_MAX_LENGTH} ASCII characters: {node!r}"
-            )
-        entry = self.require_confined(self.cas_root / f"{uid}-{node}", self.cas_root)
+        entry = self.require_confined(self.cas_root / uid, self.cas_root)
         paths = CasPaths(
             entry=entry,
             output=entry / "out",

@@ -206,36 +206,55 @@ class ExecutorTests(unittest.IsolatedAsyncioTestCase):
             ).run()
         self.assertIn("broken", repr(raised.exception.subgroup(ExecutionError)))
 
-    async def test_task_group_cancels_running_siblings_on_first_failure(self) -> None:
+    async def test_failures_block_descendants_while_independent_successes_publish(self) -> None:
         graph = Graph(
-            (node("failure"), node("slow")),
-            ("failure", "slow"),
-            {"cpu": 2},
+            (
+                node("first-failure"),
+                node("blocked", inputs=("first-failure",)),
+                node("blocked-descendant", inputs=("blocked",)),
+                node("second-failure"),
+                node("independent"),
+            ),
+            ("blocked-descendant", "blocked", "first-failure", "second-failure", "independent"),
+            {"cpu": 3},
         )
-        slow_started = asyncio.Event()
-        slow_cancelled = asyncio.Event()
+        independent_started = asyncio.Event()
+        complete: set[str] = set()
+        calls: list[str] = []
 
         async def runner(current: Node) -> None:
-            if current.name == "slow":
-                slow_started.set()
-                try:
-                    await asyncio.sleep(60)
-                except asyncio.CancelledError:
-                    slow_cancelled.set()
-                    raise
-            await slow_started.wait()
-            raise RuntimeError("expected failure")
+            calls.append(current.name)
+            if current.name == "independent":
+                independent_started.set()
+                await asyncio.sleep(0.02)
+                return
+            await independent_started.wait()
+            if current.name == "first-failure":
+                raise ValueError("first expected failure")
+            if current.name == "second-failure":
+                raise RuntimeError("second expected failure")
 
         with self.assertRaises(ExceptionGroup) as raised:
             await Executor(
                 graph,
-                is_complete=lambda _current: False,
+                is_complete=lambda current: current.name in complete,
                 runner=runner,
-                publish=lambda _current: None,
+                publish=lambda current: complete.add(current.name),
             ).run()
 
-        self.assertIn("expected failure", repr(raised.exception.subgroup(RuntimeError)))
-        self.assertTrue(slow_cancelled.is_set())
+        self.assertEqual(complete, {"independent"})
+        self.assertCountEqual(calls, ["first-failure", "second-failure", "independent"])
+        self.assertNotIn("blocked", calls)
+        self.assertNotIn("blocked-descendant", calls)
+        self.assertEqual(len(raised.exception.exceptions), 2)
+        self.assertEqual(
+            raised.exception.failed_nodes,
+            ("first-failure", "second-failure"),
+        )
+        self.assertIn("first-failure", str(raised.exception))
+        self.assertIn("second-failure", str(raised.exception))
+        self.assertIn("first expected failure", repr(raised.exception.subgroup(ValueError)))
+        self.assertIn("second expected failure", repr(raised.exception.subgroup(RuntimeError)))
 
     async def test_completion_predicate_is_synchronous_and_returns_bool(self) -> None:
         graph = Graph((node("invalid"),), ("invalid",), {"cpu": 1})

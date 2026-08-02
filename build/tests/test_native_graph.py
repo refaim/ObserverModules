@@ -198,6 +198,19 @@ class NativeGraphTests(unittest.TestCase):
         self.assertIn("'--shard-index'", shard_script)
         self.assertIn("'0'", shard_script)
         self.assertIn("'JUnit::out=", shard_script)
+        self.assertEqual(
+            tuple((item.id, item.kind, item.media_type, item.relative_path)
+                  for item in shard.results),
+            ((
+                "reports/tests/x64/debug/unit/shard-0.xml",
+                "test", "application/xml", "tests.xml",
+            ),),
+        )
+        self.assertTrue(all(
+            not node.results
+            for node in graph.nodes
+            if node.name.startswith(("restore-", "discover-", "build-"))
+        ))
 
     def test_leak_probe_is_an_explicit_release_only_request(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -265,6 +278,10 @@ class NativeGraphTests(unittest.TestCase):
         self.assertEqual(dict(first.node(corpus_name).command.env)["OBSERVER_TEST_CORPUS"], str(corpus.resolve()))
         self.assertNotIn("OBSERVER_TEST_CORPUS", dict(first.node(shard_name).command.env))
         self.assertIn("'[compatibility]'", first.node(corpus_name).command.stdin.decode())
+        self.assertEqual(
+            tuple((item.id, item.relative_path) for item in first.node(corpus_name).results),
+            (("reports/tests/x64/debug/corpus/shard-0.xml", "tests.xml"),),
+        )
         self.assertTrue(all(
             "OBSERVER_TEST_CORPUS" not in dict(node.command.env)
             for node in first.nodes if not node.name.startswith("corpus-shard-")

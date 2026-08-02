@@ -43,6 +43,8 @@ class Executor:
         self._publish = publish
         self._acquire_lock = acquire_lock
         self._visited: set[str] = set()
+        self._failed: dict[str, Exception] = {}
+        self._blocked: set[str] = set()
         self._locks = {node.name: asyncio.Lock() for node in graph.nodes}
         self._pools = {
             name: asyncio.Semaphore(capacity) for name, capacity in graph.pools.items()
@@ -58,28 +60,48 @@ class Executor:
         if not requested:
             raise GraphError("explicit target set must not be empty")
         await self._visit_many(tuple(self._graph.node(name) for name in requested))
+        if self._failed:
+            failures = tuple(sorted(self._failed.items()))
+            names = ", ".join(name for name, _error in failures)
+            group = ExceptionGroup(
+                f"{len(failures)} node(s) failed: {names}",
+                tuple(error for _name, error in failures),
+            )
+            group.failed_nodes = tuple(name for name, _error in failures)  # type: ignore[attr-defined]
+            raise group
 
     async def _visit(self, current: Node) -> None:
         async with self._locks[current.name]:
-            if current.name in self._visited:
+            if (
+                current.name in self._visited
+                or current.name in self._failed
+                or current.name in self._blocked
+            ):
                 return
-            if self._is_complete(current):
-                self._visited.add(current.name)
-                return
-
-            async with self._acquire_lock(current):
+            try:
                 if self._is_complete(current):
                     self._visited.add(current.name)
                     return
-                await self._visit_many(self._graph.dependencies_of(current.name))
-                async with self._capacity(current):
-                    await self._runner(current)
-                self._publish(current)
-                if not self._is_complete(current):
-                    raise ExecutionError(
-                        f"node {current.name!r} returned without complete output"
-                    )
-                self._visited.add(current.name)
+
+                async with self._acquire_lock(current):
+                    if self._is_complete(current):
+                        self._visited.add(current.name)
+                        return
+                    dependencies = self._graph.dependencies_of(current.name)
+                    await self._visit_many(dependencies)
+                    if any(dependency.name not in self._visited for dependency in dependencies):
+                        self._blocked.add(current.name)
+                        return
+                    async with self._capacity(current):
+                        await self._runner(current)
+                    self._publish(current)
+                    if not self._is_complete(current):
+                        raise ExecutionError(
+                            f"node {current.name!r} returned without complete output"
+                        )
+                    self._visited.add(current.name)
+            except Exception as error:
+                self._failed[current.name] = error
 
     @asynccontextmanager
     async def _capacity(self, current: Node):

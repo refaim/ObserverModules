@@ -6,25 +6,20 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from core.graph import Graph, GraphError, Node, merge_graphs
-from core.node import NodeFactory
+from core.graph import Graph, GraphError, merge_graphs
 from core.paths import BuildPaths
 from core.quality_tools import UBSAN_LIBRARIES, resolve_llvm
-from core.render import TemplateRenderer
 from core.toolchain import MsvcToolchain
 from graphs.analysis import (
     clang_dependency_discovery_slice,
     dependency_discovery_slice,
-    dependency_inputs,
-    dependency_node_name,
+    project_build,
+    project_inventory,
 )
 from graphs.common import (
-    BINARIES,
-    BUILD_ROOT,
     PLATFORMS,
     PROJECTS,
-    project_inputs,
-    project_sources,
+    recipe_factory,
     require_positive_integers,
     tool_environment,
 )
@@ -43,15 +38,6 @@ class InstrumentedVariant:
     @property
     def configuration(self) -> str:
         return _CONFIGURATIONS.get(self.kind, self.kind)
-
-
-@dataclass(frozen=True, slots=True)
-class InstrumentedArtifact:
-    kind: str
-    architecture: str
-    name: str
-    producer: Node
-    path: Path
 
 
 def _variants(
@@ -125,74 +111,6 @@ def instrumented_dependency_discovery_slice(
         raise ValueError(f"conflicting canonical node: {name}") from error
 
 
-def _build(
-    repository: Path,
-    toolchain: MsvcToolchain,
-    factory: NodeFactory,
-    discovery: Graph,
-    manifests: Mapping[str, bytes],
-    variant: InstrumentedVariant,
-    project_name: str,
-    clang_identity: Mapping[str, str],
-) -> Node:
-    project = repository / "build/projects" / f"{project_name}.vcxproj"
-    files = {
-        name: (repository / name).read_bytes()
-        for name in project_inputs(repository, project)
-    }
-    dependencies = []
-    restore_name = (
-        f"restore-vcpkg-asan-{variant.architecture}"
-        if variant.kind == "asan"
-        else f"restore-vcpkg-{variant.architecture}"
-    )
-    restore = discovery.node(restore_name)
-    restore_output = BuildPaths(repository).cas(restore.uid, restore.name).output
-    for source in project_sources(repository, project):
-        name = dependency_node_name(
-            repository, variant.architecture, project_name, source, variant.kind
-        )
-        discovered = discovery.node(name)
-        dependencies.append(discovered)
-        try:
-            manifest = manifests[name]
-        except KeyError as error:
-            raise ValueError(f"missing dependency manifest: {name}") from error
-        files.update(dependency_inputs(repository, restore_output, source, manifest))
-
-    runtime = variant.llvm_runtime.resolve(strict=True) if variant.llvm_runtime else None
-    identity = dict(toolchain.identity)
-    if variant.kind in {"coverage", "ubsan"}:
-        identity.update(clang_identity)
-    if runtime is not None:
-        identity.update(
-            {f"llvm_runtime.{key}": value for key, value in variant.runtime_identity.items()}
-        )
-        identity["llvm_runtime.path"] = str(runtime)
-    return factory.make(
-        "instrumented-build.ps1",
-        f"build-{project_name}-{variant.architecture}-{variant.kind}",
-        "slot",
-        {
-            "pwsh": str(toolchain.pwsh), "msbuild": str(toolchain.msbuild),
-            "project": str(project), "target": "Build",
-            "configuration": variant.configuration,
-            "platform": PLATFORMS[variant.architecture],
-            "vcpkg_root": str(toolchain.vcpkg_root),
-            "vcpkg_installed": str(restore_output),
-            "llvm_dir": str(toolchain.llvm_dir) if variant.kind in {"coverage", "ubsan"} else "",
-            "llvm_runtime": str(runtime) if runtime else "",
-        },
-        files=files,
-        dependencies=tuple(dependencies),
-        identity=identity,
-        config={
-            "action": "build", "kind": variant.kind,
-            "architecture": variant.architecture, "project": project_name,
-        },
-    )
-
-
 def instrumented_build_slice(
     repository: Path,
     toolchain: MsvcToolchain,
@@ -201,7 +119,7 @@ def instrumented_build_slice(
     manifests: Mapping[str, bytes],
     variants: tuple[InstrumentedVariant, ...],
     jobs: int = 2,
-) -> tuple[Graph, tuple[InstrumentedArtifact, ...]]:
+) -> Graph:
     """Build independently cacheable modules/tests from completed discovery."""
 
     selected = _variants(variants, jobs)
@@ -210,8 +128,7 @@ def instrumented_build_slice(
     if discovery.pools.get("slot") != jobs:
         raise ValueError("conflicting slot pool capacity")
     root = repository.resolve(strict=True)
-    factory = NodeFactory(
-        TemplateRenderer(BUILD_ROOT / "templates"),
+    factory = recipe_factory(
         root,
         dict(toolchain.identity),
         tool_environment(toolchain),
@@ -223,32 +140,47 @@ def instrumented_build_slice(
         clang_identity = {
             f"clang_cl.{key}": value for key, value in clang.identity
         }
-    builds, artifacts = [], []
+    builds = []
+    projects = project_inventory(root, PROJECTS)
     for variant in selected:
-        for project in PROJECTS:
-            build = _build(
-                root,
-                toolchain,
-                factory,
-                discovery,
-                manifests,
-                variant,
-                project,
-                clang_identity,
+        restore_name = (
+            f"restore-vcpkg-asan-{variant.architecture}"
+            if variant.kind == "asan"
+            else f"restore-vcpkg-{variant.architecture}"
+        )
+        restore = discovery.node(restore_name)
+        restore_output = paths.cas(restore.uid).output
+        runtime = variant.llvm_runtime.resolve(strict=True) if variant.llvm_runtime else None
+        identity = dict(toolchain.identity)
+        if variant.kind in {"coverage", "ubsan"}:
+            identity.update(clang_identity)
+        if runtime is not None:
+            identity.update({
+                f"llvm_runtime.{key}": value
+                for key, value in variant.runtime_identity.items()
+            })
+            identity["llvm_runtime.path"] = str(runtime)
+        for project in projects:
+            build = project_build(
+                root, factory, discovery, manifests, restore_output, project,
+                variant.architecture, variant.kind, "instrumented-build.ps1", {
+                    "pwsh": str(toolchain.pwsh), "msbuild": str(toolchain.msbuild),
+                    "project": str(project.path), "target": "Build",
+                    "configuration": variant.configuration,
+                    "platform": PLATFORMS[variant.architecture],
+                    "vcpkg_root": str(toolchain.vcpkg_root),
+                    "vcpkg_installed": str(restore_output),
+                    "llvm_dir": str(toolchain.llvm_dir)
+                    if variant.kind in {"coverage", "ubsan"} else "",
+                    "llvm_runtime": str(runtime) if runtime else "",
+                }, identity=identity, config={
+                    "action": "build", "kind": variant.kind,
+                    "architecture": variant.architecture, "project": project.name,
+                },
             )
             builds.append(build)
-            artifacts.append(
-                InstrumentedArtifact(
-                    variant.kind,
-                    variant.architecture,
-                    project,
-                    build,
-                    paths.cas(build.uid, build.name).output / BINARIES[project],
-                )
-            )
-    graph = Graph(
+    return Graph(
         discovery.nodes + tuple(builds),
         tuple(build.name for build in builds),
         discovery.pools,
     )
-    return graph, tuple(artifacts)

@@ -18,7 +18,7 @@ sys.path.insert(0, str(BUILD_ROOT))
 from core.graph import Command, Graph, Node  # noqa: E402
 from core.package import PackageError, main as package_main  # noqa: E402
 from core.paths import BuildPaths  # noqa: E402
-from graphs.package import PackageArtifact, PackageSmokeArtifact, package_graph, package_outputs  # noqa: E402
+from graphs.package import package_graph, package_outputs  # noqa: E402
 
 
 MODULES = ("renpy", "rpgmaker", "zanzarah")
@@ -48,9 +48,8 @@ class PackageGraphTests(unittest.TestCase):
 
     def fixture(
         self, root: Path, architectures: tuple[str, ...] = ("x64", "arm64")
-    ) -> tuple[Path, Graph, tuple[PackageArtifact, ...]]:
+    ) -> tuple[Path, Graph]:
         repository = self.repository(root / "repo")
-        paths = BuildPaths(repository)
         producers = tuple(
             node(f"build-{module}-{architecture}-release")
             for architecture in architectures
@@ -65,59 +64,69 @@ class PackageGraphTests(unittest.TestCase):
             )
             for kind in ("pe", "binskim")
         )
-        upstream = Graph((*producers, *audit_gates), tuple(item.name for item in producers), {"build": 4})
-        artifacts = tuple(
-            PackageArtifact(
-                architecture,
-                module,
-                producer,
-                paths.cas(producer.uid, producer.name).output / f"{module}.so",
-                paths.cas(producer.uid, producer.name).output / f"{module}.pdb",
-            )
-            for producer, (architecture, module) in zip(
-                producers,
-                ((architecture, module) for architecture in architectures for module in MODULES),
-                strict=True,
-            )
+        tests = tuple(node(f"build-tests-{architecture}-release") for architecture in architectures)
+        upstream = Graph(
+            (*producers, *tests, *audit_gates),
+            tuple(item.name for item in producers),
+            {"build": 4},
         )
-        return repository, upstream, artifacts
+        return repository, upstream
 
     def test_package_units_fan_out_and_only_inherent_aggregates_fan_in(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            repository, upstream, artifacts = self.fixture(Path(temporary))
-            graph = package_graph(repository, upstream, artifacts, jobs=7)
+            repository, upstream = self.fixture(Path(temporary))
+            graph = package_graph(
+                repository, upstream, architectures=("x64", "arm64"), jobs=7
+            )
             paths = BuildPaths(repository)
             outputs = package_outputs(repository, graph)
             with self.assertRaisesRegex(ValueError, "no package outputs"):
                 package_outputs(repository, upstream)
+            empty_manifest = Graph(
+                (node("package-manifest"),), ("package-manifest",), {"build": 1}
+            )
+            with self.assertRaisesRegex(ValueError, "no package outputs"):
+                package_outputs(repository, empty_manifest)
 
         self.assertEqual(graph.pools, {"build": 4, "package": 7})
         self.assertEqual(len(graph.nodes) - len(upstream.nodes), 29)
         self.assertEqual(graph.targets, ("package-manifest",))
-        for artifact in artifacts:
-            suffix = f"{artifact.architecture}-{artifact.module}"
+        for architecture in ("arm64", "x64"):
+          for module in MODULES:
+            suffix = f"{architecture}-{module}"
+            producer = graph.node(f"build-{module}-{architecture}-release")
             stage = graph.node(f"package-stage-{suffix}")
             symbols = graph.node(f"package-symbol-stage-{suffix}")
             archive = graph.node(f"package-archive-{suffix}")
             validation = graph.node(f"package-validate-{suffix}")
             gates = (
-                f"audit-pe-{artifact.architecture}-{artifact.module}",
-                f"audit-binskim-{artifact.architecture}-{artifact.module}",
+                f"audit-pe-{architecture}-{module}",
+                f"audit-binskim-{architecture}-{module}",
             )
-            self.assertEqual(stage.inputs, (artifact.producer.name, *gates))
-            self.assertEqual(symbols.inputs, (artifact.producer.name, *gates))
+            self.assertEqual(stage.inputs, (producer.name, *gates))
+            self.assertEqual(symbols.inputs, (producer.name, *gates))
             self.assertEqual(archive.inputs, (stage.name, *gates))
             self.assertEqual(validation.inputs, (archive.name, stage.name))
             self.assertEqual(
+                tuple((item.id, item.kind, item.media_type, item.relative_path)
+                      for item in validation.results),
+                ((
+                    f"reports/package/{architecture}/{module}/validation.json",
+                    "package-validation", "application/json", "validation.json",
+                ),),
+            )
+            self.assertEqual(archive.results, ())
+            self.assertEqual(
                 validation.command.argv[3:],
-                ("validate-module", artifact.architecture, artifact.module,
-                 str(paths.cas(archive.uid, archive.name).output / f"{artifact.module}-{artifact.architecture}-dll.zip"),
-                 str(paths.cas(stage.uid, stage.name).output)),
+                ("validate-module", architecture, module,
+                 str(paths.cas(archive.uid).output / f"{module}-{architecture}-dll.zip"),
+                 str(paths.cas(stage.uid).output)),
             )
             self.assertEqual(stage.command.argv[:3], (sys.executable, "-m", "core.package"))
-            self.assertIn(str(artifact.binary), stage.command.argv)
-            self.assertIn(str(artifact.symbols), symbols.command.argv)
-            self.assertIn(str(paths.cas(stage.uid, stage.name).output), archive.command.argv)
+            producer_output = paths.cas(producer.uid).output
+            self.assertIn(str(producer_output / f"{module}.so"), stage.command.argv)
+            self.assertIn(str(producer_output / f"{module}.pdb"), symbols.command.argv)
+            self.assertIn(str(paths.cas(stage.uid).output), archive.command.argv)
 
         for architecture in ("arm64", "x64"):
             combined = graph.node(f"package-symbols-{architecture}")
@@ -130,37 +139,52 @@ class PackageGraphTests(unittest.TestCase):
                 validation.inputs,
                 (combined.name, *combined.inputs),
             )
+            self.assertEqual(
+                tuple((item.id, item.relative_path) for item in validation.results),
+                ((f"reports/package/{architecture}/symbols/validation.json", "validation.json"),),
+            )
         aggregate = graph.node("package-manifest")
         self.assertEqual(len(aggregate.inputs), 8)
         self.assertTrue(all(name.startswith("package-validate-") or name.startswith("package-symbols-validate-")
                             for name in aggregate.inputs))
+        expected_names = {
+            *(f"{module}-{architecture}-dll.zip"
+              for architecture in ("arm64", "x64") for module in MODULES),
+            *(f"observer-modules-{architecture}-pdb.zip"
+              for architecture in ("arm64", "x64")),
+        }
+        self.assertEqual(
+            {(item.id, item.kind, item.media_type, item.relative_path)
+             for item in aggregate.results},
+            {
+                (f"packages/{name.split('-')[1] if '-modules-' not in name else name.split('-')[2]}/{name}",
+                 "package", "application/zip", name)
+                for name in expected_names
+            } | {("packages/packages.json", "package-manifest", "application/json", "packages.json")},
+        )
         self.assertEqual(
             {Path(argument).name for argument in aggregate.command.argv[4:]},
-            {
-                *(f"{module}-{architecture}-dll.zip" for architecture in ("arm64", "x64") for module in MODULES),
-                *(f"observer-modules-{architecture}-pdb.zip" for architecture in ("arm64", "x64")),
-            },
+            expected_names,
         )
         self.assertTrue(all(node.pool == "package" for node in graph.nodes[len(upstream.nodes) :]))
         self.assertEqual(
             outputs,
             tuple(
-                paths.cas(graph.node(node_name).uid, node_name).output / archive_name
+                paths.cas(aggregate.uid).output / archive_name
                 for architecture in ("arm64", "x64")
-                for node_name, archive_name in (
-                    *( (f"package-archive-{architecture}-{module}", f"{module}-{architecture}-dll.zip")
-                       for module in MODULES ),
-                    (f"package-symbols-{architecture}", f"observer-modules-{architecture}-pdb.zip"),
+                for archive_name in (
+                    *(f"{module}-{architecture}-dll.zip" for module in MODULES),
+                    f"observer-modules-{architecture}-pdb.zip",
                 )
             ),
         )
 
     def test_repository_metadata_invalidates_only_consuming_package_partition(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            repository, upstream, artifacts = self.fixture(Path(temporary), ("x64",))
-            before = package_graph(repository, upstream, artifacts)
+            repository, upstream = self.fixture(Path(temporary), ("x64",))
+            before = package_graph(repository, upstream, architectures=("x64",))
             (repository / "src/modules/renpy/observer_user.ini").write_text("changed\n", encoding="utf-8")
-            after = package_graph(repository, upstream, artifacts)
+            after = package_graph(repository, upstream, architectures=("x64",))
 
         changed = {current.name for current in before.nodes if current.uid != after.node(current.name).uid}
         self.assertEqual(
@@ -173,20 +197,15 @@ class PackageGraphTests(unittest.TestCase):
 
     def test_package_smokes_run_independently_against_exact_archives(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            repository, original, artifacts = self.fixture(Path(temporary), ("x64",))
-            test_producer = node("build-tests-x64-release")
-            upstream = Graph(
-                original.nodes + (test_producer,),
-                original.targets + (test_producer.name,),
-                original.pools,
-            )
+            repository, upstream = self.fixture(Path(temporary), ("x64",))
+            test_producer = upstream.node("build-tests-x64-release")
             paths = BuildPaths(repository)
-            executable = paths.cas(test_producer.uid, test_producer.name).output / "tests.exe"
+            executable = paths.cas(test_producer.uid).output / "tests.exe"
             graph = package_graph(
                 repository,
                 upstream,
-                artifacts,
-                smoke_tests=(PackageSmokeArtifact("x64", test_producer, executable),),
+                architectures=("x64",),
+                smoke_architectures=("x64",),
             )
 
         smokes = tuple(graph.node(f"package-smoke-x64-{module}") for module in MODULES)
@@ -199,7 +218,7 @@ class PackageGraphTests(unittest.TestCase):
             archive = graph.node(f"package-archive-x64-{module}")
             self.assertEqual(
                 Path(smoke.command.argv[6]),
-                paths.cas(archive.uid, archive.name).output / f"{module}-x64-dll.zip",
+                paths.cas(archive.uid).output / f"{module}-x64-dll.zip",
             )
             self.assertIn(str(executable), smoke.command.argv)
         manifest_inputs = set(graph.node("package-manifest").inputs)
@@ -210,41 +229,31 @@ class PackageGraphTests(unittest.TestCase):
             | {"package-symbols-validate-x64"},
         )
 
-    def test_invalid_artifacts_sets_and_pool_contracts_are_rejected(self) -> None:
+    def test_invalid_axes_lineage_and_pool_contracts_are_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            repository, upstream, artifacts = self.fixture(Path(temporary), ("x64",))
+            repository, upstream = self.fixture(Path(temporary), ("x64",))
 
             for jobs in (0, True, "four"):
                 with self.subTest(jobs=jobs), self.assertRaisesRegex(ValueError, "positive integer"):
-                    package_graph(repository, upstream, artifacts, jobs=jobs)  # type: ignore[arg-type]
-            with self.assertRaisesRegex(ValueError, "at least one"):
-                package_graph(repository, upstream, ())
-            with self.assertRaisesRegex(ValueError, "duplicate"):
-                package_graph(repository, upstream, artifacts + (artifacts[0],))
-            with self.assertRaisesRegex(ValueError, "identity"):
-                package_graph(
-                    repository,
-                    upstream,
-                    (
-                        PackageArtifact(
-                            "mips", "renpy", artifacts[0].producer,
-                            artifacts[0].binary, artifacts[0].symbols,
-                        ),
-                    ),
-                )
-            with self.assertRaisesRegex(ValueError, "identity"):
-                package_graph(
-                    repository,
-                    upstream,
-                    (
-                        PackageArtifact(
-                            "x64", "bad module", artifacts[0].producer,
-                            artifacts[0].binary, artifacts[0].symbols,
-                        ),
-                    ),
-                )
-            with self.assertRaisesRegex(ValueError, "complete module set"):
-                package_graph(repository, upstream, artifacts[:-1])
+                    package_graph(
+                        repository, upstream, architectures=("x64",), jobs=jobs  # type: ignore[arg-type]
+                    )
+            for invalid in ((), ("x64", "x64"), ("mips",)):
+                with self.subTest(invalid=invalid), self.assertRaisesRegex(ValueError, "architectures"):
+                    package_graph(repository, upstream, architectures=invalid)
+
+            removed = {
+                "build-renpy-x64-release",
+                "audit-pe-x64-renpy",
+                "audit-binskim-x64-renpy",
+            }
+            missing_build = Graph(
+                tuple(item for item in upstream.nodes if item.name not in removed),
+                tuple(name for name in upstream.targets if name not in removed),
+                upstream.pools,
+            )
+            with self.assertRaisesRegex(ValueError, "unknown node"):
+                package_graph(repository, missing_build, architectures=("x64",))
 
             missing_gate = Graph(
                 tuple(node for node in upstream.nodes if node.name != "audit-pe-x64-renpy"),
@@ -252,18 +261,26 @@ class PackageGraphTests(unittest.TestCase):
                 upstream.pools,
             )
             with self.assertRaisesRegex(ValueError, "audit gates"):
-                package_graph(repository, missing_gate, artifacts)
+                package_graph(repository, missing_gate, architectures=("x64",))
             pe_gate = upstream.node("audit-pe-x64-renpy")
-            proof = node("audit-proof-x64-renpy", inputs=(artifacts[0].producer.name,))
+            producer = upstream.node("build-renpy-x64-release")
+            proof = node("audit-proof-x64-renpy", inputs=(producer.name,))
             indirect_gate = Node(pe_gate.name, pe_gate.uid, pe_gate.pool, pe_gate.command, (proof.name,))
             indirect = Graph(
                 (*tuple(item for item in upstream.nodes if item != pe_gate), proof, indirect_gate),
                 upstream.targets,
                 upstream.pools,
             )
-            self.assertEqual(package_graph(repository, indirect, artifacts).targets, ("package-manifest",))
+            self.assertEqual(
+                package_graph(repository, indirect, architectures=("x64",)).targets,
+                ("package-manifest",),
+            )
             unrelated_gate = Node(
-                pe_gate.name, pe_gate.uid, pe_gate.pool, pe_gate.command, (artifacts[1].producer.name,)
+                pe_gate.name,
+                pe_gate.uid,
+                pe_gate.pool,
+                pe_gate.command,
+                (upstream.node("build-rpgmaker-x64-release").name,),
             )
             unrelated = Graph(
                 (*tuple(item for item in upstream.nodes if item != pe_gate), unrelated_gate),
@@ -271,48 +288,40 @@ class PackageGraphTests(unittest.TestCase):
                 upstream.pools,
             )
             with self.assertRaisesRegex(ValueError, "do not consume producer"):
-                package_graph(repository, unrelated, artifacts)
-
-            impostor = node(artifacts[0].producer.name, "impostor")
-            bad_producer = PackageArtifact("x64", "renpy", impostor, artifacts[0].binary, artifacts[0].symbols)
-            with self.assertRaisesRegex(ValueError, "exact producer CAS"):
-                package_graph(repository, upstream, (bad_producer,) + artifacts[1:])
-            wrong_path = PackageArtifact(
-                "x64", "renpy", artifacts[0].producer, artifacts[0].binary.parent / "wrong.so", artifacts[0].symbols
-            )
-            with self.assertRaisesRegex(ValueError, "exact producer CAS"):
-                package_graph(repository, upstream, (wrong_path,) + artifacts[1:])
+                package_graph(repository, unrelated, architectures=("x64",))
 
             matching = Graph(upstream.nodes, upstream.targets, {"build": 4, "package": 4})
-            self.assertEqual(package_graph(repository, matching, artifacts).pools["package"], 4)
+            self.assertEqual(
+                package_graph(repository, matching, architectures=("x64",)).pools["package"], 4
+            )
             conflicting = Graph(upstream.nodes, upstream.targets, {"build": 4, "package": 1})
             with self.assertRaisesRegex(ValueError, "conflicting pool"):
-                package_graph(repository, conflicting, artifacts)
+                package_graph(repository, conflicting, architectures=("x64",))
 
-    def test_invalid_package_smoke_artifacts_are_rejected(self) -> None:
+    def test_invalid_package_smoke_axes_are_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            repository, original, artifacts = self.fixture(Path(temporary), ("x64",))
-            producer = node("build-tests-x64-release")
-            upstream = Graph(original.nodes + (producer,), original.targets, original.pools)
-            paths = BuildPaths(repository)
-            valid = PackageSmokeArtifact(
-                "x64", producer, paths.cas(producer.uid, producer.name).output / "tests.exe"
+            repository, upstream = self.fixture(Path(temporary), ("x64",))
+            for smokes in (("x64", "x64"), ("x86",)):
+                with self.subTest(smokes=smokes), self.assertRaisesRegex(ValueError, "smoke architectures"):
+                    package_graph(
+                        repository,
+                        upstream,
+                        architectures=("x64",),
+                        smoke_architectures=smokes,
+                    )
+
+            missing_test = Graph(
+                tuple(item for item in upstream.nodes if item.name != "build-tests-x64-release"),
+                upstream.targets,
+                upstream.pools,
             )
-            cases = (
-                ((valid, valid), "duplicate"),
-                ((PackageSmokeArtifact("x86", producer, valid.executable),), "exact test producer"),
-                (
-                    (PackageSmokeArtifact("x64", node(producer.name, "impostor"), valid.executable),),
-                    "exact test producer",
-                ),
-                (
-                    (PackageSmokeArtifact("x64", producer, valid.executable.with_name("wrong.exe")),),
-                    "exact test producer",
-                ),
-            )
-            for smokes, message in cases:
-                with self.subTest(message=message), self.assertRaisesRegex(ValueError, message):
-                    package_graph(repository, upstream, artifacts, smoke_tests=smokes)
+            with self.assertRaisesRegex(ValueError, "unknown node"):
+                package_graph(
+                    repository,
+                    missing_test,
+                    architectures=("x64",),
+                    smoke_architectures=("x64",),
+                )
 
 
 class PackageActionTests(unittest.TestCase):
@@ -393,6 +402,7 @@ class PackageActionTests(unittest.TestCase):
 
             aggregate = root / "aggregate"
             self.invoke(aggregate, "aggregate", str(first))
+            self.assertEqual((aggregate / first.name).read_bytes(), first.read_bytes())
             packages = json.loads((aggregate / "packages.json").read_text(encoding="utf-8"))
             self.assertEqual("renpy-x64-dll.zip", packages[0]["name"])
             self.assertEqual(hashlib.sha256(first.read_bytes()).hexdigest(), packages[0]["sha256"])

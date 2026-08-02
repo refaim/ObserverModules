@@ -5,10 +5,8 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
-from core.graph import Graph
-from core.node import NodeFactory
-from core.render import TemplateRenderer
-from graphs.common import BUILD_ROOT, python_action
+from core.graph import Graph, Result
+from graphs.common import BUILD_ROOT, python_action, recipe_factory
 
 
 def _inputs(repository: Path, build_root: Path) -> dict[str, bytes]:
@@ -44,12 +42,19 @@ def python_coverage_graph(repository: Path) -> Graph:
     if not coverage.is_file():
         raise FileNotFoundError(f"project coverage executable is not a file: {coverage}")
     digest = _tool_digest(build_root, coverage)
-    factory = NodeFactory(TemplateRenderer(BUILD_ROOT / "templates"), BUILD_ROOT, {})
+    factory = recipe_factory(BUILD_ROOT, {})
     gate = python_action(
         factory, "python-coverage", "core.python_coverage", (str(coverage), str(build_root)), (),
         pool="python-coverage", files=_inputs(root, build_root),
         identity={"coverage.path": str(coverage), "coverage.sha256": digest},
         config={"action": "python-coverage", "coverage": "100-percent-line-and-branch"},
         environment=(("PYTHONDONTWRITEBYTECODE", "1"),),
+        results=(
+            Result("reports/coverage/python/coverage.json", "coverage", "application/json", "coverage.json"),
+            Result("reports/coverage/python/coverage.xml", "coverage", "application/xml", "coverage.xml"),
+            Result("reports/coverage/python/coverage.txt", "coverage", "text/plain", "coverage.txt"),
+            Result("reports/coverage/python/coverage.toml", "coverage-config", "application/toml", "coverage.toml"),
+            Result("reports/coverage/python/coverage.data", "coverage-data", "application/octet-stream", ".coverage"),
+        ),
     )
     return Graph((gate,), (gate.name,), {"python-coverage": 1})

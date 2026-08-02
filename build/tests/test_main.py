@@ -73,22 +73,31 @@ class MainTests(unittest.TestCase):
             ("test", ["-Config", "Release", "-Corpus", "golden", "-TestShards", "7"],
              (("x64",), ("Release",)), {"test_shards": 7, "corpus": Path("golden"), "run_nonce": "run-id"}),
             ("compiler_analysis", [], (("x64",),), {}),
-            ("test_coverage", ["-Corpus", "golden", "-CoverageThreshold", "100"],
+            ("test_coverage", ["-Corpus", "golden"],
              (("x64",),), {"test_shards": 4, "corpus": Path("golden"), "run_nonce": "run-id"}),
             ("test_asan", ["-Arch", "x86,x64"], (("x86", "x64"),), {"test_shards": 4}),
             ("test_ubsan", [], (("x64",),), {"test_shards": 4}),
             ("fuzz", ["-FuzzSeconds", "91", "-FuzzTarget", "RenPy"], (),
              {"run_nonce": "run-id", "seconds": 91, "targets": ("renpy",)}),
+            ("verify_source", ["-ExportDir", "source-evidence"], (),
+             {"export_dir": Path("source-evidence")}),
+            ("verify_arch", ["-Arch", "x86", "-ExportDir", "x86-evidence",
+                             "-FuzzSeconds", "17"], (("x86",),),
+             {"corpus": None, "run_nonce": "run-id", "fuzz_seconds": 17,
+              "test_shards": 4, "warmup": 8, "iterations": 100, "windows": 3,
+              "tolerance_bytes": 0, "export_dir": Path("x86-evidence")}),
             ("verify", ["-Arch", "all", "-Corpus", "golden", "-FuzzSeconds", "17",
                         "-LeakWarmup", "2", "-LeakIterations", "5", "-LeakWindows", "4",
-                        "-LeakToleranceBytes", "9"], (("x86", "x64", "arm64"),),
+                        "-LeakToleranceBytes", "9", "-ExportDir", "all-evidence"],
+             (("x86", "x64", "arm64"),),
              {"corpus": Path("golden"), "run_nonce": "run-id", "fuzz_seconds": 17,
               "test_shards": 4, "warmup": 2, "iterations": 5, "windows": 4,
-              "tolerance_bytes": 9}),
+              "tolerance_bytes": 9, "export_dir": Path("all-evidence")}),
         )
         command_names = {
             "compiler_analysis": "compiler-analysis", "test_coverage": "test-coverage",
             "test_asan": "test-asan", "test_ubsan": "test-ubsan",
+            "verify_source": "verify-source", "verify_arch": "verify-arch",
         }
         for method, options, positional, keywords in cases:
             with self.subTest(command=method):
@@ -126,10 +135,17 @@ class MainTests(unittest.TestCase):
 
         for command, method in (("audit-binaries", "audit"), ("package", "package")):
             with self.subTest(command=command):
-                result = self.invoke([command, "-Repository", str(repository), "-Jobs", "3"])
+                options = [command, "-Repository", str(repository), "-Jobs", "3"]
+                if command == "package":
+                    options.extend(("-ExportDir", "package-evidence"))
+                result = self.invoke(options)
                 dumpbin, binskim, _umdh = result.tools
                 self.assertEqual(FakeDriver.instances[-1].calls, [
-                    (method, (("x64",),), {"dumpbin": dumpbin, "binskim": binskim})
+                    (method, (("x64",),), {
+                        "dumpbin": dumpbin,
+                        "binskim": binskim,
+                        **({"export_dir": Path("package-evidence")} if command == "package" else {}),
+                    })
                 ])
 
         leak = self.invoke([
@@ -179,7 +195,10 @@ class MainTests(unittest.TestCase):
 
         stdout = StringIO()
         with (
-            mock.patch.dict(main._INVOKE, {"verify": fail}),
+            mock.patch.dict(
+                main._COMMANDS,
+                {"verify": (main._COMMANDS["verify"][0], fail)},
+            ),
             mock.patch.object(main, "verify_route", return_value=SimpleNamespace(deferred=(deferred,))),
             mock.patch.object(main, "discover_msvc_toolchain", return_value=object()),
             mock.patch.object(main, "BuildDriver", FakeDriver),
@@ -189,17 +208,20 @@ class MainTests(unittest.TestCase):
             main.main(["verify", "-Arch", "arm64"])
         self.assertEqual(stdout.getvalue(), "")
 
-    def test_help_and_deprecated_skip_restore_contract(self) -> None:
+    def test_help_and_removed_skip_restore_contract(self) -> None:
         for argv in ([], ["help"]):
             with self.subTest(argv=argv), redirect_stdout(StringIO()) as stdout:
                 self.assertEqual(main.main(argv), 0)
             self.assertIn("audit-binaries", stdout.getvalue())
 
-        result = self.invoke(["build", "-SkipDependencyRestore"])
-        self.assertEqual(FakeDriver.instances[-1].calls[0][0], "build")
-        with redirect_stderr(StringIO()), self.assertRaises(SystemExit) as raised:
-            main.main(["restore", "-SkipDependencyRestore"])
-        self.assertEqual(raised.exception.code, 2)
+        for command in ("build", "restore"):
+            with (
+                self.subTest(command=command),
+                redirect_stderr(StringIO()),
+                self.assertRaises(SystemExit) as raised,
+            ):
+                main.main([command, "-SkipDependencyRestore"])
+            self.assertEqual(raised.exception.code, 2)
 
     def test_invalid_legacy_options_fail_before_discovery(self) -> None:
         cases = (
@@ -212,8 +234,10 @@ class MainTests(unittest.TestCase):
             ["test-leaks", "-LeakWindows", "2"], ["test-leaks", "-LeakWindows", "11"],
             ["test-leaks", "-LeakToleranceBytes", "-1"],
             ["test-coverage", "-CoverageThreshold", "99"],
+            ["test-coverage", "-CoverageThreshold", "100"],
             ["test-coverage", "-CoverageThreshold", "100.0"],
             ["test", "-TestShards", "0"], ["build", "-Jobs", "0"],
+            ["verify-arch", "-Arch", "all"],
         )
         for argv in cases:
             with (

@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).parents[1]))
 from core.binary_audit import AuditError, main as binary_audit_main  # noqa: E402
 from core.graph import Command, Graph, Node  # noqa: E402
 from core.paths import BuildPaths  # noqa: E402
-from graphs.audit import BinaryArtifact, audit_graph  # noqa: E402
+from graphs.audit import audit_graph  # noqa: E402
 
 
 def node(name: str, *, inputs: tuple[str, ...] = ()) -> Node:
@@ -30,31 +30,26 @@ def node(name: str, *, inputs: tuple[str, ...] = ()) -> Node:
 
 
 class AuditGraphTests(unittest.TestCase):
-    def fixture(self, root: Path) -> tuple[Path, Graph, tuple[BinaryArtifact, ...], Path, Path]:
+    def fixture(self, root: Path) -> tuple[Path, Graph, Path, Path]:
         repository = root / "repo"
         repository.mkdir()
         restore = node("restore-release")
-        renpy = node("build-renpy-x64-release", inputs=(restore.name,))
-        rpgmaker = node("build-rpgmaker-x86-release", inputs=(restore.name,))
-        upstream = Graph(
-            (restore, renpy, rpgmaker),
-            (renpy.name, rpgmaker.name),
-            {"build": 2},
+        builds = tuple(
+            node(f"build-{module}-{architecture}-release", inputs=(restore.name,))
+            for architecture in ("x64", "x86")
+            for module in ("renpy", "rpgmaker", "zanzarah")
         )
-        paths = BuildPaths(repository)
-        artifacts = (
-            BinaryArtifact("x64", "renpy", renpy, paths.cas(renpy.uid, renpy.name).output / "renpy.so"),
-            BinaryArtifact(
-                "x86", "rpgmaker", rpgmaker,
-                paths.cas(rpgmaker.uid, rpgmaker.name).output / "rpgmaker.so",
-            ),
+        upstream = Graph(
+            (restore, *builds),
+            tuple(item.name for item in builds),
+            {"build": 2},
         )
         tools = root / "tools"
         tools.mkdir()
         dumpbin, binskim = tools / "dumpbin.exe", tools / "BinSkim.exe"
         dumpbin.touch()
         binskim.touch()
-        return repository, upstream, artifacts, dumpbin, binskim
+        return repository, upstream, dumpbin, binskim
 
     def build_graph(
         self,
@@ -63,17 +58,38 @@ class AuditGraphTests(unittest.TestCase):
         dumpbin_version: str = "14.44",
         binskim_version: str = "4.4",
     ) -> Graph:
-        repository, upstream, artifacts, dumpbin, binskim = self.fixture(root)
+        repository, upstream, dumpbin, binskim = self.fixture(root)
         return audit_graph(
             repository,
             upstream,
-            artifacts,
+            architectures=("x64", "x86"),
             dumpbin=dumpbin,
             dumpbin_identity={"path": str(dumpbin), "version": dumpbin_version},
             binskim=binskim,
             binskim_identity={"path": str(binskim), "version": binskim_version},
             jobs=3,
-            binskim_jobs=2,
+        )
+
+    def test_selects_canonical_release_producers_without_artifact_dtos(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            repository, upstream, dumpbin, binskim = self.fixture(Path(temporary))
+            graph = audit_graph(
+                repository,
+                upstream,
+                architectures=("x64", "x86"),
+                dumpbin=dumpbin,
+                dumpbin_identity={"version": "14.44"},
+                binskim=binskim,
+                binskim_identity={"version": "4.4"},
+            )
+
+        self.assertEqual(
+            graph.node("audit-binskim-run-x64-renpy").inputs,
+            ("build-renpy-x64-release",),
+        )
+        self.assertEqual(
+            graph.node("audit-binskim-run-x86-rpgmaker").inputs,
+            ("build-rpgmaker-x86-release",),
         )
 
     def test_each_artifact_composes_six_fine_grained_nodes_over_its_full_upstream(self) -> None:
@@ -81,23 +97,22 @@ class AuditGraphTests(unittest.TestCase):
             root = Path(temporary)
             graph = self.build_graph(root)
 
-        self.assertEqual(graph.pools, {"build": 2, "audit": 3, "binskim": 2, "dumpbin": 3})
+        self.assertEqual(graph.pools, {"build": 2, "slot": 3})
         self.assertEqual(
             graph.targets,
-            (
-                "audit-pe-x64-renpy",
-                "audit-binskim-x64-renpy",
-                "audit-pe-x86-rpgmaker",
-                "audit-binskim-x86-rpgmaker",
+            tuple(
+                f"audit-{kind}-{architecture}-{module}"
+                for architecture in ("x64", "x86")
+                for module in ("renpy", "rpgmaker", "zanzarah")
+                for kind in ("pe", "binskim")
             ),
         )
-        self.assertEqual(15, len(graph.nodes))
+        self.assertEqual(43, len(graph.nodes))
         self.assertEqual(graph.node("build-renpy-x64-release").inputs, ("restore-release",))
 
-        for architecture, module, producer in (
-            ("x64", "renpy", "build-renpy-x64-release"),
-            ("x86", "rpgmaker", "build-rpgmaker-x86-release"),
-        ):
+        for architecture in ("x64", "x86"):
+          for module in ("renpy", "rpgmaker", "zanzarah"):
+            producer = f"build-{module}-{architecture}-release"
             dump_nodes = tuple(
                 graph.node(f"audit-dumpbin-{mode}-{architecture}-{module}")
                 for mode in ("headers", "dependents", "exports")
@@ -109,55 +124,65 @@ class AuditGraphTests(unittest.TestCase):
             self.assertEqual(pe_gate.inputs, tuple(current.name for current in dump_nodes))
             self.assertEqual(binskim_run.inputs, (producer,))
             self.assertEqual(binskim_gate.inputs, (binskim_run.name,))
-            self.assertTrue(all(current.pool == "dumpbin" for current in dump_nodes))
-            self.assertEqual((pe_gate.pool, binskim_run.pool, binskim_gate.pool), ("audit", "binskim", "audit"))
+            self.assertEqual(
+                tuple((item.id, item.kind, item.media_type, item.relative_path)
+                      for item in binskim_run.results),
+                ((
+                    f"reports/sarif/{architecture}/binskim-{module}.sarif",
+                    "sarif", "application/sarif+json", "binskim.sarif",
+                ),),
+            )
+            self.assertTrue(all(not current.results for current in (*dump_nodes, pe_gate, binskim_gate)))
+            self.assertTrue(all(current.pool == "slot" for current in dump_nodes))
+            self.assertEqual((pe_gate.pool, binskim_run.pool, binskim_gate.pool), ("slot", "slot", "slot"))
 
     def test_dumpbin_and_python_gates_receive_exact_binary_logs_and_report_paths(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            repository, upstream, artifacts, dumpbin, binskim = self.fixture(root)
+            repository, upstream, dumpbin, binskim = self.fixture(root)
             graph = audit_graph(
                 repository,
                 upstream,
-                artifacts[:1],
+                architectures=("x64",),
                 dumpbin=dumpbin,
                 dumpbin_identity={"version": "14.44"},
                 binskim=binskim,
                 binskim_identity={"version": "4.4"},
             )
             paths = BuildPaths(repository)
+            binary = paths.cas(upstream.node("build-renpy-x64-release").uid).output / "renpy.so"
 
         dump_nodes = tuple(
             graph.node(f"audit-dumpbin-{mode}-x64-renpy")
             for mode in ("headers", "dependents", "exports")
         )
         for mode, current in zip(("headers", "dependents", "exports"), dump_nodes, strict=True):
-            self.assertEqual(current.command.argv, (str(dumpbin), f"/{mode}", str(artifacts[0].path)))
+            self.assertEqual(current.command.argv, (str(dumpbin), f"/{mode}", str(binary)))
         pe_gate = graph.node("audit-pe-x64-renpy")
         self.assertEqual(pe_gate.command.argv[1:5], ("-m", "core.binary_audit", "pe", "x64"))
         self.assertEqual(
             pe_gate.command.argv[5:],
-            tuple(str(paths.cas(current.uid, current.name).log) for current in dump_nodes),
+            tuple(str(paths.cas(current.uid).log) for current in dump_nodes),
         )
         binskim_run = graph.node("audit-binskim-run-x64-renpy")
         self.assertEqual(
             binskim_run.command.argv[1:],
-            ("-m", "core.binary_audit", "run-binskim", str(binskim), str(artifacts[0].path)),
+            ("-m", "core.binary_audit", "run-binskim", str(binskim), str(binary)),
         )
         binskim_gate = graph.node("audit-binskim-x64-renpy")
-        report = paths.cas(binskim_run.uid, binskim_run.name).output / "binskim.sarif"
+        report = paths.cas(binskim_run.uid).output / "binskim.sarif"
         self.assertEqual(binskim_gate.command.argv[1:], ("-m", "core.binary_audit", "binskim", str(report)))
 
     def test_tool_identity_invalidates_only_its_run_and_semantic_consumers(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            repository, upstream, artifacts, dumpbin, binskim = self.fixture(root)
+            repository, upstream, dumpbin, binskim = self.fixture(root)
 
             def graph(dumpbin_version: str, binskim_version: str) -> Graph:
                 return audit_graph(
                     repository,
                     upstream,
-                    artifacts,
+                    architectures=("x64", "x86"),
                     dumpbin=dumpbin,
                     dumpbin_identity={"version": dumpbin_version},
                     binskim=binskim,
@@ -182,86 +207,56 @@ class AuditGraphTests(unittest.TestCase):
                 current.name,
             )
 
-    def test_artifact_must_match_its_exact_upstream_producer_cas(self) -> None:
+    def test_graph_rejects_invalid_axes_tools_pools_and_capacities(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            repository, upstream, artifacts, dumpbin, binskim = self.fixture(root)
-            escaped = BinaryArtifact("x64", "renpy", artifacts[0].producer, root / "outside.so")
-            with self.assertRaisesRegex(ValueError, "producer CAS"):
-                audit_graph(
-                    repository,
-                    upstream,
-                    (escaped,),
-                    dumpbin=dumpbin,
-                    dumpbin_identity={"version": "14.44"},
-                    binskim=binskim,
-                    binskim_identity={"version": "4.4"},
-                )
-
-    def test_graph_rejects_ambiguous_tools_pools_artifacts_and_capacities(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            repository, upstream, artifacts, dumpbin, binskim = self.fixture(root)
+            repository, upstream, dumpbin, binskim = self.fixture(root)
 
             def invoke(
-                selected: tuple[BinaryArtifact, ...] = artifacts,
                 *,
                 source: Graph = upstream,
+                architectures: tuple[str, ...] = ("x64", "x86"),
                 dumpbin_path: Path = dumpbin,
                 jobs: object = 2,
-                binskim_jobs: object = 1,
             ) -> Graph:
                 return audit_graph(
                     repository,
                     source,
-                    selected,
+                    architectures=architectures,
                     dumpbin=dumpbin_path,
                     dumpbin_identity={"version": "14.44"},
                     binskim=binskim,
                     binskim_identity={"version": "4.4"},
                     jobs=jobs,  # type: ignore[arg-type]
-                    binskim_jobs=binskim_jobs,  # type: ignore[arg-type]
                 )
 
-            for jobs, binskim_jobs in ((True, 1), ("two", 1), (2, 0)):
-                with self.subTest(capacities=(jobs, binskim_jobs)), self.assertRaisesRegex(
+            for jobs in (True, "two", 0):
+                with self.subTest(jobs=jobs), self.assertRaisesRegex(
                     ValueError, "capacities"
                 ):
-                    invoke(jobs=jobs, binskim_jobs=binskim_jobs)
+                    invoke(jobs=jobs)
 
             with self.assertRaisesRegex(FileNotFoundError, "not a file"):
                 invoke(dumpbin_path=dumpbin.parent)
-            with self.assertRaisesRegex(ValueError, "at least one"):
-                invoke(())
-            with self.assertRaisesRegex(ValueError, "duplicate"):
-                invoke((artifacts[0], artifacts[0]))
-            for invalid in (
-                BinaryArtifact("riscv64", "renpy", artifacts[0].producer, artifacts[0].path),
-                BinaryArtifact("x64", "Bad Module", artifacts[0].producer, artifacts[0].path),
-            ):
-                with self.subTest(invalid=invalid), self.assertRaisesRegex(ValueError, "identity"):
-                    invoke((invalid,))
+            for invalid in ((), ("x64", "x64"), ("riscv64",)):
+                with self.subTest(invalid=invalid), self.assertRaisesRegex(ValueError, "architectures"):
+                    invoke(architectures=invalid)
 
-            impostor = node(artifacts[0].producer.name)
-            mismatched = BinaryArtifact("x64", "renpy", impostor, artifacts[0].path)
-            with self.assertRaisesRegex(ValueError, "producer CAS"):
-                invoke((mismatched,))
-            expected_output = BuildPaths(repository).cas(
-                artifacts[0].producer.uid, artifacts[0].producer.name
-            ).output
-            for wrong_path in (expected_output, BuildPaths(repository).cas_root / "other.so"):
-                with self.subTest(wrong_path=wrong_path), self.assertRaisesRegex(
-                    ValueError, "producer CAS"
-                ):
-                    invoke((BinaryArtifact("x64", "renpy", artifacts[0].producer, wrong_path),))
+            incomplete = Graph(
+                tuple(item for item in upstream.nodes if item.name != "build-renpy-x64-release"),
+                tuple(name for name in upstream.targets if name != "build-renpy-x64-release"),
+                upstream.pools,
+            )
+            with self.assertRaisesRegex(ValueError, "unknown node"):
+                invoke(source=incomplete)
 
             matching_pools = Graph(
                 upstream.nodes,
                 upstream.targets,
-                {"build": 2, "audit": 2, "binskim": 1, "dumpbin": 2},
+                {"build": 2, "slot": 2},
             )
-            self.assertEqual(invoke(source=matching_pools).pools["audit"], 2)
-            conflicting = Graph(upstream.nodes, upstream.targets, {"build": 2, "audit": 1})
+            self.assertEqual(invoke(source=matching_pools).pools["slot"], 2)
+            conflicting = Graph(upstream.nodes, upstream.targets, {"build": 2, "slot": 1})
             with self.assertRaisesRegex(ValueError, "conflicting pool"):
                 invoke(source=conflicting)
 

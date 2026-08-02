@@ -13,7 +13,8 @@ from unittest import mock
 BUILD_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BUILD_ROOT))
 
-from core.paths import BuildPaths  # noqa: E402
+from core.paths import BuildPaths, PathSafetyError  # noqa: E402
+import graphs.analysis as analysis  # noqa: E402
 from graphs.analysis import (  # noqa: E402
     _manifest_index,
     analysis_discovery_slice,
@@ -106,6 +107,34 @@ class AnalysisSliceTests(unittest.TestCase):
             separators=(",", ":"),
         ).encode()
 
+    def test_project_inventory_parses_each_project_once_and_preserves_requested_order(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            repository = self.repository(Path(temporary) / "repo")
+            with mock.patch.object(
+                analysis.ET, "parse", wraps=analysis.ET.parse
+            ) as parse:
+                projects = analysis.project_inventory(
+                    repository, ("rpgmaker", "renpy")
+                )
+
+        self.assertEqual(parse.call_count, 2)
+        self.assertEqual(tuple(project.name for project in projects), ("rpgmaker", "renpy"))
+        self.assertEqual(
+            projects[0].inputs,
+            (
+                "build/ObserverProjectConfigurations.props",
+                "build/ObserverConfiguration.props",
+                "build/ObserverProject.props",
+                "build/projects/rpgmaker.vcxproj",
+            ),
+        )
+        self.assertEqual(
+            projects[0].sources,
+            (repository / "src/modules/rpgmaker/rpgmaker.cpp",),
+        )
+
     def staged_graphs(
         self, repository: Path, toolchain: FakeToolchain, *, jobs: int = 2,
         architectures: tuple[str, ...] = ("x64",),
@@ -129,7 +158,7 @@ class AnalysisSliceTests(unittest.TestCase):
             if "-rpgmaker-" in target:
                 architecture = target.removeprefix("discover-dependencies-").split("-", 1)[0]
                 restore = discovery.node(f"restore-vcpkg-{architecture}")
-                package = paths.cas(restore.uid, restore.name).output / "include/zlib.h"
+                package = paths.cas(restore.uid).output / "include/zlib.h"
                 package.parent.mkdir(parents=True, exist_ok=True)
                 if not package.exists():
                     package.write_text("#pragma once\n", encoding="utf-8")
@@ -155,6 +184,25 @@ class AnalysisSliceTests(unittest.TestCase):
             graph.targets,
             ("analysis-x64",),
         )
+        merged = graph.node("merge-analysis-x64")
+        self.assertEqual(
+            tuple(
+                (result.id, result.kind, result.media_type, result.relative_path)
+                for result in merged.results
+            ),
+            ((
+                "reports/sarif/x64/analysis.sarif",
+                "sarif",
+                "application/sarif+json",
+                "analysis.sarif",
+            ),),
+        )
+        self.assertEqual(graph.node("analysis-x64").results, ())
+        self.assertTrue(all(
+            not node.results
+            for node in graph.nodes
+            if node.name.startswith(("restore-", "discover-", "analyze-", "normalize-"))
+        ))
         self.assertEqual(graph.pools, {"misc": 2, "restore": 1, "slot": 2})
         self.assertEqual(
             tuple(node.name for node in graph.nodes),
@@ -303,15 +351,16 @@ class AnalysisSliceTests(unittest.TestCase):
             unrelated = repository / "src/unused.h"
             unrelated.write_text("one\n", encoding="utf-8")
             toolchain = self.toolchain(root)
-            _discovery, baseline = self.staged_graphs(repository, toolchain)
+            discovery, baseline = self.staged_graphs(repository, toolchain)
             unrelated.write_text("two\n", encoding="utf-8")
             _discovery, unrelated_changed = self.staged_graphs(repository, toolchain)
             (repository / "src/modules/renpy/pickle.h").write_text(
                 "#pragma once\n// changed\n", encoding="utf-8"
             )
             _discovery, header_changed = self.staged_graphs(repository, toolchain)
-            package = next((repository / "out/cas").glob("*-restore-vcpkg-x64"))
-            (package / "out/include/zlib.h").write_text("// changed\n", encoding="utf-8")
+            restore = discovery.node("restore-vcpkg-x64")
+            package = BuildPaths(repository).cas(restore.uid).output
+            (package / "include/zlib.h").write_text("// changed\n", encoding="utf-8")
             _discovery, package_changed = self.staged_graphs(repository, toolchain)
 
         names = {
@@ -342,7 +391,7 @@ class AnalysisSliceTests(unittest.TestCase):
             expected = {}
             for target in discovery.targets:
                 node = discovery.node(target)
-                cas = paths.cas(node.uid, node.name)
+                cas = paths.cas(node.uid)
                 cas.output.mkdir(parents=True)
                 source = repository / (
                     "src/modules/renpy/pickle.cpp"
@@ -358,28 +407,64 @@ class AnalysisSliceTests(unittest.TestCase):
 
         self.assertEqual(loaded, expected)
 
-    def test_manifest_index_keeps_newest_candidate_regardless_of_enumeration_order(self) -> None:
+    def test_manifest_index_loads_only_the_exact_base_uid_without_scanning(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             repository = Path(temporary) / "repo"
             repository.mkdir()
             paths = BuildPaths(repository)
             paths.prepare()
             name = "discover-dependencies-x64-renpy-modules.renpy.pickle"
-            older = paths.cas("1" * 32, name)
-            newer = paths.cas("2" * 32, name)
+            exact = paths.cas("1" * 32)
+            decoy = paths.cas("2" * 32)
             for cas, content, timestamp in (
-                (older, b"older", 100),
-                (newer, b"newer", 200),
+                (exact, b"exact", 100),
+                (decoy, b"newer decoy", 200),
             ):
                 cas.output.mkdir(parents=True)
                 (cas.output / "dependencies.json").write_bytes(content)
                 cas.touch.touch()
                 os.utime(cas.touch, ns=(timestamp, timestamp))
 
-            with mock.patch.object(Path, "glob", return_value=(newer.entry, older.entry)):
-                loaded = _manifest_index(repository, {name})
+            with mock.patch.object(
+                Path, "glob", side_effect=AssertionError("CAS must not be scanned")
+            ):
+                loaded = _manifest_index(repository, {name: "1" * 32})
 
-        self.assertEqual(loaded, {name: b"newer"})
+        self.assertEqual(loaded, {name: b"exact"})
+
+    def test_manifest_index_ignores_missing_and_incomplete_exact_entries(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            repository = Path(temporary) / "repo"
+            repository.mkdir()
+            paths = BuildPaths(repository)
+            paths.prepare()
+            incomplete = paths.cas("1" * 32)
+            incomplete.output.mkdir(parents=True)
+            (incomplete.output / "dependencies.json").write_bytes(b"partial")
+
+            loaded = _manifest_index(
+                repository,
+                {"missing": "2" * 32, "incomplete": "1" * 32},
+            )
+
+        self.assertEqual(loaded, {})
+
+    def test_manifest_index_rejects_reparse_manifest_leaf(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            repository = Path(temporary) / "repo"
+            repository.mkdir()
+            paths = BuildPaths(repository)
+            paths.prepare()
+            cas = paths.cas("1" * 32)
+            cas.output.mkdir(parents=True)
+            manifest = cas.output / "dependencies.json"
+            manifest.write_bytes(b"manifest")
+            cas.touch.touch()
+
+            with mock.patch(
+                "core.paths._is_reparse", side_effect=lambda path: Path(path) == manifest
+            ), self.assertRaisesRegex(PathSafetyError, "reparse point"):
+                _manifest_index(repository, {"node": "1" * 32})
 
     def test_incomplete_dependency_discovery_is_not_loadable(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -390,14 +475,14 @@ class AnalysisSliceTests(unittest.TestCase):
             with self.assertRaisesRegex(FileNotFoundError, "dependency discovery is incomplete"):
                 load_dependency_manifests(repository, discovery)
 
-    def test_prior_manifest_dependencies_seed_only_their_discovery_uid(self) -> None:
+    def test_base_manifest_seeds_header_only_invalidation_without_directory_scan(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             repository = self.repository(root / "repo")
             toolchain = self.toolchain(root)
             initial = analysis_discovery_slice(repository, toolchain)
             renpy = initial.node(initial.targets[0])
-            cas = BuildPaths(repository).cas(renpy.uid, renpy.name)
+            cas = BuildPaths(repository).cas(renpy.uid)
             cas.output.mkdir(parents=True)
             (cas.output / "dependencies.json").write_bytes(
                 self.manifest(
@@ -406,18 +491,32 @@ class AnalysisSliceTests(unittest.TestCase):
                 )
             )
             cas.touch.touch()
-            other = BuildPaths(repository).cas("1" * 32, renpy.name)
+            other = BuildPaths(repository).cas("1" * 32)
             other.output.mkdir(parents=True)
             (other.output / "dependencies.json").write_bytes(
                 (cas.output / "dependencies.json").read_bytes()
             )
             other.touch.touch()
-            BuildPaths(repository).cas("2" * 32, renpy.name).entry.mkdir(parents=True)
-            before = analysis_discovery_slice(repository, toolchain)
+            BuildPaths(repository).cas("2" * 32).entry.mkdir(parents=True)
+
+            original_glob = Path.glob
+
+            def reject_cas_scan(path: Path, pattern: str, **kwargs: object):
+                if path == BuildPaths(repository).cas_root:
+                    raise AssertionError("CAS must not be scanned")
+                return original_glob(path, pattern, **kwargs)
+
+            with mock.patch.object(
+                Path, "glob", autospec=True, side_effect=reject_cas_scan
+            ):
+                before = analysis_discovery_slice(repository, toolchain)
             (repository / "src/modules/renpy/pickle.h").write_text(
                 "#pragma once\n// topology may have changed\n", encoding="utf-8"
             )
-            after = analysis_discovery_slice(repository, toolchain)
+            with mock.patch.object(
+                Path, "glob", autospec=True, side_effect=reject_cas_scan
+            ):
+                after = analysis_discovery_slice(repository, toolchain)
 
         self.assertNotEqual(before.node(before.targets[0]).uid, after.node(after.targets[0]).uid)
         self.assertEqual(before.node(before.targets[1]).uid, after.node(after.targets[1]).uid)

@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 import psutil
 
-from core.graph import Graph, Node, merge_graphs
+from core.graph import Graph, merge_graphs
 from core.host import require_runnable, runnable_architectures, verify_route
 from core.node import NodeFactory
-from core.paths import BuildPaths
 from core.quality_tools import (
     ResolvedTool,
     resolve_binskim,
@@ -22,9 +21,10 @@ from core.runtime import BuildRuntime
 from core.source_tools import SourceTools, discover_source_tools
 from core.toolchain import MsvcToolchain
 from core.render import TemplateRenderer
+from core.result_export import export_results
 from graphs.analysis import (analysis_discovery_slice, analysis_slice,
                              load_dependency_manifests)
-from graphs.audit import BinaryArtifact, audit_graph
+from graphs.audit import audit_graph
 from graphs.common import BUILD_ROOT, require_positive_integers, restore_node, tool_environment
 from graphs.coverage import coverage_dependency_discovery_slice, coverage_graph
 from graphs.fuzz import (
@@ -41,8 +41,8 @@ from graphs.sanitizer import (
 )
 from graphs.leak import leak_graph
 from graphs.native import native_dependency_discovery_slice, native_graph
-from graphs.package import PackageArtifact, PackageSmokeArtifact, package_graph, package_outputs
-from graphs.source import source_checks as source_checks_graph
+from graphs.package import package_graph, package_outputs
+from graphs.source import architecture_source_checks, common_source_checks, source_checks as source_checks_graph
 
 
 _MODULES = ("renpy", "rpgmaker", "zanzarah")
@@ -75,10 +75,40 @@ class Driver:
         require_positive_integers((self.jobs,), "jobs must be a positive integer")
         self.toolchain = toolchain
         self.runtime = BuildRuntime(self.repository, run_id)
+        self._last_graph: Graph | None = None
 
     async def _run(self, graph: Graph) -> tuple[Path, ...]:
+        self._last_graph = graph
         await self.runtime.executor(graph).run()
         return tuple(self.runtime.store.paths_for(graph.node(name)).output for name in graph.targets)
+
+    async def _public(
+        self, command: str, export_dir: Path | None,
+        action: Callable[[], Awaitable[tuple[Path, ...]]],
+    ) -> tuple[Path, ...]:
+        self._last_graph = None
+        try:
+            outputs = await action()
+        except Exception as error:
+            if export_dir is not None and self._last_graph is not None:
+                failures = tuple(getattr(error, "failed_nodes", ()))
+                try:
+                    export_results(
+                        self._last_graph, self.runtime.store, export_dir,
+                        command, "failed", failures=failures,
+                    )
+                except Exception as export_error:
+                    raise ExceptionGroup(
+                        f"{command} and result export failed", (error, export_error)
+                    ) from None
+            raise
+        if export_dir is not None:
+            assert self._last_graph is not None
+            export_results(
+                self._last_graph, self.runtime.store, export_dir,
+                command, "success", failures=(),
+            )
+        return outputs
 
     async def _staged(self, discovery: Graph, compose: Callable[..., Graph],
                       **options: object) -> Graph:
@@ -103,46 +133,18 @@ class Driver:
             include_leak_probe=include_leak_probe, corpus=corpus, run_nonce=run_nonce,
         )
 
-    def _release(self, graph: Graph, architecture: str, module: str) -> tuple[Node, Path]:
-        producer = graph.node(f"build-{module}-{architecture}-release")
-        return producer, BuildPaths(self.repository).cas(producer.uid, producer.name).output
-
-    def _binaries(self, graph: Graph, architectures: tuple[str, ...], *,
-                  include_leak_probe: bool = False) -> tuple[BinaryArtifact, ...]:
-        modules = (("leak-probe",) if include_leak_probe else ()) + _MODULES
-        return tuple(
-            BinaryArtifact(architecture, module, producer, output /
-                           ("leak-probe.exe" if module == "leak-probe" else f"{module}.so"))
-            for architecture in architectures for module in modules
-            for producer, output in (self._release(graph, architecture, module),)
-        )
-
-    def _packages(self, graph: Graph, architectures: tuple[str, ...]) -> tuple[PackageArtifact, ...]:
-        return tuple(
-            PackageArtifact(architecture, module, producer, output / f"{module}.so",
-                            output / f"{module}.pdb")
-            for architecture in architectures for module in _MODULES
-            for producer, output in (self._release(graph, architecture, module),)
-        )
-
-    def _smokes(self, graph: Graph, architectures: tuple[str, ...]) -> tuple[PackageSmokeArtifact, ...]:
-        return tuple(
-            PackageSmokeArtifact(architecture, producer, output / "tests.exe")
-            for architecture in architectures
-            for producer, output in (self._release(graph, architecture, "tests"),)
-        )
-
     async def _audited_release(self, architectures: tuple[str, ...], dumpbin: ResolvedTool,
-                               binskim: ResolvedTool, binskim_jobs: int, *,
+                               binskim: ResolvedTool, *,
                                include_leak_probe: bool = False) -> Graph:
         upstream = await self._native(
             architectures, ("Release",), (), include_leak_probe=include_leak_probe
         )
         return audit_graph(
-            self.repository, upstream, self._binaries(upstream, architectures),
+            self.repository, upstream, architectures=architectures,
+            include_leak_probe=include_leak_probe,
             dumpbin=dumpbin.path, dumpbin_identity=dict(dumpbin.identity),
             binskim=binskim.path, binskim_identity=dict(binskim.identity),
-            jobs=self.jobs, binskim_jobs=binskim_jobs,
+            jobs=self.jobs,
         )
 
     async def restore(self, architectures: tuple[str, ...] = ("x64",),
@@ -266,47 +268,50 @@ class Driver:
         return await self._run(graph)
 
     async def audit(self, architectures: tuple[str, ...] = ("x64",), *,
-                    dumpbin: ResolvedTool, binskim: ResolvedTool,
-                    binskim_jobs: int = 1) -> tuple[Path, ...]:
+                    dumpbin: ResolvedTool, binskim: ResolvedTool) -> tuple[Path, ...]:
         return await self._run(
-            await self._audited_release(architectures, dumpbin, binskim, binskim_jobs)
+            await self._audited_release(architectures, dumpbin, binskim)
         )
 
-    async def package(self, architectures: tuple[str, ...] = ("x64",), *,
-                      dumpbin: ResolvedTool, binskim: ResolvedTool,
-                      binskim_jobs: int = 1) -> tuple[Path, ...]:
-        audited = await self._audited_release(architectures, dumpbin, binskim, binskim_jobs)
+    async def _package(self, architectures: tuple[str, ...], *,
+                       dumpbin: ResolvedTool, binskim: ResolvedTool) -> tuple[Path, ...]:
+        audited = await self._audited_release(architectures, dumpbin, binskim)
         graph = package_graph(
-            self.repository, audited, self._packages(audited, architectures),
-            smoke_tests=self._smokes(audited, runnable_architectures(architectures)), jobs=self.jobs,
+            self.repository, audited, architectures=architectures,
+            smoke_architectures=runnable_architectures(architectures), jobs=self.jobs,
         )
         await self._run(graph)
         return package_outputs(self.repository, graph)
 
+    async def package(self, architectures: tuple[str, ...] = ("x64",), *,
+                      dumpbin: ResolvedTool, binskim: ResolvedTool,
+                      export_dir: Path | None = None) -> tuple[Path, ...]:
+        return await self._public(
+            "package", export_dir,
+            lambda: self._package(architectures, dumpbin=dumpbin, binskim=binskim),
+        )
+
     async def test_leaks(self, *, run_nonce: str, dumpbin: ResolvedTool,
-                         binskim: ResolvedTool, umdh: ResolvedTool, binskim_jobs: int = 1,
+                         binskim: ResolvedTool, umdh: ResolvedTool,
                          warmup: int = 8, iterations: int = 100, windows: int = 3,
-                         tolerance_bytes: int = 0, session_jobs: int = 2,
-                         diff_jobs: int = 4) -> tuple[Path, ...]:
+                         tolerance_bytes: int = 0) -> tuple[Path, ...]:
         require_runnable(("x64",))
         audited = await self._audited_release(
-            ("x64",), dumpbin, binskim, binskim_jobs, include_leak_probe=True
+            ("x64",), dumpbin, binskim, include_leak_probe=True
         )
         graph = leak_graph(
             self.repository, audited,
-            self._binaries(audited, ("x64",), include_leak_probe=True),
             umdh=umdh.path, umdh_identity=dict(umdh.identity), run_nonce=run_nonce,
             warmup=warmup, iterations=iterations, windows=windows,
             tolerance_bytes=tolerance_bytes, jobs=self.jobs,
-            session_jobs=session_jobs, diff_jobs=diff_jobs,
         )
         return await self._run(graph)
 
-    async def verify(
+    async def _verify(
         self, architectures: tuple[str, ...] = ("x64",), *, corpus: Path | None = None,
         run_nonce: str, fuzz_seconds: int = 60, test_shards: int = 4,
         warmup: int = 8, iterations: int = 100, windows: int = 3,
-        tolerance_bytes: int = 0,
+        tolerance_bytes: int = 0, include_common: bool,
     ) -> tuple[Path, ...]:
         """Run every host-capable gate in one shared-pool graph after one discovery union."""
 
@@ -362,14 +367,14 @@ class Driver:
             corpus=corpus, run_nonce=run_nonce,
         )
         audit = audit_graph(
-            self.repository, native, self._binaries(native, architectures),
+            self.repository, native, architectures=architectures,
             dumpbin=dumpbin.path, dumpbin_identity=dict(dumpbin.identity),
             binskim=binskim.path, binskim_identity=dict(binskim.identity),
-            jobs=self.jobs, binskim_jobs=1,
+            jobs=self.jobs,
         )
         package = package_graph(
-            self.repository, audit, self._packages(audit, architectures),
-            smoke_tests=self._smokes(audit, route.runnable), jobs=self.jobs,
+            self.repository, audit, architectures=architectures,
+            smoke_architectures=route.runnable, jobs=self.jobs,
         )
         graphs = [
             native,
@@ -377,12 +382,16 @@ class Driver:
                 self.repository, self.toolchain, discovery=discovery, manifests=manifests,
                 jobs=self.jobs, architectures=architectures,
             ),
-            source_checks_graph(
-                self.repository, source_tools, jobs=self.jobs, architectures=architectures,
+            architecture_source_checks(
+                self.repository, source_tools, architectures, jobs=self.jobs,
             ),
-            python_coverage_graph(self.repository),
             package,
         ]
+        if include_common:
+            graphs.extend((
+                common_source_checks(self.repository, source_tools, jobs=self.jobs),
+                python_coverage_graph(self.repository),
+            ))
         if route.coverage:
             graphs.append(coverage_graph(
                 self.repository, self.toolchain, discovery=discovery, manifests=manifests,
@@ -406,10 +415,54 @@ class Driver:
                 ),
                 leak_graph(
                     self.repository, audit,
-                    self._binaries(audit, ("x64",), include_leak_probe=True),
                     umdh=umdh.path, umdh_identity=dict(umdh.identity),
                     run_nonce=run_nonce, warmup=warmup, iterations=iterations,
                     windows=windows, tolerance_bytes=tolerance_bytes, jobs=self.jobs,
                 ),
             ))
         return await self._run(merge_graphs(*graphs))
+
+    async def verify_source(self, *, export_dir: Path | None = None) -> tuple[Path, ...]:
+        async def operation() -> tuple[Path, ...]:
+            tools = discover_source_tools(self.toolchain)
+            graph = merge_graphs(
+                common_source_checks(self.repository, tools, jobs=self.jobs),
+                python_coverage_graph(self.repository),
+            )
+            return await self._run(graph)
+
+        return await self._public("verify-source", export_dir, operation)
+
+    async def verify_arch(
+        self, architectures: tuple[str, ...] = ("x64",), *, corpus: Path | None = None,
+        run_nonce: str, fuzz_seconds: int = 60, test_shards: int = 4,
+        warmup: int = 8, iterations: int = 100, windows: int = 3,
+        tolerance_bytes: int = 0, export_dir: Path | None = None,
+    ) -> tuple[Path, ...]:
+        if len(architectures) != 1:
+            raise ValueError("verify-arch requires exactly one architecture")
+        return await self._public(
+            "verify-arch", export_dir,
+            lambda: self._verify(
+                architectures, corpus=corpus, run_nonce=run_nonce,
+                fuzz_seconds=fuzz_seconds, test_shards=test_shards,
+                warmup=warmup, iterations=iterations, windows=windows,
+                tolerance_bytes=tolerance_bytes, include_common=False,
+            ),
+        )
+
+    async def verify(
+        self, architectures: tuple[str, ...] = ("x64",), *, corpus: Path | None = None,
+        run_nonce: str, fuzz_seconds: int = 60, test_shards: int = 4,
+        warmup: int = 8, iterations: int = 100, windows: int = 3,
+        tolerance_bytes: int = 0, export_dir: Path | None = None,
+    ) -> tuple[Path, ...]:
+        return await self._public(
+            "verify", export_dir,
+            lambda: self._verify(
+                architectures, corpus=corpus, run_nonce=run_nonce,
+                fuzz_seconds=fuzz_seconds, test_shards=test_shards,
+                warmup=warmup, iterations=iterations, windows=windows,
+                tolerance_bytes=tolerance_bytes, include_common=True,
+            ),
+        )

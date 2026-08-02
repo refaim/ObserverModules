@@ -20,7 +20,7 @@ Invoke-Checked {{ cppcheck | ps_quote }} @(
     '--inline-suppr'
     '--suppress=missingIncludeSystem'
     '--suppress=uninitMemberVarNoCtor:src/api.h'
-    '--suppress=*:out/cas/*-restore-vcpkg-*/out/*'
+    {{ ('--suppress=*:*\\' ~ triplet ~ '\\include\\*') | ps_quote }}
     '--suppress=functionStatic'
     {{ ('--relative-paths=' ~ repository) | ps_quote }}
     '--output-format=sarif'

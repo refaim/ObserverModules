@@ -20,7 +20,6 @@ from core.paths import BuildPaths  # noqa: E402
 from core.sanitizer import SanitizerError, main as sanitizer_main, require_clean_log  # noqa: E402
 from graphs.sanitizer import (  # noqa: E402
     AsanRuntime,
-    SanitizerArtifact,
     sanitizer_artifact_graph,
     sanitizer_dependency_discovery_slice,
     sanitizer_graph,
@@ -45,13 +44,10 @@ class SanitizerGraphTests(unittest.TestCase):
         selections: tuple[tuple[str, str], ...] = (
             ("asan", "x86"), ("asan", "x64"), ("ubsan", "x64")
         ),
-    ) -> tuple[
-        Path, Graph, tuple[SanitizerArtifact, ...], tuple[AsanRuntime, ...], Path
-    ]:
+    ) -> tuple[Path, Graph, tuple[AsanRuntime, ...], Path]:
         repository = root / "repo"
         repository.mkdir()
-        paths = BuildPaths(repository)
-        nodes, artifacts = [], []
+        nodes = []
         for sanitizer, architecture in selections:
             restore_name = (
                 f"restore-vcpkg-asan-{architecture}"
@@ -74,15 +70,6 @@ class SanitizerGraphTests(unittest.TestCase):
                     inputs=(discovery.name,),
                 )
                 nodes.append(producer)
-                artifacts.append(
-                    SanitizerArtifact(
-                        sanitizer,
-                        architecture,
-                        name,
-                        producer,
-                        paths.cas(producer.uid, producer.name).output / filename,
-                    )
-                )
         upstream = Graph(
             tuple(nodes), tuple(current.name for current in nodes[1:]), {"build": 8}
         )
@@ -101,19 +88,19 @@ class SanitizerGraphTests(unittest.TestCase):
                 runtimes.append(
                     AsanRuntime(architecture, path, {"sha256": f"runtime-{architecture}"})
                 )
-        return repository, upstream, tuple(artifacts), tuple(runtimes), pwsh
+        return repository, upstream, tuple(runtimes), pwsh
 
     def build(self, root: Path, **options: object) -> Graph:
         selections = options.pop(
             "selections", (("asan", "x86"), ("asan", "x64"), ("ubsan", "x64"))
         )
-        repository, upstream, artifacts, runtimes, pwsh = self.fixture(
+        repository, upstream, runtimes, pwsh = self.fixture(
             root, selections  # type: ignore[arg-type]
         )
         return sanitizer_artifact_graph(
             repository,
             upstream,
-            artifacts,
+            selections=selections,  # type: ignore[arg-type]
             pwsh=pwsh,
             pwsh_identity={"version": options.pop("pwsh_version", "7.5")},
             asan_runtimes=runtimes,
@@ -156,9 +143,18 @@ class SanitizerGraphTests(unittest.TestCase):
                     gate.command.argv[1:],
                     (
                         "-m", "core.sanitizer", "gate", sanitizer,
-                        str(paths.cas(shard.uid, shard.name).log),
+                        str(paths.cas(shard.uid).log),
                     ),
                 )
+                self.assertEqual(
+                    tuple((item.id, item.kind, item.media_type, item.relative_path)
+                          for item in shard.results),
+                    ((
+                        f"reports/sanitizers/{sanitizer}/{architecture}/shard-{index}.xml",
+                        "sanitizer", "application/xml", "tests.xml",
+                    ),),
+                )
+                self.assertEqual(gate.results, ())
                 script = shard.command.stdin.decode("utf-8")
                 self.assertIn("Invoke-Checked", script)
                 self.assertIn("'--shard-count'", script)
@@ -180,7 +176,7 @@ class SanitizerGraphTests(unittest.TestCase):
     def test_runtime_and_pwsh_identities_have_narrow_invalidation_partitions(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            repository, upstream, artifacts, runtimes, pwsh = self.fixture(root)
+            repository, upstream, runtimes, pwsh = self.fixture(root)
 
             def build(
                 pwsh_version: str = "7.5", runtime_x64: str = "runtime-x64"
@@ -196,7 +192,7 @@ class SanitizerGraphTests(unittest.TestCase):
                 return sanitizer_artifact_graph(
                     repository,
                     upstream,
-                    artifacts,
+                    selections=(("asan", "x86"), ("asan", "x64"), ("ubsan", "x64")),
                     pwsh=pwsh,
                     pwsh_identity={"version": pwsh_version},
                     asan_runtimes=changed,
@@ -218,17 +214,17 @@ class SanitizerGraphTests(unittest.TestCase):
             )
             self.assertNotEqual(current.uid, pwsh_changed.node(current.name).uid, current.name)
 
-    def test_adapter_rejects_invalid_sets_outputs_restore_edges_tools_and_pools(self) -> None:
+    def test_rejects_invalid_selections_lineage_runtimes_tools_and_pools(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            repository, upstream, artifacts, runtimes, pwsh = self.fixture(
+            repository, upstream, runtimes, pwsh = self.fixture(
                 root, (("asan", "x64"),)
             )
 
             def invoke(
-                selected: tuple[SanitizerArtifact, ...] = artifacts,
                 *,
                 source: Graph = upstream,
+                selections: tuple[tuple[str, str], ...] = (("asan", "x64"),),
                 selected_runtimes: tuple[AsanRuntime, ...] = runtimes,
                 pwsh_path: Path = pwsh,
                 **options: object,
@@ -236,51 +232,30 @@ class SanitizerGraphTests(unittest.TestCase):
                 return sanitizer_artifact_graph(
                     repository,
                     source,
-                    selected,
+                    selections=selections,
                     pwsh=pwsh_path,
                     pwsh_identity={"version": "7.5"},
                     asan_runtimes=selected_runtimes,
                     **options,
                 )
 
-            with self.assertRaisesRegex(ValueError, "at least one"):
-                invoke(())
-            with self.assertRaisesRegex(ValueError, "complete"):
-                invoke(artifacts[:-1])
-            with self.assertRaisesRegex(ValueError, "duplicate"):
-                invoke(artifacts + (artifacts[0],))
             for invalid in (
-                SanitizerArtifact("msan", "x64", "renpy", artifacts[0].producer, artifacts[0].path),
-                SanitizerArtifact("asan", "arm64", "renpy", artifacts[0].producer, artifacts[0].path),
-                SanitizerArtifact("ubsan", "x86", "renpy", artifacts[0].producer, artifacts[0].path),
-                SanitizerArtifact("asan", "x64", "bad", artifacts[0].producer, artifacts[0].path),
+                (),
+                (("asan", "x64"), ("asan", "x64")),
+                (("msan", "x64"),),
+                (("asan", "arm64"),),
+                (("ubsan", "x86"),),
             ):
-                with self.subTest(invalid=invalid), self.assertRaisesRegex(ValueError, "identity"):
-                    invoke((invalid,))
+                with self.subTest(invalid=invalid), self.assertRaisesRegex(ValueError, "selections"):
+                    invoke(selections=invalid)
 
-            wrong_path = SanitizerArtifact(
-                "asan", "x64", "renpy", artifacts[0].producer, root / "outside.so"
+            missing = Graph(
+                tuple(item for item in upstream.nodes if item.name != "build-tests-x64-asan"),
+                tuple(name for name in upstream.targets if name != "build-tests-x64-asan"),
+                upstream.pools,
             )
-            with self.assertRaisesRegex(ValueError, "producer CAS"):
-                invoke((wrong_path, *artifacts[1:]))
-            wrong_name = SanitizerArtifact(
-                "asan", "x64", "renpy", artifacts[0].producer,
-                artifacts[0].path.with_name("wrong.so"),
-            )
-            with self.assertRaisesRegex(ValueError, "producer CAS"):
-                invoke((wrong_name, *artifacts[1:]))
-            wrong_producer = SanitizerArtifact(
-                "asan", "x64", "renpy", artifacts[1].producer, artifacts[1].path
-            )
-            with self.assertRaisesRegex(ValueError, "producer CAS"):
-                invoke((wrong_producer, *artifacts[1:]))
-            impostor = Node(
-                artifacts[0].producer.name,
-                hashlib.md5(b"impostor", usedforsecurity=False).hexdigest(),
-                "build", artifacts[0].producer.command, artifacts[0].producer.inputs,
-            )
-            with self.assertRaisesRegex(ValueError, "producer CAS"):
-                invoke((SanitizerArtifact("asan", "x64", "renpy", impostor, artifacts[0].path), *artifacts[1:]))
+            with self.assertRaisesRegex(ValueError, "unknown node"):
+                invoke(source=missing)
 
             shared = node("detached-shared")
             left = node("detached-left", inputs=(shared.name,))
@@ -296,12 +271,8 @@ class SanitizerGraphTests(unittest.TestCase):
                 upstream.targets,
                 upstream.pools,
             )
-            detached_artifact = SanitizerArtifact(
-                "asan", "x64", "renpy", detached,
-                BuildPaths(repository).cas(detached.uid, detached.name).output / "renpy.so",
-            )
             with self.assertRaisesRegex(ValueError, "restore ancestor"):
-                invoke((detached_artifact, *artifacts[1:]), source=detached_source)
+                invoke(source=detached_source)
 
             with self.assertRaisesRegex(ValueError, "runtime.*required"):
                 invoke(selected_runtimes=())

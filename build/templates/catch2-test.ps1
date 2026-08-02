@@ -1,4 +1,4 @@
-{% extends "pwsh.ps1" %}
+{% extends "pwsh.ps1" %}{% from "_output.ps1" import require_output %}
 {% block pwsh_body %}
 {% for artifact in artifacts %}Copy-Item -LiteralPath {{ artifact.source | ps_quote }} -Destination (Join-Path $outDir {{ artifact.name | ps_quote }})
 {% endfor %}
@@ -22,7 +22,5 @@ try {
 } finally {
     Pop-Location
 }
-{% block catch2_post %}if (-not (Test-Path -LiteralPath (Join-Path $outDir 'tests.xml') -PathType Leaf)) {
-    throw 'Catch2 did not produce tests.xml'
-}
+{% block catch2_post %}{{ require_output('tests.xml', 'Catch2 did not produce tests.xml') }}
 {% endblock %}{% endblock %}

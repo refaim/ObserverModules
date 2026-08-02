@@ -12,7 +12,7 @@ from unittest import mock
 BUILD_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BUILD_ROOT))
 
-from core.graph import Command, Graph, Node  # noqa: E402
+from core.graph import Command, Graph, GraphError, Node, Result  # noqa: E402
 from core.quality_tools import ResolvedDirectory, ResolvedTool  # noqa: E402
 import driver  # noqa: E402
 
@@ -20,13 +20,16 @@ import driver  # noqa: E402
 MODULES = ("renpy", "rpgmaker", "zanzarah")
 
 
-def node(name: str, *, inputs: tuple[str, ...] = ()) -> Node:
+def node(
+    name: str, *, inputs: tuple[str, ...] = (), results: tuple[Result, ...] = ()
+) -> Node:
     return Node(
         name,
         hashlib.md5(name.encode(), usedforsecurity=False).hexdigest(),
         "slot",
         Command(("true",)),
         inputs,
+        results,
     )
 
 
@@ -264,20 +267,27 @@ class DriverTests(unittest.IsolatedAsyncioTestCase):
                 await session.test_asan(("arm64",))
             with self.assertRaisesRegex(ValueError, "UBSan does not support x86"):
                 await session.test_ubsan(("x86",))
+            with self.assertRaisesRegex(ValueError, "exactly one architecture"):
+                await session.verify_arch(("x86", "x64"), run_nonce="verify-run")
         coverage_discovery.assert_not_called()
         sanitizer_discovery.assert_not_called()
 
-    async def test_release_audit_package_and_leaks_map_exact_native_artifacts(self) -> None:
+    async def test_release_audit_package_and_leaks_pass_only_canonical_axes(self) -> None:
         session = self.session()
         dumpbin, binskim, umdh = (self.tool(name) for name in ("dumpbin", "binskim", "umdh"))
 
         def native_discovery(_repository: Path, _toolchain: object, **options: object) -> Graph:
             return discovery_graph(options["architectures"])
 
-        def audit_result(_repository: Path, upstream: Graph, artifacts: object, **_options: object) -> Graph:
+        def audit_result(_repository: Path, upstream: Graph, **options: object) -> Graph:
+            modules = (("leak-probe",) if options["include_leak_probe"] else ()) + MODULES
             gates = tuple(
-                node(f"audit-pe-{item.architecture}-{item.module}", inputs=(item.producer.name,))
-                for item in artifacts
+                node(
+                    f"audit-pe-{architecture}-{module}",
+                    inputs=(f"build-{module}-{architecture}-release",),
+                )
+                for architecture in options["architectures"]
+                for module in modules
             )
             return Graph(upstream.nodes + gates, tuple(item.name for item in gates), upstream.pools | {"audit": 4})
 
@@ -295,14 +305,13 @@ class DriverTests(unittest.IsolatedAsyncioTestCase):
             mock.patch.object(driver, "runnable_architectures", return_value=("x86", "x64")) as runnable,
             mock.patch.object(driver, "require_runnable", return_value=("x64",)) as require,
         ):
-            await session.audit(("x64",), dumpbin=dumpbin, binskim=binskim, binskim_jobs=2)
+            await session.audit(("x64",), dumpbin=dumpbin, binskim=binskim)
             result = await session.package(
-                ("x86", "x64", "arm64"), dumpbin=dumpbin, binskim=binskim, binskim_jobs=2
+                ("x86", "x64", "arm64"), dumpbin=dumpbin, binskim=binskim
             )
             await session.test_leaks(
                 run_nonce="leak-run", dumpbin=dumpbin, binskim=binskim, umdh=umdh,
-                binskim_jobs=2, warmup=2, iterations=3, windows=4, tolerance_bytes=5,
-                session_jobs=1, diff_jobs=2,
+                warmup=2, iterations=3, windows=4, tolerance_bytes=5,
             )
 
         self.assertEqual(result, expected_packages)
@@ -311,22 +320,24 @@ class DriverTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([call.kwargs["include_leak_probe"] for call in native.call_args_list], [False, False, True])
         self.assertTrue(all(call.kwargs["runnable_architectures"] == () for call in native.call_args_list))
         self.assertEqual(audit.call_count, 3)
-        first_artifacts = tuple(audit.call_args_list[0].args[2])
-        self.assertEqual([item.module for item in first_artifacts], list(MODULES))
-        self.assertTrue(all(item.path.name == f"{item.module}.so" for item in first_artifacts))
+        self.assertTrue(all(len(call.args) == 2 for call in audit.call_args_list))
+        self.assertEqual(
+            [call.kwargs["architectures"] for call in audit.call_args_list],
+            [("x64",), ("x86", "x64", "arm64"), ("x64",)],
+        )
+        self.assertEqual(
+            [call.kwargs["include_leak_probe"] for call in audit.call_args_list],
+            [False, False, True],
+        )
         self.assertEqual(audit.call_args_list[0].kwargs["dumpbin_identity"], {"name": "dumpbin"})
         self.assertEqual(audit.call_args_list[0].kwargs["binskim_identity"], {"name": "binskim"})
-        package_artifacts = tuple(package.call_args.args[2])
-        self.assertEqual(len(package_artifacts), 9)
-        self.assertTrue(all(item.symbols.name == f"{item.module}.pdb" for item in package_artifacts))
-        smokes = tuple(package.call_args.kwargs["smoke_tests"])
-        self.assertEqual([item.architecture for item in smokes], ["x86", "x64"])
-        self.assertTrue(all(item.executable.name == "tests.exe" for item in smokes))
+        self.assertTrue(all(call.kwargs["jobs"] == 4 for call in audit.call_args_list))
+        self.assertTrue(all("binskim_jobs" not in call.kwargs for call in audit.call_args_list))
+        self.assertEqual(package.call_args.kwargs["architectures"], ("x86", "x64", "arm64"))
+        self.assertEqual(package.call_args.kwargs["smoke_architectures"], ("x86", "x64"))
         runnable.assert_called_once_with(("x86", "x64", "arm64"))
         outputs.assert_called_once_with(self.repository, package_result)
-        leak_artifacts = tuple(leak.call_args.args[2])
-        self.assertEqual([item.module for item in leak_artifacts], ["leak-probe", *MODULES])
-        self.assertEqual(leak_artifacts[0].path.name, "leak-probe.exe")
+        self.assertEqual(len(leak.call_args.args), 2)
         self.assertEqual(leak.call_args.kwargs["umdh"], umdh.path)
         self.assertEqual(leak.call_args.kwargs["umdh_identity"], {"name": "umdh"})
         self.assertEqual(leak.call_args.kwargs["run_nonce"], "leak-run")
@@ -334,8 +345,9 @@ class DriverTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(leak.call_args.kwargs["iterations"], 3)
         self.assertEqual(leak.call_args.kwargs["windows"], 4)
         self.assertEqual(leak.call_args.kwargs["tolerance_bytes"], 5)
-        self.assertEqual(leak.call_args.kwargs["session_jobs"], 1)
-        self.assertEqual(leak.call_args.kwargs["diff_jobs"], 2)
+        self.assertEqual(leak.call_args.kwargs["jobs"], 4)
+        self.assertNotIn("session_jobs", leak.call_args.kwargs)
+        self.assertNotIn("diff_jobs", leak.call_args.kwargs)
         require.assert_called_once_with(("x64",))
 
     async def test_verify_runs_one_discovery_union_then_one_parallel_family_union(self) -> None:
@@ -353,19 +365,74 @@ class DriverTests(unittest.IsolatedAsyncioTestCase):
             architectures = options.get("architectures", ("x64",))
             return discovery_graph(architectures)
 
+        representative_results = {
+            "native": Result(
+                "reports/tests/x64/debug/unit/shard-0.xml",
+                "test", "application/xml", "tests.xml",
+            ),
+            "analysis": Result(
+                "reports/sarif/x64/analysis.sarif",
+                "report", "application/sarif+json", "analysis.sarif",
+            ),
+            "source": Result(
+                "reports/sarif/source/analysis.sarif",
+                "report", "application/sarif+json", "analysis.sarif",
+            ),
+            "cppcheck": Result(
+                "reports/sarif/x86-x64-arm64/cppcheck.sarif",
+                "report", "application/sarif+json", "analysis.sarif",
+            ),
+            "python": Result(
+                "reports/coverage/python/coverage.json",
+                "coverage", "application/json", "coverage.json",
+            ),
+            "coverage": Result(
+                "reports/coverage/cpp/x64/coverage.json",
+                "coverage", "application/json", "coverage.json",
+            ),
+            "sanitizer": Result(
+                "reports/sanitizers/asan/x64/shard-0.xml",
+                "test", "application/xml", "tests.xml",
+            ),
+            "fuzz": Result(
+                "reports/fuzz/x64/pickle/status.txt",
+                "fuzz", "text/plain", "status.txt",
+            ),
+            "audit": Result(
+                "reports/sarif/x64/binskim-renpy.sarif",
+                "report", "application/sarif+json", "binskim.sarif",
+            ),
+            "package": Result(
+                "packages/x64/renpy-x64-dll.zip",
+                "package", "application/zip", "renpy-x64-dll.zip",
+            ),
+            "leak": Result(
+                "reports/leak/x64/operations/small-success/summary.json",
+                "leak-summary", "application/json", "summary.json",
+            ),
+        }
+
         def family(name: str, upstream: Graph | None = None) -> Graph:
             pools = dict(upstream.pools) if upstream else {"slot": 4}
             nodes = upstream.nodes if upstream else ()
-            marker = node(name)
+            marker = node(name, results=(representative_results[name],))
             return Graph(nodes + (marker,), (marker.name,), pools)
+
+        def native_with_result(
+            repository: Path, toolchain: object, **options: object
+        ) -> Graph:
+            graph = native_result(repository, toolchain, **options)
+            marker = node("native-results", results=(representative_results["native"],))
+            return Graph(graph.nodes + (marker,), graph.targets + (marker.name,), graph.pools)
 
         source_tools = mock.Mock(return_value="source-tools")
         asan = mock.Mock(return_value=(
             ("x86", self.tool("asan-x86")), ("x64", self.tool("asan-x64")),
         ))
         resolve_ubsan = mock.Mock(return_value=ubsan)
-        native = mock.Mock(side_effect=native_result)
-        source = mock.Mock(return_value=family("source"))
+        native = mock.Mock(side_effect=native_with_result)
+        common_source = mock.Mock(return_value=family("source"))
+        architecture_source = mock.Mock(return_value=family("cppcheck"))
         coverage = mock.Mock(return_value=family("coverage"))
         sanitizer = mock.Mock(return_value=family("sanitizer"))
         fuzz = mock.Mock(return_value=family("fuzz"))
@@ -392,7 +459,8 @@ class DriverTests(unittest.IsolatedAsyncioTestCase):
             load_dependency_manifests=mock.Mock(return_value={"tu": b"{}"}),
             native_graph=native,
             analysis_slice=mock.Mock(return_value=family("analysis")),
-            source_checks_graph=source,
+            common_source_checks=common_source,
+            architecture_source_checks=architecture_source,
             python_coverage_graph=mock.Mock(return_value=family("python")),
             coverage_graph=coverage,
             sanitizer_graph=sanitizer,
@@ -411,8 +479,14 @@ class DriverTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(len(session.runtime.executed), 2)
         final = session.runtime.executed[-1]
-        self.assertTrue({"analysis", "source", "python", "coverage", "sanitizer", "fuzz",
+        self.assertTrue({"analysis", "source", "cppcheck", "python", "coverage", "sanitizer", "fuzz",
                          "package", "leak"}.issubset(final.targets))
+        self.assertEqual(
+            {result.id for current in final.nodes for result in current.results},
+            {result.id for result in representative_results.values()},
+        )
+        for result in representative_results.values():
+            self.assertEqual(final.result(result.id)[1], result)
         self.assertEqual(native.call_args.kwargs["configurations"], ("Debug", "Release"))
         self.assertEqual(native.call_args.kwargs["runnable_architectures"], ("x86", "x64"))
         self.assertTrue(native.call_args.kwargs["include_leak_probe"])
@@ -424,15 +498,128 @@ class DriverTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(fuzz.call_args.kwargs["seconds"], 7)
         self.assertEqual(leak.call_args.kwargs["tolerance_bytes"], 6)
         self.assertEqual(
-            [item.architecture for item in package.call_args.kwargs["smoke_tests"]],
-            ["x86", "x64"],
+            package.call_args.kwargs["smoke_architectures"],
+            ("x86", "x64"),
         )
         source_tools.assert_called_once_with(self.toolchain)
-        source.assert_called_once()
+        common_source.assert_called_once()
+        architecture_source.assert_called_once()
         asan.assert_called_once_with(self.toolchain, ("x86", "x64"))
         resolve_ubsan.assert_called_once_with(self.toolchain)
 
-    async def test_verify_omits_nonrunnable_specialists_but_keeps_build_audit_package(self) -> None:
+    async def test_verify_source_rejects_duplicate_result_ids_across_families(self) -> None:
+        session = self.session()
+        duplicate = Result(
+            "reports/sarif/source/analysis.sarif",
+            "report", "application/sarif+json", "analysis.sarif",
+        )
+        common = Graph(
+            (node("source", results=(duplicate,)),), ("source",), {"slot": 4}
+        )
+        python = Graph(
+            (node("python", results=(duplicate,)),), ("python",), {"slot": 4}
+        )
+
+        with (
+            mock.patch.object(driver, "discover_source_tools", return_value="tools"),
+            mock.patch.object(driver, "common_source_checks", return_value=common),
+            mock.patch.object(driver, "python_coverage_graph", return_value=python),
+            self.assertRaisesRegex(
+                GraphError,
+                "duplicate result id: reports/sarif/source/analysis[.]sarif",
+            ),
+        ):
+            await session.verify_source()
+
+        self.assertEqual(session.runtime.executed, [])
+
+    async def test_verify_source_runs_only_common_source_and_python_coverage(self) -> None:
+        session = self.session()
+        common = Graph((node("source"),), ("source",), {"slot": 4})
+        python = Graph((node("python"),), ("python",), {"slot": 4})
+        with (
+            mock.patch.object(driver, "discover_source_tools", return_value="tools") as tools,
+            mock.patch.object(driver, "common_source_checks", return_value=common) as source,
+            mock.patch.object(driver, "python_coverage_graph", return_value=python) as coverage,
+            mock.patch.object(driver, "export_results") as export,
+        ):
+            await session.verify_source(export_dir=self.repository / "evidence")
+
+        self.assertEqual(len(session.runtime.executed), 1)
+        self.assertEqual(set(session.runtime.executed[0].targets), {"source", "python"})
+        tools.assert_called_once_with(self.toolchain)
+        source.assert_called_once_with(self.repository, "tools", jobs=4)
+        coverage.assert_called_once_with(self.repository)
+        export.assert_called_once_with(
+            session.runtime.executed[0], session.runtime.store,
+            self.repository / "evidence", "verify-source", "success", failures=(),
+        )
+
+    async def test_failed_public_command_exports_structured_failures_before_reraising(self) -> None:
+        session = self.session()
+        common = Graph((node("source"),), ("source",), {"slot": 4})
+        python = Graph((node("python"),), ("python",), {"slot": 4})
+        failure = ExceptionGroup("failed", (RuntimeError("expected"),))
+        failure.failed_nodes = ("source",)
+
+        async def fail() -> None:
+            raise failure
+
+        with (
+            mock.patch.object(driver, "discover_source_tools", return_value="tools"),
+            mock.patch.object(driver, "common_source_checks", return_value=common),
+            mock.patch.object(driver, "python_coverage_graph", return_value=python),
+            mock.patch.object(session.runtime, "run", side_effect=fail),
+            mock.patch.object(driver, "export_results") as export,
+            self.assertRaises(ExceptionGroup) as raised,
+        ):
+            await session.verify_source(export_dir=self.repository / "failed-evidence")
+
+        self.assertIs(raised.exception, failure)
+        graph = session.runtime.executed[0]
+        export.assert_called_once_with(
+            graph, session.runtime.store, self.repository / "failed-evidence",
+            "verify-source", "failed", failures=("source",),
+        )
+
+    async def test_export_failure_preserves_the_original_execution_failure(self) -> None:
+        session = self.session()
+        graph = Graph((node("source"),), ("source",), {"slot": 4})
+        execution = ExceptionGroup("failed", (RuntimeError("execution"),))
+        execution.failed_nodes = ("source",)
+
+        async def fail() -> None:
+            raise execution
+
+        with (
+            mock.patch.object(driver, "discover_source_tools", return_value="tools"),
+            mock.patch.object(driver, "common_source_checks", return_value=graph),
+            mock.patch.object(
+                driver, "python_coverage_graph",
+                return_value=Graph((node("python"),), ("python",), {"slot": 4}),
+            ),
+            mock.patch.object(session.runtime, "run", side_effect=fail),
+            mock.patch.object(driver, "export_results", side_effect=RuntimeError("export")),
+            self.assertRaises(ExceptionGroup) as raised,
+        ):
+            await session.verify_source(export_dir=self.repository / "failed-evidence")
+
+        self.assertIs(raised.exception.exceptions[0], execution)
+        self.assertRegex(str(raised.exception.exceptions[1]), "export")
+
+    async def test_failure_before_graph_composition_does_not_publish_empty_evidence(self) -> None:
+        session = self.session()
+        with (
+            mock.patch.object(
+                driver, "discover_source_tools", side_effect=RuntimeError("discovery")
+            ),
+            mock.patch.object(driver, "export_results") as export,
+            self.assertRaisesRegex(RuntimeError, "discovery"),
+        ):
+            await session.verify_source(export_dir=self.repository / "evidence")
+        export.assert_not_called()
+
+    async def test_verify_arch_omits_common_and_nonrunnable_specialists(self) -> None:
         session = self.session()
         route = SimpleNamespace(
             runnable=(), coverage=(), asan=(), ubsan=(), run_x64_specialists=False,
@@ -450,7 +637,7 @@ class DriverTests(unittest.IsolatedAsyncioTestCase):
                 "resolve_umdh", "resolve_asan_runtimes", "resolve_ubsan_runtime",
                 "coverage_dependency_discovery_slice", "sanitizer_dependency_discovery_slice",
                 "fuzz_dependency_discovery_slice", "coverage_graph", "sanitizer_graph",
-                "fuzz_graph", "leak_graph",
+                "fuzz_graph", "leak_graph", "common_source_checks", "python_coverage_graph",
             )
         }
         native = mock.Mock(side_effect=native_result)
@@ -465,8 +652,7 @@ class DriverTests(unittest.IsolatedAsyncioTestCase):
             load_dependency_manifests=mock.Mock(return_value={}),
             native_graph=native,
             analysis_slice=mock.Mock(return_value=family("analysis")),
-            source_checks_graph=mock.Mock(return_value=family("source")),
-            python_coverage_graph=mock.Mock(return_value=family("python")),
+            architecture_source_checks=mock.Mock(return_value=family("cppcheck")),
             audit_graph=mock.Mock(
                 side_effect=lambda _repo, upstream, *_args, **_kwargs: family("audit", upstream)
             ),
@@ -475,10 +661,10 @@ class DriverTests(unittest.IsolatedAsyncioTestCase):
             ),
             **unused,
         ):
-            await session.verify(("arm64",), run_nonce="verify-run")
+            await session.verify_arch(("arm64",), run_nonce="verify-run")
 
         self.assertEqual(len(session.runtime.executed), 2)
-        self.assertTrue({"analysis", "source", "python", "package"}.issubset(
+        self.assertTrue({"analysis", "cppcheck", "package"}.issubset(
             session.runtime.executed[-1].targets
         ))
         self.assertFalse(native.call_args.kwargs["include_leak_probe"])

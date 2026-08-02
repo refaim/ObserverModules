@@ -20,10 +20,10 @@ from core.store import CasStateError, CasStore  # noqa: E402
 RUN_ID = "20260801-test"
 
 
-def node(name: str = "analyze-renpy.pickle") -> Node:
+def node(name: str = "analyze-renpy.pickle", uid: str | None = None) -> Node:
     return Node(
         name=name,
-        uid=hashlib.md5(name.encode("utf-8"), usedforsecurity=False).hexdigest(),
+        uid=uid or hashlib.md5(name.encode("utf-8"), usedforsecurity=False).hexdigest(),
         pool="cpu",
         command=Command(("tool",)),
     )
@@ -37,13 +37,13 @@ class CasStoreTests(unittest.TestCase):
 
     @staticmethod
     def publish_files(paths: BuildPaths, current: Node) -> None:
-        cas = paths.cas(current.uid, current.name)
+        cas = paths.cas(current.uid)
         cas.entry.mkdir()
         cas.output.mkdir()
         cas.log.write_text("command succeeded\n", encoding="utf-8")
         cas.touch.touch()
 
-    def test_node_maps_to_readable_uid_and_name_entry(self) -> None:
+    def test_node_maps_to_uid_only_entry(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             repository = Path(temporary) / "repo"
             repository.mkdir()
@@ -54,8 +54,21 @@ class CasStoreTests(unittest.TestCase):
 
             self.assertEqual(
                 cas.entry,
-                paths.cas_root / f"{current.uid}-{current.name}",
+                paths.cas_root / current.uid,
             )
+
+    def test_readable_name_collision_shares_content_addressed_entry(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            repository = Path(temporary) / "repo"
+            repository.mkdir()
+            _paths, store = self.make_store(repository)
+            shared_uid = "0123456789abcdef0123456789abcdef"
+
+            first = store.paths_for(node("first-node", shared_uid))
+            second = store.paths_for(node("second-node", shared_uid))
+
+            self.assertEqual(first, second)
+            self.assertEqual(first.entry.name, shared_uid)
 
     def test_complete_entry_is_a_warm_cache_hit(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -84,7 +97,7 @@ class CasStoreTests(unittest.TestCase):
                 paths, store = self.make_store(repository)
                 current = node()
                 self.publish_files(paths, current)
-                cas = paths.cas(current.uid, current.name)
+                cas = paths.cas(current.uid)
 
                 if case == "missing-touch":
                     cas.touch.unlink()
@@ -112,7 +125,7 @@ class CasStoreTests(unittest.TestCase):
             repository.mkdir()
             paths, store = self.make_store(repository)
             current = node()
-            old = paths.cas(current.uid, current.name)
+            old = paths.cas(current.uid)
             old.entry.mkdir()
             old.output.mkdir()
             (old.output / "partial.obj").write_bytes(b"partial")
@@ -120,7 +133,7 @@ class CasStoreTests(unittest.TestCase):
             prepared = store.prepare_entry(current)
 
             quarantine = paths.run_work(RUN_ID) / "quarantine" / old.entry.name
-            self.assertEqual(prepared, paths.cas(current.uid, current.name))
+            self.assertEqual(prepared, paths.cas(current.uid))
             self.assertEqual((quarantine / "out" / "partial.obj").read_bytes(), b"partial")
             self.assertTrue(prepared.entry.is_dir())
             self.assertTrue(prepared.output.is_dir())
@@ -137,7 +150,7 @@ class CasStoreTests(unittest.TestCase):
             with mock.patch.object(paths, "cas", wraps=paths.cas) as resolve:
                 store.prepare_entry(current)
 
-            resolve.assert_called_once_with(current.uid, current.name)
+            resolve.assert_called_once_with(current.uid)
 
     def test_prepare_never_mutates_complete_entry(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -146,7 +159,7 @@ class CasStoreTests(unittest.TestCase):
             paths, store = self.make_store(repository)
             current = node()
             self.publish_files(paths, current)
-            cas = paths.cas(current.uid, current.name)
+            cas = paths.cas(current.uid)
             sentinel = cas.output / "result.bin"
             sentinel.write_bytes(b"immutable")
             before = {
@@ -170,7 +183,7 @@ class CasStoreTests(unittest.TestCase):
             repository.mkdir()
             paths, store = self.make_store(repository)
             current = node()
-            cas = paths.cas(current.uid, current.name)
+            cas = paths.cas(current.uid)
             cas.entry.mkdir()
             cas.output.mkdir()
             destination = paths.run_work(RUN_ID) / "quarantine" / cas.entry.name
@@ -188,7 +201,7 @@ class CasStoreTests(unittest.TestCase):
             repository.mkdir()
             paths, store = self.make_store(repository)
             current = node()
-            cas = paths.cas(current.uid, current.name)
+            cas = paths.cas(current.uid)
             cas.entry.mkdir()
             cas.output.mkdir()
 
@@ -210,7 +223,7 @@ class CasStoreTests(unittest.TestCase):
             regular.prepare()
             current = node()
             self.publish_files(regular, current)
-            cas = regular.cas(current.uid, current.name)
+            cas = regular.cas(current.uid)
 
             reparse_paths = {cas.output}
 

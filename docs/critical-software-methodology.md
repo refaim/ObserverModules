@@ -107,7 +107,8 @@ Every layer finds a different defect class; passing one does not substitute for 
 1. **Fast deterministic tests:** parser/unit tests, common archive-operation tests, and ABI contract tests.
 2. **Structural coverage:** 100% LLVM line and branch coverage over first-party production code, plus review of tests
    that reach each branch.
-3. **Exact-toolchain tests:** MSVC Debug and shippable MSVC Release on x86, x64, and ARM64 where the runner is native.
+3. **Exact-toolchain tests:** MSVC Debug and shippable MSVC Release on runnable x86 and x64 targets; ARM64 is
+   cross-built, analyzed, audited, and packaged, with unavailable runtime checks reported explicitly as deferred.
 4. **Static analysis:** compiler warnings-as-errors, MSVC `/analyze`, clang-tidy, Cppcheck, and PowerShell analysis.
    Diagnostics are fixed or narrowly justified, never globally muted. Additional services such as CodeQL may repeat or
    extend this evidence but cannot replace a local gate.

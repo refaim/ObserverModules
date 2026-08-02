@@ -6,29 +6,23 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
-from core.graph import Graph, Node
-from core.node import NodeFactory
+from core.graph import Graph, Node, Result
 from core.paths import BuildPaths
-from core.render import TemplateRenderer
 from core.toolchain import MsvcToolchain
 from graphs.common import (
     BINARIES,
     BUILD_ROOT,
+    canonical_artifact,
     extend_pools,
     prefixed_identity,
-    produced_path,
     python_action,
+    recipe_factory,
     require_ancestor,
     require_positive_integers,
     require_tool,
     tool_environment,
 )
-from graphs.instrumented import (
-    InstrumentedArtifact,
-    InstrumentedVariant,
-    instrumented_build_slice,
-    instrumented_dependency_discovery_slice,
-)
+from graphs.instrumented import InstrumentedVariant, instrumented_build_slice, instrumented_dependency_discovery_slice
 
 
 _SUPPORTED = {("asan", "x86"), ("asan", "x64"), ("ubsan", "x64")}
@@ -43,58 +37,40 @@ _OPTIONS = {
 
 
 @dataclass(frozen=True, slots=True)
-class SanitizerArtifact:
-    sanitizer: str
-    architecture: str
-    name: str
-    producer: Node
-    path: Path
-
-
-@dataclass(frozen=True, slots=True)
 class AsanRuntime:
     architecture: str
     path: Path
     identity: Mapping[str, str]
 
 
-def _artifacts(
+def _builds(
     paths: BuildPaths,
     upstream: Graph,
-    artifacts: Iterable[SanitizerArtifact | InstrumentedArtifact],
-) -> dict[tuple[str, str], dict[str, SanitizerArtifact | InstrumentedArtifact]]:
-    selected: dict[tuple[str, str], dict[str, SanitizerArtifact | InstrumentedArtifact]] = {}
-    for artifact in artifacts:
-        sanitizer = artifact.sanitizer if isinstance(artifact, SanitizerArtifact) else artifact.kind
-        key = (sanitizer, artifact.architecture)
-        if key not in _SUPPORTED or artifact.name not in BINARIES:
-            raise ValueError(f"invalid sanitizer artifact identity: {(*key, artifact.name)}")
-        group = selected.setdefault(key, {})
-        if artifact.name in group:
-            raise ValueError(f"duplicate sanitizer artifact: {(*key, artifact.name)}")
-        expected = f"build-{artifact.name}-{artifact.architecture}-{sanitizer}"
-        message = f"sanitizer artifact must use its exact producer CAS: {artifact.path}"
-        if artifact.producer.name != expected:
-            raise ValueError(message)
-        binary = produced_path(paths, upstream, artifact.producer, artifact.path, message)
-        producer_output = paths.cas(artifact.producer.uid, artifact.producer.name).output
-        if binary != producer_output / BINARIES[artifact.name]:
-            raise ValueError(f"sanitizer artifact must use its exact producer CAS: {binary}")
+    selections: tuple[tuple[str, str], ...],
+) -> dict[tuple[str, str], dict[str, tuple[Node, Path]]]:
+    if not selections or len(selections) != len(set(selections)) or any(
+        item not in _SUPPORTED for item in selections
+    ):
+        raise ValueError("sanitizer selections must be a unique non-empty supported set")
+    selected = {}
+    for sanitizer, architecture in selections:
+        group = {}
+        for name, filename in BINARIES.items():
+            producer, path = canonical_artifact(
+                paths, upstream, f"build-{name}-{architecture}-{sanitizer}", filename
+            )
+            group[name] = (producer, path)
         restore = (
-            f"restore-vcpkg-asan-{artifact.architecture}"
+            f"restore-vcpkg-asan-{architecture}"
             if sanitizer == "asan"
-            else f"restore-vcpkg-{artifact.architecture}"
+            else f"restore-vcpkg-{architecture}"
         )
-        require_ancestor(
-            upstream, artifact.producer, restore,
-            f"sanitizer build requires {restore} as a restore ancestor",
-        )
-        group[artifact.name] = artifact
-    if not selected:
-        raise ValueError("sanitizer graph requires at least one complete artifact set")
-    for key, group in selected.items():
-        if group.keys() != BINARIES.keys():
-            raise ValueError(f"sanitizer {key} requires the complete artifact set")
+        for producer, _path in group.values():
+            require_ancestor(
+                upstream, producer, restore,
+                f"sanitizer build requires {restore} as a restore ancestor",
+            )
+        selected[(sanitizer, architecture)] = group
     return selected
 
 
@@ -124,8 +100,8 @@ def _runtimes(
 def sanitizer_artifact_graph(
     repository: Path,
     upstream: Graph,
-    artifacts: Iterable[SanitizerArtifact | InstrumentedArtifact],
     *,
+    selections: tuple[tuple[str, str], ...],
     pwsh: Path,
     pwsh_identity: Mapping[str, str],
     asan_runtimes: Iterable[AsanRuntime] = (),
@@ -142,16 +118,15 @@ def sanitizer_artifact_graph(
     root = repository.resolve(strict=True)
     paths = BuildPaths(root)
     pwsh = require_tool(pwsh, "PowerShell")
-    selected = _artifacts(paths, upstream, artifacts)
+    selected = _builds(paths, upstream, selections)
     runtimes = _runtimes(selected, asan_runtimes)
-    renderer = TemplateRenderer(BUILD_ROOT / "templates")
     pwsh_id = prefixed_identity("pwsh", pwsh, pwsh_identity)
-    gate_factory = NodeFactory(renderer, BUILD_ROOT, {})
+    gate_factory = recipe_factory(BUILD_ROOT, {})
     nodes: list[Node] = []
     targets: list[str] = []
 
     for (sanitizer, architecture), group in sorted(selected.items()):
-        builds = tuple(group[name].producer for name in BINARIES)
+        builds = tuple(group[name][0] for name in BINARIES)
         runtime = runtimes.get(architecture) if sanitizer == "asan" else None
         identity = pwsh_id
         runtime_copy = None
@@ -160,9 +135,9 @@ def sanitizer_artifact_graph(
                 f"asan_runtime.{architecture}", runtime.path, runtime.identity
             )
             runtime_copy = {"name": runtime.path.name, "source": str(runtime.path)}
-        factory = NodeFactory(renderer, root, identity, environment)
+        factory = recipe_factory(root, identity, environment)
         copies = tuple(
-            {"name": BINARIES[name], "source": str(group[name].path)}
+            {"name": BINARIES[name], "source": str(group[name][1])}
             for name in BINARIES
         )
         options_name, options_value = _OPTIONS[sanitizer]
@@ -177,13 +152,19 @@ def sanitizer_artifact_graph(
                     "shard_count": test_shards, "shard_index": index,
                 },
                 files={}, dependencies=builds,
+                results=(Result(
+                    f"reports/sanitizers/{sanitizer}/{architecture}/shard-{index}.xml",
+                    "sanitizer",
+                    "application/xml",
+                    "tests.xml",
+                ),),
                 config={
                     "action": "sanitizer-test", "sanitizer": sanitizer,
                     "architecture": architecture, "shard_count": str(test_shards),
                     "shard_index": str(index),
                 },
             )
-            log = paths.cas(shard.uid, shard.name).log
+            log = paths.cas(shard.uid).log
             gate = python_action(
                 gate_factory,
                 f"{sanitizer}-gate-{architecture}-{index}",
@@ -260,7 +241,7 @@ def sanitizer_graph(
     variants = _instrumented_variants(
         selections, llvm_runtime, llvm_runtime_identity
     )
-    upstream, produced = instrumented_build_slice(
+    upstream = instrumented_build_slice(
         repository,
         toolchain,
         discovery=discovery,
@@ -271,7 +252,7 @@ def sanitizer_graph(
     return sanitizer_artifact_graph(
         repository,
         upstream,
-        produced,
+        selections=selections,
         pwsh=toolchain.pwsh,
         pwsh_identity=dict(toolchain.identity),
         asan_runtimes=asan_runtimes,

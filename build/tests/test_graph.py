@@ -9,7 +9,7 @@ import unittest
 BUILD_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BUILD_ROOT))
 
-from core.graph import Command, Graph, GraphError, Node, merge_graphs  # noqa: E402
+from core.graph import Command, Graph, GraphError, Node, Result, merge_graphs  # noqa: E402
 
 
 def node(
@@ -17,6 +17,7 @@ def node(
     *,
     inputs: tuple[str, ...] = (),
     pool: str = "cpu",
+    results: tuple[Result, ...] = (),
 ) -> Node:
     return Node(
         name=name,
@@ -24,10 +25,66 @@ def node(
         pool=pool,
         command=Command(("tool", name)),
         inputs=inputs,
+        results=results,
     )
 
 
 class GraphTests(unittest.TestCase):
+    def test_results_are_typed_and_addressable_without_scanning_directories(self) -> None:
+        report = Result(
+            "analysis/renpy/x64/sarif",
+            "report",
+            "application/sarif+json",
+            "analysis/renpy-x64.sarif",
+        )
+        producer = node("analyze-renpy-x64", results=(report,))
+        graph = Graph((producer,), (producer.name,), {"cpu": 1})
+
+        self.assertEqual(producer.results, (report,))
+        self.assertEqual(graph.result(report.id), (producer, report))
+        with self.assertRaisesRegex(GraphError, "unknown result"):
+            graph.result("analysis/missing")
+
+    def test_result_contract_rejects_ambiguous_identifiers_and_paths(self) -> None:
+        invalid = (
+            (42, "report", "application/json", "report.json"),
+            ("Uppercase", "report", "application/json", "report.json"),
+            ("report", 42, "application/json", "report.json"),
+            ("report", "Report", "application/json", "report.json"),
+            ("report", "report", 42, "report.json"),
+            ("report", "report", "not-a-media-type", "report.json"),
+            ("report", "report", "application/json", 42),
+            ("report", "report", "application/json", ""),
+            ("report", "report", "application/json", "bad\0path"),
+            ("report", "report", "application/json", "../report.json"),
+            ("report", "report", "application/json", "reports/./report.json"),
+            ("report", "report", "application/json", "reports//report.json"),
+            ("report", "report", "application/json", r"reports\report.json"),
+            ("report", "report", "application/json", "/report.json"),
+            ("report", "report", "application/json", "C:/report.json"),
+        )
+        for values in invalid:
+            with self.subTest(values=values), self.assertRaises(GraphError):
+                Result(*values)
+
+        report = Result("report", "report", "application/json", "report.json")
+        with self.assertRaisesRegex(GraphError, "duplicate result ids"):
+            node("producer", results=(report, report))
+        with self.assertRaisesRegex(GraphError, "results must be Result"):
+            Node(
+                "producer",
+                "0" * 32,
+                "cpu",
+                Command(("tool",)),
+                results=(object(),),  # type: ignore[arg-type]
+            )
+        with self.assertRaisesRegex(GraphError, "duplicate result id.*report"):
+            Graph(
+                (node("first", results=(report,)), node("second", results=(report,))),
+                ("first", "second"),
+                {"cpu": 1},
+            )
+
     def test_graphs_merge_shared_exact_nodes_pools_and_targets(self) -> None:
         shared = node("shared")
         first = Graph(
@@ -123,6 +180,8 @@ class GraphTests(unittest.TestCase):
         invalid_commands = (
             lambda: Command(()),
             lambda: Command(("bad\0argument",)),
+            lambda: Command(("tool",), env=(("incomplete",),)),  # type: ignore[arg-type]
+            lambda: Command(("tool",), env=(("KEY", object()),)),  # type: ignore[arg-type]
             lambda: Command(("tool",), env=(("PATH", "1"), ("Path", "2"))),
             lambda: Command(("tool",), cwd="bad\0cwd"),
             lambda: Command(("tool",), stdin="not bytes"),  # type: ignore[arg-type]
@@ -133,6 +192,8 @@ class GraphTests(unittest.TestCase):
 
         with self.assertRaisesRegex(GraphError, "duplicate dependencies"):
             Node("safe", "0" * 32, "cpu", Command(("tool",)), ("same", "same"))
+        with self.assertRaisesRegex(GraphError, "command must be a Command"):
+            Node("safe", "0" * 32, "cpu", object())  # type: ignore[arg-type]
 
     def test_graph_container_and_lookups_are_explicit(self) -> None:
         only = node("only")

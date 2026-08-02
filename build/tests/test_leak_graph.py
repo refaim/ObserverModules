@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-from dataclasses import replace
 import io
 import json
 import os
@@ -19,7 +18,6 @@ from core.graph import Command, Graph, Node  # noqa: E402
 import core.leak as leak  # noqa: E402
 from core.leak import LeakError, main as leak_main  # noqa: E402
 from core.paths import BuildPaths  # noqa: E402
-from graphs.audit import BinaryArtifact  # noqa: E402
 from graphs.leak import LEAK_MODES, LEAK_SCENARIOS, leak_graph  # noqa: E402
 
 
@@ -36,7 +34,7 @@ def node(name: str, *, inputs: tuple[str, ...] = ()) -> Node:
 class LeakGraphTests(unittest.TestCase):
     def fixture(
         self, root: Path
-    ) -> tuple[Path, Graph, tuple[BinaryArtifact, ...], Path]:
+    ) -> tuple[Path, Graph, Path]:
         repository = root / "repo"
         repository.mkdir()
         restore = node("restore-release")
@@ -52,31 +50,17 @@ class LeakGraphTests(unittest.TestCase):
             for kind in ("pe", "binskim")
         )
         upstream = Graph((restore, *builds, *audit_gates), tuple(item.name for item in builds), {"build": 4})
-        paths = BuildPaths(repository)
-        artifacts = tuple(
-            BinaryArtifact(
-                "x64",
-                name,
-                producer,
-                paths.cas(producer.uid, producer.name).output
-                / ("leak-probe.exe" if name == "leak-probe" else f"{name}.so"),
-            )
-            for name, producer in zip(
-                ("leak-probe", "renpy", "rpgmaker", "zanzarah"), builds, strict=True
-            )
-        )
         tools = root / "tools"
         tools.mkdir()
         umdh = tools / "umdh.exe"
         umdh.touch()
-        return repository, upstream, artifacts, umdh
+        return repository, upstream, umdh
 
     def build_graph(self, root: Path, **options: object) -> Graph:
-        repository, upstream, artifacts, umdh = self.fixture(root)
+        repository, upstream, umdh = self.fixture(root)
         return leak_graph(
             repository,
             upstream,
-            artifacts,
             umdh=umdh,
             umdh_identity={"version": "10.0"},
             run_nonce="run-42",
@@ -85,18 +69,18 @@ class LeakGraphTests(unittest.TestCase):
 
     def test_default_graph_has_one_shared_setup_and_fourteen_independent_branches(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            graph = self.build_graph(Path(temporary), jobs=7, session_jobs=3, diff_jobs=5)
+            graph = self.build_graph(Path(temporary), jobs=7)
 
         leak_nodes = tuple(item for item in graph.nodes if item.name.startswith("leak-"))
-        self.assertEqual(85, len(leak_nodes))
+        self.assertEqual(99, len(leak_nodes))
         self.assertEqual(
             graph.pools,
-            {"build": 4, "leak": 7, "leak-session": 3, "leak-diff": 5},
+            {"build": 4, "slot": 7},
         )
         self.assertEqual(
             graph.targets,
             tuple(
-                f"leak-judge-{mode}-{scenario}"
+                f"leak-gate-{mode}-{scenario}"
                 for mode in LEAK_MODES
                 for scenario in LEAK_SCENARIOS
             ),
@@ -127,20 +111,52 @@ class LeakGraphTests(unittest.TestCase):
                     graph.node(f"leak-diff-{stem}-window-{index}") for index in (1, 2)
                 )
                 overall = graph.node(f"leak-diff-{stem}-overall")
-                judge = graph.node(f"leak-judge-{stem}")
+                summary = graph.node(f"leak-summary-{stem}")
+                gate = graph.node(f"leak-gate-{stem}")
 
                 self.assertEqual(preflight.inputs, (setup.name,))
                 self.assertEqual(capture.inputs, (preflight.name,))
                 self.assertTrue(all(item.inputs == (capture.name,) for item in (*adjacent, overall)))
-                self.assertEqual(judge.inputs, tuple(item.name for item in (*adjacent, overall)))
+                self.assertEqual(summary.inputs, tuple(item.name for item in (*adjacent, overall)))
+                self.assertEqual(gate.inputs, (summary.name,))
                 self.assertEqual(
-                    (preflight.pool, capture.pool, adjacent[0].pool, judge.pool),
-                    ("leak", "leak-session", "leak-diff", "leak"),
+                    (preflight.pool, capture.pool, adjacent[0].pool, summary.pool, gate.pool),
+                    ("slot", "slot", "slot", "slot", "slot"),
                 )
                 self.assertEqual(preflight.command.argv[-2:], (mode, scenario))
                 self.assertEqual(capture.command.argv[6:8], (mode, scenario))
                 self.assertEqual((overall.command.argv[3], overall.command.argv[6]), ("diff", "overall"))
-                self.assertEqual(judge.command.argv[9], "0")
+                self.assertEqual(summary.command.argv[9], "0")
+                self.assertEqual(
+                    tuple((item.id, item.kind, item.media_type, item.relative_path)
+                          for item in preflight.results),
+                    ((f"reports/leak/x64/{mode}/{scenario}/preflight.json",
+                      "leak", "application/json", "preflight.json"),),
+                )
+                self.assertEqual(
+                    tuple((item.id, item.relative_path) for item in capture.results),
+                    (
+                        (f"reports/leak/x64/{mode}/{scenario}/capture.json", "capture.json"),
+                        (f"reports/leak/x64/{mode}/{scenario}/snapshots", "snapshots"),
+                        (f"reports/leak/x64/{mode}/{scenario}/probe.stderr.log", "probe.stderr.log"),
+                    ),
+                )
+                evidence = tuple(zip(("window-1", "window-2"), adjacent, strict=True)) + (
+                    ("overall", overall),
+                )
+                for label, item in evidence:
+                    self.assertEqual(
+                        tuple((result.id, result.relative_path) for result in item.results),
+                        (
+                            (f"reports/leak/x64/{mode}/{scenario}/diffs/{label}.json", "diff.json"),
+                            (f"reports/leak/x64/{mode}/{scenario}/diffs/{label}.txt", "report.txt"),
+                        ),
+                    )
+                self.assertEqual(
+                    tuple((item.id, item.relative_path) for item in summary.results),
+                    ((f"reports/leak/x64/{mode}/{scenario}/summary.json", "summary.json"),),
+                )
+                self.assertEqual(gate.results, ())
 
     def test_measurement_options_expand_snapshot_diffs_and_are_signed(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -149,12 +165,12 @@ class LeakGraphTests(unittest.TestCase):
                 root, warmup=2, iterations=3, windows=4, tolerance_bytes=17
             )
 
-        self.assertEqual(99, len(tuple(item for item in graph.nodes if item.name.startswith("leak-"))))
+        self.assertEqual(113, len(tuple(item for item in graph.nodes if item.name.startswith("leak-"))))
         capture = graph.node("leak-capture-operations-small-success")
         self.assertEqual(capture.command.argv[-3:], ("2", "3", "4"))
-        judge = graph.node("leak-judge-operations-small-success")
+        summary = graph.node("leak-summary-operations-small-success")
         self.assertEqual(
-            judge.inputs,
+            summary.inputs,
             (
                 "leak-diff-operations-small-success-window-1",
                 "leak-diff-operations-small-success-window-2",
@@ -162,12 +178,12 @@ class LeakGraphTests(unittest.TestCase):
                 "leak-diff-operations-small-success-overall",
             ),
         )
-        self.assertEqual(judge.command.argv[3:10], ("judge", "operations", "small-success", "2", "3", "4", "17"))
+        self.assertEqual(summary.command.argv[3:10], ("summarize", "operations", "small-success", "2", "3", "4", "17"))
 
     def test_run_and_tool_identities_invalidate_only_the_measurement_partition(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            repository, upstream, artifacts, umdh = self.fixture(root)
+            repository, upstream, umdh = self.fixture(root)
 
             def graph(
                 *,
@@ -178,7 +194,6 @@ class LeakGraphTests(unittest.TestCase):
                 return leak_graph(
                     repository,
                     upstream,
-                    artifacts,
                     umdh=umdh,
                     umdh_identity={"version": umdh_version},
                     run_nonce=nonce,
@@ -193,19 +208,18 @@ class LeakGraphTests(unittest.TestCase):
         for current in before.nodes:
             if not current.name.startswith("leak-"):
                 continue
-            measured = current.name.startswith(("leak-capture-", "leak-diff-", "leak-judge-"))
-            judged = current.name.startswith("leak-judge-")
+            measured = current.name.startswith(("leak-capture-", "leak-diff-", "leak-summary-", "leak-gate-"))
+            judged = current.name.startswith(("leak-summary-", "leak-gate-"))
             self.assertEqual(measured, current.uid != rerun.node(current.name).uid, current.name)
             self.assertEqual(measured, current.uid != new_umdh.node(current.name).uid, current.name)
             self.assertEqual(judged, current.uid != new_tolerance.node(current.name).uid, current.name)
 
-    def test_rejects_invalid_tools_artifacts_pools_and_measurement_options(self) -> None:
+    def test_rejects_invalid_tools_lineage_pools_and_measurement_options(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            repository, upstream, artifacts, umdh = self.fixture(root)
+            repository, upstream, umdh = self.fixture(root)
 
             def invoke(
-                selected: tuple[BinaryArtifact, ...] = artifacts,
                 *,
                 source: Graph = upstream,
                 umdh_path: Path = umdh,
@@ -215,13 +229,10 @@ class LeakGraphTests(unittest.TestCase):
                 windows: object = 3,
                 tolerance: object = 4096,
                 jobs: object = 4,
-                session_jobs: object = 2,
-                diff_jobs: object = 4,
             ) -> Graph:
                 return leak_graph(
                     repository,
                     source,
-                    selected,
                     umdh=umdh_path,
                     umdh_identity={"version": "10.0"},
                     run_nonce=nonce,  # type: ignore[arg-type]
@@ -230,15 +241,13 @@ class LeakGraphTests(unittest.TestCase):
                     windows=windows,  # type: ignore[arg-type]
                     tolerance_bytes=tolerance,  # type: ignore[arg-type]
                     jobs=jobs,  # type: ignore[arg-type]
-                    session_jobs=session_jobs,  # type: ignore[arg-type]
-                    diff_jobs=diff_jobs,  # type: ignore[arg-type]
                 )
 
-            for capacities in ((True, 2, 4), (4, "two", 4), (4, 2, 0)):
-                with self.subTest(capacities=capacities), self.assertRaisesRegex(
+            for jobs in (True, "four", 0):
+                with self.subTest(jobs=jobs), self.assertRaisesRegex(
                     ValueError, "capacities"
                 ):
-                    invoke(jobs=capacities[0], session_jobs=capacities[1], diff_jobs=capacities[2])
+                    invoke(jobs=jobs)
             for counts in ((True, 100, 3), (8, "many", 3), (8, 100, 0)):
                 with self.subTest(counts=counts), self.assertRaisesRegex(ValueError, "counts"):
                     invoke(warmup=counts[0], iterations=counts[1], windows=counts[2])
@@ -253,16 +262,19 @@ class LeakGraphTests(unittest.TestCase):
 
             with self.assertRaisesRegex(FileNotFoundError, "not a file"):
                 invoke(umdh_path=umdh.parent)
-            with self.assertRaisesRegex(ValueError, "missing"):
-                invoke(artifacts[:-1])
-            with self.assertRaisesRegex(ValueError, "duplicate"):
-                invoke((*artifacts, artifacts[0]))
-            for invalid in (
-                replace(artifacts[0], architecture="x86"),
-                replace(artifacts[0], module="unknown"),
-            ):
-                with self.subTest(invalid=invalid), self.assertRaisesRegex(ValueError, "invalid"):
-                    invoke((invalid, *artifacts[1:]))
+
+            missing_names = {
+                "build-leak-probe-x64-release",
+                "audit-pe-x64-leak-probe",
+                "audit-binskim-x64-leak-probe",
+            }
+            missing_build = Graph(
+                tuple(item for item in upstream.nodes if item.name not in missing_names),
+                tuple(name for name in upstream.targets if name != "build-leak-probe-x64-release"),
+                upstream.pools,
+            )
+            with self.assertRaisesRegex(ValueError, "unknown node"):
+                invoke(source=missing_build)
 
             missing_gate = Graph(
                 tuple(node for node in upstream.nodes if node.name != "audit-binskim-x64-renpy"),
@@ -272,39 +284,13 @@ class LeakGraphTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "audit gates"):
                 invoke(source=missing_gate)
 
-            impostor = Node(
-                artifacts[0].producer.name,
-                artifacts[0].producer.uid,
-                "build",
-                Command(("other-build.exe",)),
-                artifacts[0].producer.inputs,
-            )
-            with self.assertRaisesRegex(ValueError, "producer CAS"):
-                invoke((replace(artifacts[0], producer=impostor), *artifacts[1:]))
-            unknown = node("unknown-producer")
-            with self.assertRaisesRegex(ValueError, "producer CAS"):
-                invoke((replace(artifacts[0], producer=unknown), *artifacts[1:]))
-
-            paths = BuildPaths(repository)
-            producer_output = paths.cas(artifacts[0].producer.uid, artifacts[0].producer.name).output
-            bad_paths = (
-                producer_output / "wrong-name.exe",
-                paths.cas(artifacts[1].producer.uid, artifacts[1].producer.name).output
-                / "leak-probe.exe",
-            )
-            for bad_path in bad_paths:
-                with self.subTest(bad_path=bad_path), self.assertRaisesRegex(
-                    ValueError, "producer CAS"
-                ):
-                    invoke((replace(artifacts[0], path=bad_path), *artifacts[1:]))
-
             matching = Graph(
                 upstream.nodes,
                 upstream.targets,
-                {"build": 4, "leak": 4, "leak-session": 2, "leak-diff": 4},
+                {"build": 4, "slot": 4},
             )
-            self.assertEqual(4, invoke(source=matching).pools["leak"])
-            conflicting = Graph(upstream.nodes, upstream.targets, {"build": 4, "leak": 1})
+            self.assertEqual(4, invoke(source=matching).pools["slot"])
+            conflicting = Graph(upstream.nodes, upstream.targets, {"build": 4, "slot": 1})
             with self.assertRaisesRegex(ValueError, "conflicting pool"):
                 invoke(source=conflicting)
 
@@ -484,6 +470,10 @@ class LeakWorkerTests(unittest.TestCase):
             with self.output(root), self.assertRaisesRegex(LeakError, "sustained"):
                 leak_main(("judge", "operations", "malformed", "1", "2", "3", "100", *paths))
             self.assertFalse(json.loads((root / "summary.json").read_text())["passed"])
+            with self.output(root):
+                leak_main(("summarize", "operations", "malformed", "1", "2", "3", "100", *paths))
+                with self.assertRaisesRegex(LeakError, "sustained"):
+                    leak_main(("gate", str(root / "summary.json")))
 
             for path in (root / "window-1.json", root / "window-2.json", root / "overall.json"):
                 document = json.loads(path.read_text())
@@ -492,6 +482,7 @@ class LeakWorkerTests(unittest.TestCase):
                 path.write_text(json.dumps(document))
             with self.output(root):
                 leak_main(("judge", "operations", "malformed", "1", "2", "3", "100", *paths))
+                leak_main(("gate", str(root / "summary.json")))
             self.assertTrue(json.loads((root / "summary.json").read_text())["passed"])
 
     def test_worker_rejects_invalid_arguments_protocol_and_umdh_evidence(self) -> None:
@@ -518,6 +509,16 @@ class LeakWorkerTests(unittest.TestCase):
             leak_main(("unknown",))
         with mock.patch.object(sys, "argv", ["leak.py", "unknown"]), self.assertRaises(LeakError):
             leak_main()
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            invalid = root / "summary.json"
+            with self.output(root):
+                with self.assertRaisesRegex(LeakError, "summary is invalid"):
+                    leak_main(("gate", str(invalid)))
+                invalid.write_text('{"passed":"yes"}', encoding="utf-8")
+                with self.assertRaisesRegex(LeakError, "summary is invalid"):
+                    leak_main(("gate", str(invalid)))
 
         process = FakeProbe([])
         process.descendant.kill.side_effect = leak.psutil.NoSuchProcess(88)

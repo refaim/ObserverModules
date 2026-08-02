@@ -6,7 +6,7 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 import json
 
-from core.graph import Command, Node
+from core.graph import Command, GraphError, Node, Result
 
 
 class RecipeError(ValueError):
@@ -20,6 +20,7 @@ class Recipe:
     inputs: tuple[str, ...]
     argv: tuple[str, ...]
     data: bytes
+    results: tuple[Result, ...] = ()
 
     @classmethod
     def parse(cls, rendered: str | bytes) -> Recipe:
@@ -28,12 +29,24 @@ class Recipe:
         try:
             document = json.loads(rendered)
             script = document["script"]
+            declared_results = document["results"]
+            if not isinstance(declared_results, list):
+                raise TypeError("results must be a list")
             return cls(
                 name=document["name"],
                 pool=document["pool"],
                 inputs=tuple(document["inputs"]),
                 argv=tuple(script["exec"]),
                 data=script["data"].encode("utf-8"),
+                results=tuple(
+                    Result(
+                        result["id"],
+                        result["kind"],
+                        result["media_type"],
+                        result["path"],
+                    )
+                    for result in declared_results
+                ),
             )
         except (
             json.JSONDecodeError,
@@ -41,6 +54,7 @@ class Recipe:
             KeyError,
             TypeError,
             AttributeError,
+            GraphError,
         ) as error:
             raise RecipeError("rendered recipe is missing required JSON fields") from error
 
@@ -58,4 +72,5 @@ class Recipe:
             pool=self.pool,
             command=Command(self.argv, tuple(environment), cwd, self.data),
             inputs=self.inputs,
+            results=self.results,
         )

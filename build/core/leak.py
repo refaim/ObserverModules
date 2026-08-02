@@ -199,7 +199,7 @@ def _diff(args: Sequence[str]) -> None:
     _json("diff.json", {"label": label, "totalIncrease": total, "positiveStacks": stacks, "report": "report.txt"})
 
 
-def _judge(args: Sequence[str]) -> None:
+def _summary(args: Sequence[str]) -> dict[str, object]:
     if len(args) < 8 or len(args) % 2:
         raise LeakError("judge expects settings followed by label/report pairs")
     mode, scenario, warmup_value, iterations_value, windows_value, tolerance_value, *pairs = args
@@ -215,11 +215,35 @@ def _judge(args: Sequence[str]) -> None:
     sustained = last["totalIncrease"] > tolerance and previous["totalIncrease"] > tolerance and overall["totalIncrease"] > 2 * tolerance
     summary = {"mode": mode, "scenario": scenario, "warmupRounds": warmup, "iterationsPerWindow": iterations, "windows": windows, "toleranceBytes": tolerance, "totalGrowthByWindow": [record["totalIncrease"] for record in records[:-1]], "overallGrowthBytes": overall["totalIncrease"], "repeatedGrowingStacks": repeated, "passed": not sustained and not repeated}
     _json("summary.json", summary)
+    return summary
+
+
+def _summarize(args: Sequence[str]) -> None:
+    _summary(args)
+
+
+def _judge(args: Sequence[str]) -> None:
+    summary = _summary(args)
     if not summary["passed"]:
         raise LeakError("UMDH found sustained heap growth")
 
 
-_ACTIONS = {"setup": _setup, "preflight": _preflight, "capture": _capture, "diff": _diff, "judge": _judge}
+def _gate(args: Sequence[str]) -> None:
+    (path,) = _exact("gate", args, 1)
+    try:
+        passed = json.loads(Path(path).read_text(encoding="utf-8"))["passed"]
+    except (OSError, json.JSONDecodeError, KeyError, TypeError) as error:
+        raise LeakError("leak summary is invalid") from error
+    if not isinstance(passed, bool):
+        raise LeakError("leak summary is invalid")
+    if not passed:
+        raise LeakError("UMDH found sustained heap growth")
+
+
+_ACTIONS = {
+    "setup": _setup, "preflight": _preflight, "capture": _capture,
+    "diff": _diff, "summarize": _summarize, "gate": _gate, "judge": _judge,
+}
 
 
 def main(argv: Sequence[str] | None = None) -> int:

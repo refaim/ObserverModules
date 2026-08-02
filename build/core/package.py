@@ -165,8 +165,11 @@ def _aggregate(args: argparse.Namespace) -> None:
     names = [archive.name for archive in args.archives]
     if len(names) != len(set(names)):
         raise PackageError("duplicate archive name in package manifest")
+    output = _output()
+    for archive in sorted(args.archives, key=lambda path: path.name):
+        shutil.copyfile(archive, output / archive.name)
     _write_json(
-        _output() / "packages.json",
+        output / "packages.json",
         [
             {"name": archive.name, "sha256": _sha256(archive)}
             for archive in sorted(args.archives, key=lambda path: path.name)

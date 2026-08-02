@@ -12,7 +12,13 @@ BUILD_ROOT = Path(__file__).resolve().parents[1]
 REPOSITORY = BUILD_ROOT.parent
 sys.path.insert(0, str(BUILD_ROOT))
 
-from graphs.source import SourceTools, _repository_files, source_checks  # noqa: E402
+from graphs.source import (  # noqa: E402
+    SourceTools,
+    _repository_files,
+    architecture_source_checks,
+    common_source_checks,
+    source_checks,
+)
 from core.paths import BuildPaths  # noqa: E402
 
 
@@ -68,7 +74,11 @@ class SourceGraphTests(unittest.TestCase):
         powershell_sources = [REPOSITORY / "build.ps1"] + sorted(
             path
             for path in (REPOSITORY / "build").rglob("*")
-            if path.is_file() and path.suffix in {".ps1", ".psm1"}
+            if (
+                path.is_file()
+                and path.suffix in {".ps1", ".psm1"}
+                and not path.is_relative_to(REPOSITORY / "build/templates")
+            )
         )
         contracts = sorted((REPOSITORY / "build/tests").glob("*.Tests.ps1"))
 
@@ -86,6 +96,7 @@ class SourceGraphTests(unittest.TestCase):
             len([node for node in graph.nodes if node.name.startswith("pssa-")]),
             len(powershell_sources),
         )
+        self.assertFalse(any(node.name.startswith("pssa-build.templates.") for node in graph.nodes))
         self.assertEqual(
             len([node for node in graph.nodes if node.name.startswith("contract-")]),
             len(contracts),
@@ -143,6 +154,41 @@ class SourceGraphTests(unittest.TestCase):
             with self.subTest(architectures=architectures), self.assertRaisesRegex(ValueError, "architectures"):
                 source_checks(REPOSITORY, self.tools(), architectures=architectures)
 
+    def test_ci_slices_do_not_duplicate_common_and_architecture_checks(self) -> None:
+        common = common_source_checks(REPOSITORY, self.tools(), jobs=7)
+        architecture = architecture_source_checks(
+            REPOSITORY, self.tools(), ("arm64",), jobs=7
+        )
+
+        self.assertEqual(common.targets, ("source-checks",))
+        self.assertFalse(any(node.name.startswith("cppcheck-") for node in common.nodes))
+        self.assertFalse(any(node.name.startswith("restore-vcpkg-") for node in common.nodes))
+        self.assertTrue(any(node.name.startswith("format-") for node in common.nodes))
+        self.assertTrue(any(node.name.startswith("pssa-") for node in common.nodes))
+        self.assertTrue(any(node.name.startswith("contract-") for node in common.nodes))
+
+        self.assertEqual(architecture.targets, ("cppcheck-checks-arm64",))
+        self.assertEqual(
+            {node.name for node in architecture.nodes},
+            {
+                "restore-vcpkg-arm64",
+                "cppcheck-arm64",
+                "merge-cppcheck-findings-arm64",
+                "cppcheck-checks-arm64",
+            },
+        )
+        self.assertEqual(dict(architecture.pools), {"restore": 1, "slot": 7})
+        common_producer, common_result = common.result(
+            "reports/sarif/source/analysis.sarif"
+        )
+        self.assertEqual(common_producer.name, "merge-source-findings")
+        self.assertEqual(common_result.relative_path, "analysis.sarif")
+        cppcheck_producer, cppcheck_result = architecture.result(
+            "reports/sarif/arm64/cppcheck.sarif"
+        )
+        self.assertEqual(cppcheck_producer.name, "merge-cppcheck-findings-arm64")
+        self.assertEqual(cppcheck_result.relative_path, "analysis.sarif")
+
     def test_templates_keep_tool_paths_literal_and_cppcheck_findings_publishable(self) -> None:
         graph = self.graph()
 
@@ -158,14 +204,19 @@ class SourceGraphTests(unittest.TestCase):
         cppcheck_script = cppcheck.command.stdin.decode()
         restore = graph.node("restore-vcpkg-x86")
         include_dir = (
-            BuildPaths(REPOSITORY).cas(restore.uid, restore.name).output
+            BuildPaths(REPOSITORY).cas(restore.uid).output
             / "observer-x86-windows-static/include"
         )
         self.assertIn("Invoke-Checked 'C:\\tools\\cppcheck.exe'", cppcheck_script)
         self.assertIn("'--platform=win32W'", cppcheck_script)
         self.assertIn("'-D_M_IX86=600'", cppcheck_script)
         self.assertIn(f"'-I{include_dir}'", cppcheck_script)
-        self.assertIn("'--suppress=*:out/cas/*-restore-vcpkg-*/out/*'", cppcheck_script)
+        self.assertNotIn(f"--suppress=*:{include_dir}", cppcheck_script)
+        self.assertIn(
+            "'--suppress=*:*\\observer-x86-windows-static\\include\\*'",
+            cppcheck_script,
+        )
+        self.assertNotIn("*-restore-vcpkg-*", cppcheck_script)
         self.assertIn('"--output-file=$outDir\\cppcheck.sarif"', cppcheck_script)
         self.assertNotIn("--error-exitcode", cppcheck_script)
         self.assertIn("Cppcheck did not produce cppcheck.sarif", cppcheck_script)

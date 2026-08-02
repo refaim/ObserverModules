@@ -1,4 +1,4 @@
-{% extends "analysis.ps1" %}
+{% extends "analysis.ps1" %}{% from "_output.ps1" import require_output %}
 {% block int_dir %}
     "/p:IntDir=$outDir\obj\"
 {% endblock %}
@@ -9,7 +9,5 @@
     {{ ('/p:ClangTidyLogFile=' ~ project_name ~ '.ClangTidy.log') | ps_quote }}
 {% endblock %}
 {% block post_msbuild %}
-if (-not (Test-Path -LiteralPath (Join-Path $outDir {{ ('obj\\' ~ project_name ~ '.ClangTidy.log') | ps_quote }}) -PathType Leaf)) {
-    throw {{ ('clang-tidy did not produce ' ~ project_name ~ '.ClangTidy.log') | ps_quote }}
-}
+{{ require_output('obj\\' ~ project_name ~ '.ClangTidy.log', 'clang-tidy did not produce ' ~ project_name ~ '.ClangTidy.log') }}
 {% endblock %}

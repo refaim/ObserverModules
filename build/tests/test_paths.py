@@ -29,17 +29,17 @@ class BuildPathsTests(unittest.TestCase):
             self.assertTrue(paths.work_root.is_dir())
             self.assertTrue(paths.locks_root.is_dir())
 
-    def test_cas_paths_expose_entry_output_touch_and_log(self) -> None:
+    def test_cas_paths_use_only_uid_for_entry_output_touch_and_log(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             repository = Path(temporary) / "repo"
             repository.mkdir()
             paths = BuildPaths(repository)
 
-            entry = paths.cas(UID, "analyze-renpy.pickle")
+            entry = paths.cas(UID)
 
             self.assertEqual(
                 entry.entry,
-                repository / "out" / "cas" / f"{UID}-analyze-renpy.pickle",
+                repository / "out" / "cas" / UID,
             )
             self.assertEqual(entry.output, entry.entry / "out")
             self.assertEqual(entry.touch, entry.entry / "touch")
@@ -77,12 +77,7 @@ class BuildPathsTests(unittest.TestCase):
             for invalid_uid in ("", "ABCDEF" * 5 + "AB", "../escape", "0" * 31):
                 with self.subTest(uid=invalid_uid):
                     with self.assertRaises(PathSafetyError):
-                        paths.cas(invalid_uid, "node")
-
-            for invalid_node in ("", "Uppercase", ".hidden", "../escape", "with/slash"):
-                with self.subTest(node=invalid_node):
-                    with self.assertRaises(PathSafetyError):
-                        paths.cas(UID, invalid_node)
+                        paths.cas(invalid_uid)
 
             for invalid_run in ("", ".", "..", "../escape", "with/slash", "a" * 129):
                 with self.subTest(run=invalid_run):
@@ -91,17 +86,15 @@ class BuildPathsTests(unittest.TestCase):
                     with self.assertRaises(PathSafetyError):
                         paths.lease(invalid_run)
 
-    def test_cas_node_slug_is_limited_to_128_ascii_characters(self) -> None:
+    def test_cas_accepts_only_the_content_uid(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             repository = Path(temporary) / "repo"
             repository.mkdir()
             paths = BuildPaths(repository)
 
-            maximum = paths.cas(UID, "a" * 128)
-
-            self.assertTrue(maximum.entry.name.endswith("-" + "a" * 128))
-            with self.assertRaisesRegex(PathSafetyError, "node slug.*128"):
-                paths.cas(UID, "a" * 129)
+            self.assertEqual(paths.cas(UID).entry, repository / "out" / "cas" / UID)
+            with self.assertRaises(TypeError):
+                paths.cas(UID, "legacy-readable-name")  # type: ignore[call-arg]
 
     def test_confined_path_rejects_parent_escape_and_unexpected_root(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -122,7 +115,7 @@ class BuildPathsTests(unittest.TestCase):
             repository.mkdir()
             regular = BuildPaths(repository)
             regular.prepare()
-            entry = regular.cas(UID, "node")
+            entry = regular.cas(UID)
             entry.entry.mkdir()
             entry.touch.touch()
 
@@ -137,7 +130,7 @@ class BuildPathsTests(unittest.TestCase):
             with patch("core.paths._is_reparse", side_effect=is_reparse):
                 paths = BuildPaths(repository)
                 with self.assertRaisesRegex(PathSafetyError, "reparse point"):
-                    paths.cas(UID, "node")
+                    paths.cas(UID)
 
                 reparse_paths.remove(regular.cas_root)
                 with self.assertRaisesRegex(PathSafetyError, "reparse point"):

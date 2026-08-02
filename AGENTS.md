@@ -11,6 +11,8 @@ Use the root entry point from an ordinary PowerShell or `cmd.exe` console:
 .\build.ps1 doctor
 .\build.ps1 build -Arch all -Config Release
 .\build.ps1 test -Arch x86,x64 -Config Debug
+.\build.ps1 verify-source -ExportDir <directory>
+.\build.ps1 verify-arch -Arch x64 -ExportDir <directory>
 .\build.ps1 verify -Arch x64
 ```
 

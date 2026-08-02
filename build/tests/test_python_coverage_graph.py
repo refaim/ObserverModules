@@ -61,6 +61,17 @@ class PythonCoverageGraphTests(unittest.TestCase):
                 (sys.executable, "-m", "core.python_coverage",
                  str(repository / "build/.venv/Scripts/coverage.exe"), str(repository / "build")),
             )
+            self.assertEqual(
+                tuple((item.id, item.kind, item.media_type, item.relative_path)
+                      for item in node.results),
+                (
+                    ("reports/coverage/python/coverage.json", "coverage", "application/json", "coverage.json"),
+                    ("reports/coverage/python/coverage.xml", "coverage", "application/xml", "coverage.xml"),
+                    ("reports/coverage/python/coverage.txt", "coverage", "text/plain", "coverage.txt"),
+                    ("reports/coverage/python/coverage.toml", "coverage-config", "application/toml", "coverage.toml"),
+                    ("reports/coverage/python/coverage.data", "coverage-data", "application/octet-stream", ".coverage"),
+                ),
+            )
             (repository / "build/tests/test_example.py").write_text("changed\n", encoding="utf-8")
             changed_test = python_coverage_graph(repository)
             (repository / "build/tests/test_example.py").write_text("pass\n", encoding="utf-8")

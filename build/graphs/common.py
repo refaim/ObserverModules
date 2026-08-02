@@ -7,24 +7,31 @@ import hashlib
 import os
 from pathlib import Path
 import sys
-import xml.etree.ElementTree as ET
 
-from core.graph import Graph, Node
+from core.graph import Graph, Node, Result
 from core.node import NodeFactory
 from core.paths import BuildPaths
+from core.render import TemplateRenderer
 
 
 BUILD_ROOT = Path(__file__).resolve().parents[1]
 PROJECTS = ("renpy", "rpgmaker", "zanzarah", "tests")
 BINARIES = {**{name: f"{name}.so" for name in PROJECTS[:-1]}, "tests": "tests.exe"}
 PLATFORMS = {"x86": "Win32", "x64": "x64", "arm64": "ARM64"}
-_MSBUILD_NS = "{http://schemas.microsoft.com/developer/msbuild/2003}"
 _PROJECT_PREFIX = "$(RepositoryRoot)"
 COMMON_PROJECT_INPUTS = (
     "build/ObserverProjectConfigurations.props",
     "build/ObserverConfiguration.props",
     "build/ObserverProject.props",
 )
+
+
+def recipe_factory(
+    cwd: Path,
+    identity: dict[str, str],
+    environment: tuple[tuple[str, str], ...] = (),
+) -> NodeFactory:
+    return NodeFactory(TemplateRenderer(BUILD_ROOT / "templates"), cwd, identity, environment)
 
 
 def require_positive_integers(values: Iterable[object], message: str) -> None:
@@ -54,17 +61,11 @@ def extend_pools(upstream: Graph, additions: Mapping[str, int]) -> dict[str, int
     return pools
 
 
-def produced_path(paths: BuildPaths, upstream: Graph, producer: Node, candidate: Path, message: str) -> Path:
-    try:
-        if upstream.node(producer.name) != producer:
-            raise ValueError("producer does not match upstream")
-        output = paths.cas(producer.uid, producer.name).output
-        current = paths.require_confined(candidate, paths.cas_root)
-    except ValueError as error:
-        raise ValueError(message) from error
-    if current == output or not current.is_relative_to(output):
-        raise ValueError(message)
-    return current
+def canonical_artifact(
+    paths: BuildPaths, upstream: Graph, producer_name: str, relative_path: str
+) -> tuple[Node, Path]:
+    producer = upstream.node(producer_name)
+    return producer, paths.cas(producer.uid).output / relative_path
 
 
 def require_ancestor(upstream: Graph, producer: Node, ancestor: str, message: str) -> None:
@@ -97,22 +98,6 @@ def project_path(repository: Path, value: str, project: Path) -> str:
         raise ValueError(f"unsupported project input in {project}: {value}")
     path = repository / value.removeprefix(_PROJECT_PREFIX).replace("\\", "/")
     return path.resolve(strict=True).relative_to(repository).as_posix()
-
-
-def project_inputs(repository: Path, project: Path) -> tuple[str, ...]:
-    inputs = list(COMMON_PROJECT_INPUTS) + [project.relative_to(repository).as_posix()]
-    for item in ET.parse(project).getroot().iter(f"{_MSBUILD_NS}ModuleDefinitionFile"):
-        if item.text:
-            inputs.append(project_path(repository, item.text.strip(), project))
-    return tuple(dict.fromkeys(inputs))
-
-
-def project_sources(repository: Path, project: Path) -> tuple[Path, ...]:
-    return tuple(
-        repository / project_path(repository, item.get("Include", ""), project)
-        for item in ET.parse(project).getroot().iter(f"{_MSBUILD_NS}ClCompile")
-        if item.get("Include")
-    )
 
 
 def tool_environment(toolchain: object, *, prepend_path: Path | None = None,
@@ -162,16 +147,18 @@ def restore_node(repository: Path, toolchain: object, factory: NodeFactory, arch
 
 
 def python_action(factory: NodeFactory, name: str, module: str, arguments: tuple[str, ...],
-                  dependencies: tuple[Node, ...], *, pool: str,
-                  environment: tuple[tuple[str, str], ...] = (), files: Mapping[str, bytes] | None = None,
-                  identity: Mapping[str, str] | None = None,
-                  config: Mapping[str, str] | None = None) -> Node:
+                   dependencies: tuple[Node, ...], *, pool: str,
+                   environment: tuple[tuple[str, str], ...] = (), files: Mapping[str, bytes] | None = None,
+                   identity: Mapping[str, str] | None = None,
+                   config: Mapping[str, str] | None = None,
+                   results: tuple[Result, ...] = ()) -> Node:
     executable = str(Path(sys.executable).resolve())
     source = BUILD_ROOT.joinpath(*module.split(".")).with_suffix(".py")
     return factory.make(
         "argv.json", name, pool, {"argv": (executable, "-m", module) + arguments},
         files={source.relative_to(BUILD_ROOT.parent).as_posix(): source.read_bytes()} | dict(files or {}),
         dependencies=dependencies,
+        results=results,
         identity=dict(identity or {}) | {"python": sys.version, "python_executable": executable},
         config={"action": arguments[0], "platform": "windows"} | dict(config or {}),
         environment=environment,

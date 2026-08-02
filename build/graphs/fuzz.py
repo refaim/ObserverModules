@@ -8,17 +8,15 @@ from pathlib import Path
 import re
 import xml.etree.ElementTree as ET
 
-from core.graph import Graph, Node
-from core.node import NodeFactory
+from core.graph import Graph, Node, Result
 from core.paths import BuildPaths
-from core.render import TemplateRenderer
 from core.toolchain import MsvcToolchain
 from graphs.analysis import (
     clang_dependency_discovery_slice,
     dependency_inputs,
     dependency_node_name,
 )
-from graphs.common import tool_environment
+from graphs.common import recipe_factory, tool_environment
 
 
 _BUILD_ROOT = Path(__file__).resolve().parents[1]
@@ -137,7 +135,7 @@ def _prior_corpora(
     paths, result = BuildPaths(repository), {}
     for target, artifact in indexed.items():
         node_name = f"run-fuzz-x64-{target}"
-        cas = paths.cas(artifact.producer_uid, node_name)
+        cas = paths.cas(artifact.producer_uid)
         corpus = paths.require_confined(cas.output / "corpus", paths.cas_root)
         if not (
             cas.entry.is_dir()
@@ -182,14 +180,13 @@ def fuzz_graph(
     root = repository.resolve(strict=True)
     prior = _prior_corpora(root, prior_corpora)
     runtime = _runtime(toolchain)
-    renderer = TemplateRenderer(_BUILD_ROOT / "templates")
     paths = BuildPaths(root)
     identity = dict(toolchain.identity) | {"llvm_runtime": str(runtime)}
-    factory = NodeFactory(renderer, root, identity, tool_environment(toolchain))
+    factory = recipe_factory(root, identity, tool_environment(toolchain))
 
     restore = discovery.node("restore-vcpkg-asan-x64")
     nodes, targets = list(discovery.nodes), []
-    restore_output = paths.cas(restore.uid, restore.name).output
+    restore_output = paths.cas(restore.uid).output
 
     for target in selected_targets:
         max_length = _TARGETS[target]
@@ -213,7 +210,7 @@ def fuzz_graph(
             config={"action": "build", "architecture": "x64", "target": target},
         )
         seed_dir, seed_files = _seed_files(root, target)
-        fuzzer = paths.cas(build.uid, build.name).output / executable_name
+        fuzzer = paths.cas(build.uid).output / executable_name
         replay = factory.make(
             "fuzz-replay.ps1",
             f"replay-fuzz-x64-{target}",
@@ -246,6 +243,20 @@ def fuzz_graph(
                 "max_length": max_length, "seconds": seconds, "prior_corpus": prior_path,
             },
             files=seed_files | prior_files, dependencies=(replay,),
+            results=(
+                Result(
+                    f"reports/fuzz/x64/{target}/status.txt",
+                    "fuzz", "text/plain", "status.txt",
+                ),
+                Result(
+                    f"reports/fuzz/x64/{target}/corpus",
+                    "corpus", "application/octet-stream", "corpus",
+                ),
+                Result(
+                    f"reports/fuzz/x64/{target}/artifacts",
+                    "evidence", "application/octet-stream", "artifacts",
+                ),
+            ),
             config={"action": "fuzz", "target": target, "max_length": str(max_length),
                     "seconds": str(seconds), "run_nonce": run_nonce,
                     "asan_options": _ASAN_OPTIONS, "prior_corpus_uid": prior_uid},
@@ -260,7 +271,7 @@ def fuzz_graph(
             f"fuzz-x64-{target}",
             "fuzz",
             {"pwsh": str(toolchain.pwsh),
-             "status": str(paths.cas(run.uid, run.name).output / "status.txt")},
+             "status": str(paths.cas(run.uid).output / "status.txt")},
             files={}, dependencies=(run,),
             config={"action": "fuzz-gate", "target": target},
         )

@@ -2,114 +2,108 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from collections.abc import Mapping
 from pathlib import Path
-import re
 
-from core.graph import Graph, Node
-from core.node import NodeFactory
+from core.graph import Graph, Node, Result
 from core.paths import BuildPaths
-from core.render import TemplateRenderer
-from graphs.common import BUILD_ROOT, extend_pools, produced_path, python_action, require_positive_integers, require_tool
+from graphs.common import BUILD_ROOT, canonical_artifact, extend_pools, python_action, recipe_factory, require_positive_integers, require_tool
 
 
 _ARCHITECTURES = {"x86", "x64", "arm64"}
-_MODULE = re.compile(r"[a-z0-9][a-z0-9._-]*\Z")
-
-
-@dataclass(frozen=True, slots=True)
-class BinaryArtifact:
-    architecture: str
-    module: str
-    producer: Node
-    path: Path
+_MODULES = ("renpy", "rpgmaker", "zanzarah")
 
 
 def audit_graph(
     repository: Path,
     upstream: Graph,
-    artifacts: Iterable[BinaryArtifact],
     *,
+    architectures: tuple[str, ...] = ("x64",),
+    include_leak_probe: bool = False,
     dumpbin: Path,
     dumpbin_identity: Mapping[str, str],
     binskim: Path,
     binskim_identity: Mapping[str, str],
     jobs: int = 2,
-    binskim_jobs: int = 1,
 ) -> Graph:
     """Compose independent release-binary audits over a validated upstream graph."""
 
-    require_positive_integers((jobs, binskim_jobs), "audit pool capacities must be positive integers")
+    require_positive_integers((jobs,), "audit pool capacities must be positive integers")
     root = repository.resolve(strict=True)
     paths = BuildPaths(root)
+    if (
+        not architectures
+        or len(architectures) != len(set(architectures))
+        or any(item not in _ARCHITECTURES for item in architectures)
+    ):
+        raise ValueError("audit architectures must be a unique non-empty supported set")
     dumpbin = require_tool(dumpbin, "dumpbin")
     binskim = require_tool(binskim, "BinSkim")
-    renderer = TemplateRenderer(BUILD_ROOT / "templates")
-    dump_factory = NodeFactory(renderer, root, dict(dumpbin_identity) | {"path": str(dumpbin)})
-    python_factory = NodeFactory(renderer, BUILD_ROOT, {})
+    dump_factory = recipe_factory(root, dict(dumpbin_identity) | {"path": str(dumpbin)})
+    python_factory = recipe_factory(BUILD_ROOT, {})
     audit_nodes: list[Node] = []
     targets: list[str] = []
-    seen: set[tuple[str, str]] = set()
+    modules = (("leak-probe",) if include_leak_probe else ()) + _MODULES
 
-    for artifact in sorted(tuple(artifacts), key=lambda item: (item.architecture, item.module)):
-        key = (artifact.architecture, artifact.module)
-        if key in seen:
-            raise ValueError(f"duplicate binary artifact: {key}")
-        seen.add(key)
-        if artifact.architecture not in _ARCHITECTURES or _MODULE.fullmatch(artifact.module) is None:
-            raise ValueError(f"invalid binary artifact identity: {key}")
-        binary = produced_path(
-            paths, upstream, artifact.producer, artifact.path,
-            f"binary artifact must be below its exact producer CAS: {artifact.path}",
-        )
-
-        dump_nodes = []
-        for mode in ("headers", "dependents", "exports"):
-            current = dump_factory.make(
-                "argv.json",
-                f"audit-dumpbin-{mode}-{artifact.architecture}-{artifact.module}",
-                "dumpbin",
-                {"argv": (str(dumpbin), f"/{mode}", str(binary))},
-                files={},
-                dependencies=(artifact.producer,),
-                config={"action": mode, "architecture": artifact.architecture, "module": artifact.module},
+    for architecture in sorted(architectures):
+        for module in modules:
+            producer, binary = canonical_artifact(
+                paths,
+                upstream,
+                f"build-{module}-{architecture}-release",
+                "leak-probe.exe" if module == "leak-probe" else f"{module}.so",
             )
-            dump_nodes.append(current)
-        pe_gate = python_action(
-            python_factory,
-            f"audit-pe-{artifact.architecture}-{artifact.module}",
-            "core.binary_audit",
-            (
-                "pe", artifact.architecture,
-                *(str(paths.cas(node.uid, node.name).log) for node in dump_nodes),
-            ),
-            tuple(dump_nodes),
-            pool="audit",
-        )
-        binskim_run = python_action(
-            python_factory,
-            f"audit-binskim-run-{artifact.architecture}-{artifact.module}",
-            "core.binary_audit",
-            ("run-binskim", str(binskim), str(binary)),
-            (artifact.producer,),
-            pool="binskim",
-            identity=dict(binskim_identity) | {"path": str(binskim)},
-            config={"action": "run-binskim", "architecture": artifact.architecture, "module": artifact.module},
-        )
-        report = paths.cas(binskim_run.uid, binskim_run.name).output / "binskim.sarif"
-        binskim_gate = python_action(
-            python_factory,
-            f"audit-binskim-{artifact.architecture}-{artifact.module}",
-            "core.binary_audit",
-            ("binskim", str(report)),
-            (binskim_run,),
-            pool="audit",
-        )
-        audit_nodes.extend((*dump_nodes, pe_gate, binskim_run, binskim_gate))
-        targets.extend((pe_gate.name, binskim_gate.name))
 
-    if not seen:
-        raise ValueError("audit graph requires at least one binary artifact")
-    pools = extend_pools(upstream, {"audit": jobs, "binskim": binskim_jobs, "dumpbin": jobs})
+            dump_nodes = []
+            for mode in ("headers", "dependents", "exports"):
+                current = dump_factory.make(
+                    "argv.json",
+                    f"audit-dumpbin-{mode}-{architecture}-{module}",
+                    "slot",
+                    {"argv": (str(dumpbin), f"/{mode}", str(binary))},
+                    files={},
+                    dependencies=(producer,),
+                    config={"action": mode, "architecture": architecture, "module": module},
+                )
+                dump_nodes.append(current)
+            pe_gate = python_action(
+                python_factory,
+                f"audit-pe-{architecture}-{module}",
+                "core.binary_audit",
+                (
+                    "pe", architecture,
+                    *(str(paths.cas(node.uid).log) for node in dump_nodes),
+                ),
+                tuple(dump_nodes),
+                pool="slot",
+            )
+            binskim_run = python_action(
+                python_factory,
+                f"audit-binskim-run-{architecture}-{module}",
+                "core.binary_audit",
+                ("run-binskim", str(binskim), str(binary)),
+                (producer,),
+                pool="slot",
+                identity=dict(binskim_identity) | {"path": str(binskim)},
+                config={"action": "run-binskim", "architecture": architecture, "module": module},
+                results=(Result(
+                    f"reports/sarif/{architecture}/binskim-{module}.sarif",
+                    "sarif",
+                    "application/sarif+json",
+                    "binskim.sarif",
+                ),),
+            )
+            report = paths.cas(binskim_run.uid).output / "binskim.sarif"
+            binskim_gate = python_action(
+                python_factory,
+                f"audit-binskim-{architecture}-{module}",
+                "core.binary_audit",
+                ("binskim", str(report)),
+                (binskim_run,),
+                pool="slot",
+            )
+            audit_nodes.extend((*dump_nodes, pe_gate, binskim_run, binskim_gate))
+            targets.extend((pe_gate.name, binskim_gate.name))
+
+    pools = extend_pools(upstream, {"slot": jobs})
     return Graph(upstream.nodes + tuple(audit_nodes), tuple(targets), pools)

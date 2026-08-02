@@ -5,11 +5,10 @@ on:
     branches: [master]
   pull_request:
     branches: [master]
-  workflow_dispatch:
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -19,26 +18,54 @@ env:
   VCPKG_DEFAULT_BINARY_CACHE: C:\vcpkg-binary-cache
 
 jobs:
-  verify:
-    name: Local verification graph
+  verification:
+    name: ${{ matrix.job }}
     runs-on: windows-2022
-    timeout-minutes: 60
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - job: source
+            arch: none
+          - job: x86
+            arch: x86
+          - job: x64
+            arch: x64
+          - job: arm64-cross
+            arch: arm64
+
     steps:
-      - uses: actions/checkout@v6
+      - name: Check out the repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v8
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
         with:
+          version: "0.12.1"
           enable-cache: true
           cache-dependency-glob: build/uv.lock
+          cache-suffix: ${{ matrix.job }}
+
+      - name: Identify the hosted runner image
+        id: runner-image
+        shell: pwsh
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:ImageOS) -or
+              [string]::IsNullOrWhiteSpace($env:ImageVersion)) {
+            throw 'GitHub runner image identity is unavailable.'
+          }
+          "identity=$($env:ImageOS)-$($env:ImageVersion)" | Add-Content -Path $env:GITHUB_OUTPUT
 
       - name: Cache vcpkg binaries
-        uses: actions/cache@v5
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
-          key: vcpkg-${{ runner.os }}-x64-${{ hashFiles('vcpkg.json', 'build/vcpkg/triplets/*.cmake') }}
+          key: vcpkg-${{ steps.runner-image.outputs.identity }}-${{ matrix.arch }}-${{ hashFiles('vcpkg.json', 'build/vcpkg/triplets/*.cmake') }}
 
-      - name: Prepare pinned Python environment
+      - name: Prepare the pinned Python environment
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path $env:VCPKG_DEFAULT_BINARY_CACHE | Out-Null
@@ -48,6 +75,11 @@ jobs:
         shell: pwsh
         run: |
           choco install cppcheck --version=2.19.0 --yes --no-progress
+          $cppcheck = 'C:\Program Files\Cppcheck\cppcheck.exe'
+          if (-not (Test-Path -LiteralPath $cppcheck -PathType Leaf)) {
+            throw "Cppcheck was not found after installation: $cppcheck"
+          }
+          (Split-Path -Parent $cppcheck) | Add-Content -Path $env:GITHUB_PATH
           Install-Module PSScriptAnalyzer -RequiredVersion 1.25.0 -Repository PSGallery -Scope CurrentUser -Force
           dotnet tool install --global Microsoft.CodeAnalysis.BinSkim --version 4.4.9.11
           (Join-Path $env:USERPROFILE '.dotnet\tools') | Add-Content -Path $env:GITHUB_PATH
@@ -77,10 +109,42 @@ jobs:
         shell: pwsh
         run: ./build.ps1 doctor
 
-      # CI repeats the local graph with shorter bounded dynamic-test parameters.
-      # Gate composition and scheduling belong exclusively to build.ps1.
-      - name: Run the local verification graph
+      - name: Verify repository sources
+        if: matrix.job == 'source'
         shell: pwsh
-        run: >-
-          ./build.ps1 verify -Arch x64 -TestShards 4 -FuzzSeconds 5
-          -LeakWarmup 1 -LeakIterations 1 -LeakWindows 3
+        run: |
+          $evidence = Join-Path $env:RUNNER_TEMP 'evidence-source'
+          ./build.ps1 verify-source -ExportDir $evidence
+
+      - name: Verify one architecture
+        if: matrix.job != 'source'
+        shell: pwsh
+        run: |
+          $evidence = Join-Path $env:RUNNER_TEMP 'evidence-${{ matrix.job }}'
+          $fuzzSeconds = if ('${{ github.event_name }}' -eq 'pull_request') { 5 } else { 60 }
+          $leakWarmup = if ('${{ github.event_name }}' -eq 'pull_request') { 1 } else { 8 }
+          $leakIterations = if ('${{ github.event_name }}' -eq 'pull_request') { 1 } else { 100 }
+          ./build.ps1 verify-arch -Arch '${{ matrix.arch }}' -ExportDir $evidence `
+            -TestShards 4 -FuzzSeconds $fuzzSeconds -LeakWarmup $leakWarmup `
+            -LeakIterations $leakIterations -LeakWindows 3
+
+      - name: Upload verification evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: evidence-${{ matrix.job }}
+          path: |
+            ${{ runner.temp }}/evidence-${{ matrix.job }}/manifest.json
+            ${{ runner.temp }}/evidence-${{ matrix.job }}/reports
+            ${{ runner.temp }}/evidence-${{ matrix.job }}/logs
+          if-no-files-found: error
+          retention-days: ${{ github.event_name == 'pull_request' && 7 || 30 }}
+
+      - name: Upload master packages and symbols
+        if: success() && github.event_name == 'push' && matrix.job != 'source'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: packages-${{ matrix.job }}
+          path: ${{ runner.temp }}/evidence-${{ matrix.job }}/packages
+          if-no-files-found: error
+          retention-days: 30
