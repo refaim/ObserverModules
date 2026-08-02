@@ -95,9 +95,20 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertNotIn("dotnet tool install --global Microsoft.CodeAnalysis.BinSkim", workflow)
         self.assertIn("$env:GITHUB_PATH", workflow)
         self.assertIn("if: matrix.job == 'x64'", workflow)
-        self.assertIn("https://go.microsoft.com/fwlink/?linkid=2311805", workflow)
+        self.assertIn(
+            "https://download.microsoft.com/download/e119c04b-71aa-4067-ac3c-360c2e13d209/"
+            "windowssdk/Installers/X64%20Debuggers%20And%20Tools-x64_en-us.msi",
+            workflow,
+        )
+        self.assertIn("354173D844D5C061050EE2638AA94FAFB4835AC3DE836E220F6A74A992849A3B", workflow)
+        self.assertIn(
+            '$process = Start-Process -FilePath "$env:SystemRoot\\System32\\msiexec.exe"',
+            workflow,
+        )
+        self.assertNotIn("'/layout'", workflow)
+        self.assertNotIn("'/installpath'", workflow)
         self.assertIn("'10.0.19041.'", workflow)
-        self.assertIn("'Debuggers\\x64\\gflags.exe'", workflow)
+        self.assertIn("$gflags = Join-Path $debuggers 'gflags.exe'", workflow)
         self.assertIn('"OBSERVER_UMDH=$umdh" | Add-Content -Path $env:GITHUB_ENV', workflow)
 
         for duplicated_gate in (

@@ -139,22 +139,27 @@ jobs:
         shell: pwsh
         run: |
           $root = Join-Path $env:RUNNER_TEMP 'winsdk-19041'
-          $installer = Join-Path $env:RUNNER_TEMP 'winsdksetup-19041.exe'
-          Invoke-WebRequest -Uri 'https://go.microsoft.com/fwlink/?linkid=2311805' -OutFile $installer
-          $signature = Get-AuthenticodeSignature -LiteralPath $installer
+          $extract = Join-Path $root 'extracted'
+          $msi = Join-Path $root 'debuggers-x64.msi'
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+          Invoke-WebRequest -Uri 'https://download.microsoft.com/download/e119c04b-71aa-4067-ac3c-360c2e13d209/windowssdk/Installers/X64%20Debuggers%20And%20Tools-x64_en-us.msi' -OutFile $msi
+          $expected = '354173D844D5C061050EE2638AA94FAFB4835AC3DE836E220F6A74A992849A3B'
+          if ((Get-FileHash -LiteralPath $msi -Algorithm SHA256).Hash -ne $expected) {
+            throw 'Windows 10 Debugging Tools payload hash validation failed.'
+          }
+          $signature = Get-AuthenticodeSignature -LiteralPath $msi
           if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'Microsoft') {
-            throw "Windows 10 SDK installer signature validation failed: $($signature.Status)"
+            throw "Windows 10 Debugging Tools payload signature validation failed: $($signature.Status)"
           }
-          $process = Start-Process -FilePath $installer -ArgumentList @(
-            '/features', 'OptionId.WindowsDesktopDebuggers',
-            '/installpath', $root,
-            '/quiet', '/norestart', '/ceip', 'off'
-          ) -Wait -PassThru
-          if ($process.ExitCode -notin @(0, 3010)) {
-            throw "Windows 10 Debugging Tools installation failed with exit code $($process.ExitCode)."
+          $arguments = @('/a', ('`"' + $msi + '`"'), '/qn', '/norestart', ('TARGETDIR=`"' + $extract + '`"'))
+          $process = Start-Process -FilePath "$env:SystemRoot\System32\msiexec.exe" `
+            -ArgumentList $arguments -Wait -PassThru
+          if ($process.ExitCode -ne 0) {
+            throw "Windows 10 Debugging Tools extraction failed with exit code $($process.ExitCode)."
           }
-          $umdh = Join-Path $root 'Debuggers\x64\umdh.exe'
-          $gflags = Join-Path $root 'Debuggers\x64\gflags.exe'
+          $debuggers = Join-Path $extract 'Windows Kits\10\Debuggers\x64'
+          $umdh = Join-Path $debuggers 'umdh.exe'
+          $gflags = Join-Path $debuggers 'gflags.exe'
           if (-not (Test-Path -LiteralPath $umdh -PathType Leaf)) {
             throw "Windows 10 UMDH was not found after setup: $umdh"
           }
