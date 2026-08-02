@@ -160,9 +160,13 @@ def _enable_stack_traces(gflags: Path, image: str) -> bool:
     if current.returncode:
         raise LeakError(f"GFlags query failed ({current.returncode}): {current.stdout}")
     match = re.search(r"are:\s*([0-9A-Fa-f]+)\s*$", current.stdout)
-    if match is None:
+    if current.stdout.startswith("No Registry Settings for "):
+        flags = 0
+    elif match is not None:
+        flags = int(match.group(1), 16)
+    else:
         raise LeakError(f"GFlags returned an unrecognized setting: {current.stdout}")
-    if int(match.group(1), 16) & 0x1000:
+    if flags & 0x1000:
         return False
     try:
         _change_stack_traces(gflags, image, True)

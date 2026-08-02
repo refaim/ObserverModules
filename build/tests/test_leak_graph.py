@@ -544,6 +544,11 @@ class LeakWorkerTests(unittest.TestCase):
 
             gflags = root / "gflags.exe"
             gflags.touch()
+            absent = mock.Mock(returncode=0, stdout="No Registry Settings for probe.exe executable")
+            changed = mock.Mock(returncode=0, stdout="")
+            with mock.patch("core.leak.subprocess.run", side_effect=(absent, changed)):
+                self.assertTrue(leak._enable_stack_traces(gflags, "probe.exe"))
+
             for result, message in (
                 (mock.Mock(returncode=1, stdout="denied"), "query failed"),
                 (mock.Mock(returncode=0, stdout="unexpected"), "unrecognized"),
