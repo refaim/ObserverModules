@@ -9,9 +9,8 @@
 
 namespace archive
 {
-    archive::archive(std::unique_ptr<extractor::extractor> extractor)
+    archive::archive(std::unique_ptr<extractor::extractor> extractor) : extractor_(std::move(extractor))
     {
-        extractor_ = std::move(extractor);
     }
 
     bool starts_with_bytes(std::span<const std::byte> data, std::span<const std::byte> signature) noexcept
@@ -50,7 +49,7 @@ namespace archive
             throw read_error();
         }
 
-        for (const auto &file: files_) {
+        for (const auto &file : files_) {
             std::ranges::replace(file->path, '/', '\\');
         }
     }
@@ -73,46 +72,42 @@ namespace archive
         }
         output.exceptions(std::ofstream::failbit | std::ofstream::badbit);
 
-        constexpr int64_t buffer_size = 128 * 1024;
+        constexpr int64_t buffer_size = 128LL * 1024;
         std::vector<char> buffer(buffer_size);
 
-        if (!file.header.empty()) {
-            output.write(file.header.data(), std::ssize(file.header));
-        }
-
         try {
-            stream_->seekg(file.offset);
-        } catch (std::ios_base::failure &) {
-            throw read_error();
-        }
-
-        uint32_t magic = file.magic;
-        int64_t bytes_left = file.compressed_body_size_in_bytes;
-        while (bytes_left > 0) {
-            const auto chunk_size = static_cast<std::streamsize>(std::min(bytes_left, buffer_size));
+            if (!file.header.empty()) {
+                output.write(file.header.data(), std::ssize(file.header));
+            }
 
             try {
-                stream_->read(buffer.data(), chunk_size);
+                stream_->seekg(file.offset);
             } catch (std::ios_base::failure &) {
                 throw read_error();
             }
 
-            buffer.resize(static_cast<size_t>(chunk_size));
-            magic = extractor_->decrypt(magic, buffer);
+            uint32_t magic = file.magic;
+            int64_t bytes_left = file.compressed_body_size_in_bytes;
+            while (bytes_left > 0) {
+                const auto chunk_size = static_cast<std::streamsize>(std::min(bytes_left, buffer_size));
 
-            try {
-                output.write(buffer.data(), buffer.size());
-            } catch (std::ios_base::failure &) {
-                throw write_error();
-            }
+                try {
+                    stream_->read(buffer.data(), chunk_size);
+                } catch (std::ios_base::failure &) {
+                    throw read_error();
+                }
 
-            bytes_left -= chunk_size;
+                buffer.resize(static_cast<size_t>(chunk_size));
+                magic = extractor_->decrypt(magic, buffer);
+                output.write(buffer.data(), static_cast<std::streamsize>(buffer.size()));
 
-            try {
+                bytes_left -= chunk_size;
                 report_progress(chunk_size);
-            } catch (user_interrupt &) {
-                return;
             }
+
+            output.close();
+        } catch (std::ios_base::failure &) {
+            throw write_error();
         }
     }
-}
+} // namespace archive

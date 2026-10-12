@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="Current" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <!-- clang resolves compiler-rt relative to its own binary, so an x64 clang-cl targeting i686
+       finds no 32-bit libFuzzer or ASan archive of its own. The caller supplies LLVMRuntimeDir from
+       the toolset that owns the architecture and every archive below is named explicitly. -->
+  <PropertyGroup>
+    <ObserverFuzzRuntimeSuffix Condition="'$(Configuration)' == 'Fuzz' And '$(Platform)' == 'Win32'">i386</ObserverFuzzRuntimeSuffix>
+    <ObserverFuzzRuntimeSuffix Condition="'$(Configuration)' == 'Fuzz' And '$(Platform)' == 'x64'">x86_64</ObserverFuzzRuntimeSuffix>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <!-- An i386 clang-cl lays the ASan-instrumented frame out through a dynamic alloca, and the
+         resulting frame confuses the sanitizer while the fuzz harness tears its std::istringstream
+         down. To reproduce: drop this option and replay
+         src/fuzz/corpus/rpgmaker/declared-name-overflow (or the zanzarah
+         declared-entry-count-overflow seed) through Fuzz|Win32. It reports a spurious
+         AddressSanitizer finding under ~basic_istringstream at src/fuzz/archive.cpp:51 - the exact
+         diagnostic tracks the frame layout, seen both as an access violation through
+         ios_base::_Callfns and as a heap-buffer-overflow in _Adjust_manually_vector_aligned. The
+         pickle and renpy targets replay clean either way, so the recipe is target-specific. The
+         blunter -asan-stack=0 clears the finding too, which is what identifies it as a stack layout
+         artefact rather than a masked heap bug; only the option below also keeps
+         stack-buffer-overflow detection. x64 is unaffected. -->
+    <ClCompile>
+      <AdditionalOptions Condition="'$(Configuration)' == 'Fuzz' And '$(Platform)' == 'Win32'">/clang:-mllvm /clang:-asan-stack-dynamic-alloca=0 %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem>
+      <AdditionalDependencies>$(LLVMRuntimeDir)\clang_rt.asan-$(ObserverFuzzRuntimeSuffix).lib;$(LLVMRuntimeDir)\clang_rt.asan_cxx-$(ObserverFuzzRuntimeSuffix).lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalOptions>/WHOLEARCHIVE:"$(LLVMRuntimeDir)\clang_rt.fuzzer-$(ObserverFuzzRuntimeSuffix).lib" /WHOLEARCHIVE:"$(LLVMRuntimeDir)\clang_rt.asan-$(ObserverFuzzRuntimeSuffix).lib" /WHOLEARCHIVE:"$(LLVMRuntimeDir)\clang_rt.asan_cxx-$(ObserverFuzzRuntimeSuffix).lib" /INFERASANLIBS:NO %(AdditionalOptions)</AdditionalOptions>
+    </Link>
+  </ItemDefinitionGroup>
+  <Target Name="ValidateFuzzConfiguration" BeforeTargets="PrepareForBuild">
+    <Error Condition="'$(ObserverCompileAnalysis)' != 'true' And '$(ObserverFuzzRuntimeSuffix)' == ''"
+           Text="libFuzzer targets are supported only as Fuzz|Win32 and Fuzz|x64 executables." />
+    <Error Condition="'$(ObserverCompileAnalysis)' != 'true' And '$(LLVMRuntimeDir)' == ''"
+           Text="libFuzzer links the LLVM runtime archives and requires LLVMRuntimeDir; build through build.ps1 fuzz." />
+  </Target>
+</Project>

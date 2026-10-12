@@ -4,72 +4,72 @@
 
 using namespace test;
 
-TEST_CASE("renpy: rpa20_binary_hearts")
+TEST_CASE("renpy: rpa20_binary_hearts", "[compatibility][.]")
 {
-    test_on("renpy\\rpa20_binary_hearts.rpa");
+    test_external_archive("renpy\\rpa20_binary_hearts.rpa");
 }
 
-TEST_CASE("renpy: rpa30_army_gals")
+TEST_CASE("renpy: rpa30_army_gals", "[compatibility][.]")
 {
-    test_on("renpy\\rpa30_army_gals.rpa");
+    test_external_archive("renpy\\rpa30_army_gals.rpa");
 }
 
-TEST_CASE("renpy: rpa30_catch_canvas")
+TEST_CASE("renpy: rpa30_catch_canvas", "[compatibility][.]")
 {
-    test_on("renpy\\rpa30_catch_canvas.rpa");
+    test_external_archive("renpy\\rpa30_catch_canvas.rpa");
 }
 
-TEST_CASE("renpy: rpa30_crimson_gray")
+TEST_CASE("renpy: rpa30_crimson_gray", "[compatibility][.]")
 {
-    test_on("renpy\\rpa30_crimson_gray.rpa");
+    test_external_archive("renpy\\rpa30_crimson_gray.rpa");
 }
 
-TEST_CASE("renpy: rpa30_crimson_gray_dusk_and_down")
+TEST_CASE("renpy: rpa30_crimson_gray_dusk_and_down", "[compatibility][.]")
 {
-    test_on("renpy\\rpa30_crimson_gray_dusk_and_down.rpa");
+    test_external_archive("renpy\\rpa30_crimson_gray_dusk_and_down.rpa");
 }
 
-TEST_CASE("renpy: rpa30_daydream")
+TEST_CASE("renpy: rpa30_daydream", "[compatibility][.]")
 {
-    test_on("renpy\\rpa30_daydream.rpa");
+    test_external_archive("renpy\\rpa30_daydream.rpa");
 }
 
-TEST_CASE("renpy: rpa30_doki_doki_high_school_love_time")
+TEST_CASE("renpy: rpa30_doki_doki_high_school_love_time", "[compatibility][.]")
 {
-    test_on("renpy\\rpa30_doki_doki_high_school_love_time.rpa");
+    test_external_archive("renpy\\rpa30_doki_doki_high_school_love_time.rpa");
 }
 
-TEST_CASE("renpy: rpa30_dont_take_this_risk")
+TEST_CASE("renpy: rpa30_dont_take_this_risk", "[compatibility][.]")
 {
-    test_on("renpy\\rpa30_dont_take_this_risk.rpa");
+    test_external_archive("renpy\\rpa30_dont_take_this_risk.rpa");
 }
 
-TEST_CASE("renpy: rpa30_exiles")
+TEST_CASE("renpy: rpa30_exiles", "[compatibility][.]")
 {
-    test_on("renpy\\rpa30_exiles.rpa");
+    test_external_archive("renpy\\rpa30_exiles.rpa");
 }
 
-TEST_CASE("renpy: rpa30_forest")
+TEST_CASE("renpy: rpa30_forest", "[compatibility][.]")
 {
-    test_on("renpy\\rpa30_forest.rpa");
+    test_external_archive("renpy\\rpa30_forest.rpa");
 }
 
-TEST_CASE("renpy: rpa30_lucy_got_problems")
+TEST_CASE("renpy: rpa30_lucy_got_problems", "[compatibility][.]")
 {
-    test_on("renpy\\rpa30_lucy_got_problems.rpa");
+    test_external_archive("renpy\\rpa30_lucy_got_problems.rpa");
 }
 
-TEST_CASE("renpy: rpa30_national_park_girls")
+TEST_CASE("renpy: rpa30_national_park_girls", "[compatibility][.]")
 {
-    test_on("renpy\\rpa30_national_park_girls.rpa");
+    test_external_archive("renpy\\rpa30_national_park_girls.rpa");
 }
 
-TEST_CASE("renpy: rpa30_resort")
+TEST_CASE("renpy: rpa30_resort", "[compatibility][.]")
 {
-    test_on("renpy\\rpa30_resort.rpa");
+    test_external_archive("renpy\\rpa30_resort.rpa");
 }
 
-TEST_CASE("renpy: rpa30_the_flower_shop")
+TEST_CASE("renpy: rpa30_the_flower_shop", "[compatibility][.]")
 {
-    test_on("renpy\\rpa30_the_flower_shop.rpa");
+    test_external_archive("renpy\\rpa30_the_flower_shop.rpa");
 }

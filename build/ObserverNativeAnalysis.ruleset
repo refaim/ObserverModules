@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RuleSet Name="Observer native analysis gate"
+         Description="Treat every enabled Microsoft Native Recommended diagnostic as a build error."
+         ToolsVersion="17.0">
+  <Include Path="NativeRecommendedRules.ruleset" Action="Error" />
+</RuleSet>

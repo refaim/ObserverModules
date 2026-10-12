@@ -39,14 +39,32 @@ specific files as needed without having to unpack the entire archive.
 
 ### Module Installation
 
-1. Download the [latest release](https://github.com/refaim/ObserverModules/releases/latest) of the module you're
-   interested in
+1. Open the release listing for the module you want (see [Module downloads](#module-downloads)) and unpack the
+   published archive for your architecture
 2. Note that the archive contains an observer_user.ini file. If you're installing multiple modules or already have this
    file in your Observer modules folder, you'll need to manually merge these ini files to ensure all modules work
    correctly
 3. Extract the contents of the archive to the `%FARHOME%\Plugins\Observer\modules\` directory (where `%FARHOME%` is the
    folder with your FAR Manager installation)
 4. Restart FAR Manager for the changes to take effect
+
+### Module downloads
+
+Each module owns its version in `src/modules/<module>/VERSION`, its own `renpy/vX.Y.Z`, `rpgmaker/vX.Y.Z` or
+`zanzarah/vX.Y.Z` release lineage, and its own release listing. The declared versions below are what the current
+sources build; each module's listing shows the releases that are actually published, and every published archive names
+the module, its version and the target architecture:
+
+| Module | Declared version | Release listing | ChangeLog |
+|--------|------------------|-----------------|-----------|
+| Ren'Py | 3.1.0 | [renpy releases](https://github.com/refaim/ObserverModules/releases?q=renpy%2Fv) | [RU](src/modules/renpy/ChangeLog.ru.txt) [EN](src/modules/renpy/ChangeLog.en.txt) |
+| RPG Maker | 1.1.0 | [rpgmaker releases](https://github.com/refaim/ObserverModules/releases?q=rpgmaker%2Fv) | [RU](src/modules/rpgmaker/ChangeLog.ru.txt) [EN](src/modules/rpgmaker/ChangeLog.en.txt) |
+| Zanzarah | 2.1.0 | [zanzarah releases](https://github.com/refaim/ObserverModules/releases?q=zanzarah%2Fv) | [RU](src/modules/zanzarah/ChangeLog.ru.txt) [EN](src/modules/zanzarah/ChangeLog.en.txt) |
+
+Each module keeps two complete human-written histories, `ChangeLog.ru.txt` and `ChangeLog.en.txt`; the release body
+carries both languages' top entry for the released version, so the notes describe real behavior instead of a generated
+commit list. Every module archive carries the module DLL, its `observer_user.ini`, the two change logs and a generated
+`LICENSES.txt` (the project license plus only that module's dependency notices) at the archive root.
 
 ### Working with Archives
 
@@ -69,7 +87,6 @@ specific files as needed without having to unpack the entire archive.
 | [lazyhamster/Observer](https://github.com/lazyhamster/Observer) | [LGPL-3.0](licenses/Observer.txt)   |
 | [Cyan4973/xxHash](https://github.com/Cyan4973/xxHash)           | [BSD-2-Clause](licenses/xxHash.txt) |
 | [zlib](https://zlib.net)                                        | [zlib](licenses/zlib.txt)           |
-| [mateidavid/zstr](https://github.com/mateidavid/zstr)           | [MIT](licenses/zstr.txt)            |
 
 ## Sources of inspiration
 
@@ -78,15 +95,30 @@ specific files as needed without having to unpack the entire archive.
 | [luxrck/rgssad](https://github.com/luxrck/rgssad)                     | [MIT](licenses/rgssad.txt)       |
 | [birkenfeld/serde-pickle](https://github.com/birkenfeld/serde-pickle) | [MIT](licenses/serde-pickle.txt) |
 | [Shizmob/rpatool](https://github.com/Shizmob/rpatool)                 | [WTFPL](licenses/rpatool.txt)    |
-| [zanzapak](https://aluigi.altervista.org/papers.htm#others-file)      | [GPL-3.0](licenses/zanzapak.txt) |
+| [zanzapak](https://aluigi.altervista.org/papers.htm#others-file)      | [GPL-2.0-or-later](licenses/zanzapak.txt) |
+| [pg83/ix](https://github.com/pg83/ix/tree/66726a904152246fbef8b27e26e878840f6d7fb7) | [MIT](licenses/IX.txt) |
 
 ## Building from Source
 
 ### Prerequisites
 
-- **Visual Studio 2017** compiler
-- **CLion** and/or **CMake** (version 3.31+)
-- **vcpkg**
+- Visual Studio Build Tools 2022 with the v143 MSVC tools for x86/x64 and ARM64, Spectre-mitigated libraries, and a
+  Windows 11 SDK
+- PowerShell 7.4 or newer
+- [uv](https://docs.astral.sh/uv/) for the exact-pinned Python build-driver environment
+- vcpkg available on `PATH` or through `VCPKG_ROOT`
 
-You can open the included CLion project directly and build through the IDE or use CMake manually to generate the build
-files, then compile using the Visual Studio compiler.
+No IDE, Visual Studio developer prompt, global vcpkg integration, or repository-level CMake generation is required.
+From a normal Windows console:
+
+```powershell
+uv sync --project build --frozen
+.\build.ps1 doctor
+.\build.ps1 build -Arch all -Config Release
+.\build.ps1 test -Arch x86,x64 -Config Debug
+.\build.ps1 package -Arch all
+```
+
+The build restores pinned static dependencies and produces self-contained `/MT` modules for x86, x64, and ARM64.
+See [the build-system documentation](docs/build-system.md) for analysis, coverage, sanitizer, fuzzing, binary-audit, and
+packaging commands.

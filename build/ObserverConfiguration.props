@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup Label="Configuration">
+    <!-- The repository imports vcpkg explicitly; never depend on per-user global integration. -->
+    <VCPkgLocalAppDataDisabled>true</VCPkgLocalAppDataDisabled>
+    <ConfigurationType>$(ObserverConfigurationType)</ConfigurationType>
+    <UseDebugLibraries Condition="'$(Configuration)' != 'Release' And '$(Configuration)' != 'ASan' And '$(Configuration)' != 'Fuzz' And '$(Configuration)' != 'UBSan'">true</UseDebugLibraries>
+    <UseDebugLibraries Condition="'$(Configuration)' == 'Release' Or '$(Configuration)' == 'ASan' Or '$(Configuration)' == 'Fuzz' Or '$(Configuration)' == 'UBSan'">false</UseDebugLibraries>
+    <PlatformToolset Condition="'$(Configuration)' != 'Coverage' And '$(Configuration)' != 'Fuzz' And '$(Configuration)' != 'UBSan'">v143</PlatformToolset>
+    <PlatformToolset Condition="'$(Configuration)' == 'Coverage' Or '$(Configuration)' == 'Fuzz' Or '$(Configuration)' == 'UBSan'">ClangCL</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+    <WholeProgramOptimization Condition="'$(Configuration)' == 'Release'">true</WholeProgramOptimization>
+    <SpectreMitigation Condition="'$(Configuration)' == 'Release'">Spectre</SpectreMitigation>
+  </PropertyGroup>
+</Project>
