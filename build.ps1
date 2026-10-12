@@ -2,7 +2,7 @@
 
 [CmdletBinding(PositionalBinding = $false)]
 param(
-    # PowerShell parses an unquoted `x86,x64,arm64` in argument mode as an array literal. Collect the
+    # PowerShell parses an unquoted `x86,x64` in argument mode as an array literal. Collect the
     # command line as written so that splatting cannot expand one written value into several driver
     # arguments, which is how every documented multi-value example used to fail.
     [Parameter(ValueFromRemainingArguments = $true)]

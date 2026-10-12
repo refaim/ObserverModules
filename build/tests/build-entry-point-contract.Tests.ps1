@@ -3,7 +3,7 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-# PowerShell parses an unquoted `x86,x64,arm64` in argument mode as an array literal, so an entry
+# PowerShell parses an unquoted `x86,x64` in argument mode as an array literal, so an entry
 # point that forwards `@args` verbatim splats it into three separate driver arguments and every
 # documented multi-value example fails with `unrecognized arguments`. These cases pin the forwarding
 # contract of the root launcher: the driver must receive exactly one argument per written argument.
@@ -86,11 +86,11 @@ Assert-CommandLine -CommandLine 'help' -Expected @('help')
 
 Assert-CommandLine -CommandLine 'doctor' -Expected @('doctor')
 
-Assert-CommandLine -CommandLine 'build -Arch x86,x64,arm64 -Config Release' `
-    -Expected @('build', '-Arch', 'x86,x64,arm64', '-Config', 'Release')
+Assert-CommandLine -CommandLine 'build -Arch x86,x64 -Config Release' `
+    -Expected @('build', '-Arch', 'x86,x64', '-Config', 'Release')
 
-Assert-CommandLine -CommandLine "build -Arch 'x86,x64,arm64' -Config Release" `
-    -Expected @('build', '-Arch', 'x86,x64,arm64', '-Config', 'Release')
+Assert-CommandLine -CommandLine "build -Arch 'x86,x64' -Config Release" `
+    -Expected @('build', '-Arch', 'x86,x64', '-Config', 'Release')
 
 Assert-CommandLine -CommandLine 'test -Arch x86,x64 -Config Debug' `
     -Expected @('test', '-Arch', 'x86,x64', '-Config', 'Debug')
@@ -124,8 +124,8 @@ Assert-CommandLine -CommandLine ("verify-arch -Arch x64 -ExportDir 'C:\evidence 
 
 # build.cmd routes through `pwsh -File`, where every argument already arrives as one string.
 Assert-ForwardedArgv -ProcessArgument (@('-File', $entryPoint) +
-    @('build', '-Arch', 'x86,x64,arm64', '-Config', 'Release')) `
+    @('build', '-Arch', 'x86,x64', '-Config', 'Release')) `
     -Description 'build.cmd shim' `
-    -Expected @('build', '-Arch', 'x86,x64,arm64', '-Config', 'Release')
+    -Expected @('build', '-Arch', 'x86,x64', '-Config', 'Release')
 
 Write-Host '[OK] The root entry point forwards every documented argument form unchanged.'

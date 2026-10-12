@@ -144,10 +144,10 @@ def release_report(module: str, version: str, *, previous: object) -> dict[str, 
 
 class MergeTests(unittest.TestCase):
     def test_architecture_manifests_union_archives_and_agree_on_modules(self) -> None:
-        merged = merge_manifests((manifest("x64"), manifest("arm64"), manifest("x86")))
+        merged = merge_manifests((manifest("x64"), manifest("x86")))
 
         self.assertEqual(merged["modules"], manifest()["modules"])
-        self.assertEqual(len(merged["archives"]), 9)
+        self.assertEqual(len(merged["archives"]), 6)
         self.assertEqual(
             [entry["name"] for entry in merged["archives"]],
             sorted(entry["name"] for entry in merged["archives"]),
@@ -155,7 +155,7 @@ class MergeTests(unittest.TestCase):
 
     def test_disagreeing_or_colliding_release_manifests_are_rejected(self) -> None:
         with self.assertRaisesRegex(ReleaseError, "disagree about renpy"):
-            merge_manifests((manifest("x64"), manifest("arm64", renpy=("3.2.0", identity("renpy")))))
+            merge_manifests((manifest("x64"), manifest("x86", renpy=("3.2.0", identity("renpy")))))
         with self.assertRaisesRegex(ReleaseError, "duplicate release archive"):
             merge_manifests((manifest("x64"), manifest("x64")))
         with self.assertRaisesRegex(ReleaseError, "at least one release manifest"):
@@ -331,7 +331,7 @@ class ReleaseCommandTests(unittest.TestCase):
             root = Path(temporary)
             current = [
                 str(write(root, f"packages-{architecture}.json", manifest(architecture)))
-                for architecture in ("x64", "arm64")
+                for architecture in ("x86", "x64")
             ]
             previous = str(write(root, "previous.json", manifest("x64")))
 
@@ -796,7 +796,6 @@ class VerifyAssetsTests(unittest.TestCase):
 
             self.assertIsNone(verify_assets(assets, archives))
 
-            (assets / "renpy-3.1.0-arm64.zip").write_bytes(asset_bytes("renpy-3.1.0-arm64.zip"))
             (assets / "renpy-3.0.0-x86.zip").write_bytes(b"foreign")
             with self.assertRaisesRegex(ReleaseError, "do not match the module archives"):
                 verify_assets(assets, archives)
@@ -815,8 +814,9 @@ class ExpectedArchiveTests(unittest.TestCase):
         expected = expected_archives("renpy", "3.1.0")
 
         self.assertEqual(len(expected), len(ARCHITECTURES) + 1)
-        self.assertIn(module_archive("renpy", "3.1.0", "arm64"), expected)
         self.assertIn(module_archive("renpy", "3.1.0", "x86"), expected)
+        self.assertIn(module_archive("renpy", "3.1.0", "x64"), expected)
+        self.assertNotIn(module_archive("renpy", "3.1.0", "arm64"), expected)
         self.assertEqual(expected[-1], symbol_archive("renpy", "3.1.0"))
 
 
@@ -833,12 +833,12 @@ class ModuleSymbolBundlesTests(unittest.TestCase):
             root = Path(temporary)
             path = self.entries(root, {
                 "x64/renpy.pdb": b"x64",
-                "arm64/renpy.pdb": b"arm64",
+                "x86/renpy.pdb": b"x86",
             })
 
             self.assertEqual(
                 release_module._symbol_bundle_entries(path, "renpy"),
-                {"x64": b"x64", "arm64": b"arm64"},
+                {"x64": b"x64", "x86": b"x86"},
             )
 
     def test_a_bundle_must_carry_at_least_one_known_architecture(self) -> None:
@@ -860,6 +860,10 @@ class ModuleSymbolBundlesTests(unittest.TestCase):
             foreign = self.entries(root, {"riscv64/renpy.pdb": b"x"})
             with self.assertRaisesRegex(ReleaseError, "must be <arch>/renpy.pdb"):
                 release_module._symbol_bundle_entries(foreign, "renpy")
+
+            unsupported = self.entries(root, {"arm64/renpy.pdb": b"x"})
+            with self.assertRaisesRegex(ReleaseError, "must be <arch>/renpy.pdb"):
+                release_module._symbol_bundle_entries(unsupported, "renpy")
 
             wrong_file = self.entries(root, {"x64/rpgmaker.pdb": b"x"})
             with self.assertRaisesRegex(ReleaseError, "must be <arch>/renpy.pdb"):
@@ -959,7 +963,7 @@ class ModuleReleaseTests(unittest.TestCase):
             "--repository", str(root), "--assets", str(assets), *extra,
         ))
 
-    def test_the_gate_assembles_the_final_symbol_bundle_and_four_assets(self) -> None:
+    def test_the_gate_assembles_the_final_symbol_bundle_and_three_assets(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = make_repository(Path(temporary))
             manifests, assets = self.ci_manifests(root)
@@ -980,7 +984,7 @@ class ModuleReleaseTests(unittest.TestCase):
             with zipfile.ZipFile(bundle) as archive:
                 self.assertEqual(
                     archive.namelist(),
-                    ["arm64/renpy.pdb", "x64/renpy.pdb", "x86/renpy.pdb"],
+                    ["x64/renpy.pdb", "x86/renpy.pdb"],
                 )
                 self.assertEqual(archive.read("x64/renpy.pdb"), bundle_payload("renpy", "x64"))
             report = json.loads((output / "release.json").read_text(encoding="utf-8"))
@@ -1024,29 +1028,29 @@ class ModuleReleaseTests(unittest.TestCase):
             with zipfile.ZipFile(assets / bundle_name) as archive:
                 self.assertEqual(
                     archive.namelist(),
-                    ["arm64/renpy.pdb", "x64/renpy.pdb", "x86/renpy.pdb"],
+                    ["x64/renpy.pdb", "x86/renpy.pdb"],
                 )
 
     def test_a_missing_architecture_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = make_repository(Path(temporary))
-            manifests, assets = self.ci_manifests(root, symbol_architectures=("x86", "x64"))
+            manifests, assets = self.ci_manifests(root, symbol_architectures=("x86",))
 
-            with self.assertRaisesRegex(ReleaseError, "x86, x64, arm64 symbol bundles"):
+            with self.assertRaisesRegex(ReleaseError, "x86, x64 symbol bundles"):
                 self.gate(root, "gate", "renpy", "renpy/v3.1.0", assets, *manifests)
 
     def test_repeated_symbol_bytes_across_architectures_are_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = make_repository(Path(temporary))
             manifests, assets = self.ci_manifests(root)
-            # Make arm64 ship the x64 bytes, so the architecture set is complete but repeated.
-            arm = root / "packages-arm64" / symbol_archive("renpy", "3.1.0")
-            write_bundle(arm, {"arm64/renpy.pdb": bundle_payload("renpy", "x64")})
-            document = json.loads(Path(manifests[2]).read_text(encoding="utf-8"))
+            # Make x64 ship the x86 bytes, so the architecture set is complete but repeated.
+            duplicate = root / "packages-x64" / symbol_archive("renpy", "3.1.0")
+            write_bundle(duplicate, {"x64/renpy.pdb": bundle_payload("renpy", "x86")})
+            document = json.loads(Path(manifests[1]).read_text(encoding="utf-8"))
             for entry in document["archives"]:
                 if entry["name"] == symbol_archive("renpy", "3.1.0"):
-                    entry["sha256"] = digest(arm)
-            Path(manifests[2]).write_text(json.dumps(document), encoding="utf-8")
+                    entry["sha256"] = digest(duplicate)
+            Path(manifests[1]).write_text(json.dumps(document), encoding="utf-8")
 
             with self.assertRaisesRegex(ReleaseError, "repeats symbol bytes"):
                 self.gate(root, "gate", "renpy", "renpy/v3.1.0", assets, *manifests)
@@ -1205,7 +1209,7 @@ class ModuleReleaseTests(unittest.TestCase):
             with zipfile.ZipFile(bundle) as archive:
                 self.assertEqual(
                     archive.namelist(),
-                    ["arm64/renpy.pdb", "x64/renpy.pdb", "x86/renpy.pdb"],
+                    ["x64/renpy.pdb", "x86/renpy.pdb"],
                 )
 
     def test_a_duplicate_architecture_across_manifests_is_rejected(self) -> None:
@@ -1367,9 +1371,9 @@ class ModuleReleaseTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = make_repository(Path(temporary))
             manifests, assets = self.ci_manifests(root, modules=("renpy",), prefix="packages")
-            # The arm64 manifest describes the full module set while the others describe one.
+            # The extra manifest describes the full module set while the others describe one.
             other, _ = self.ci_manifests(root, modules=MODULES, prefix="full")
-            manifests = [manifests[0], manifests[1], other[2]]
+            manifests = [manifests[0], other[0]]
 
             with self.assertRaisesRegex(ReleaseError, "describe different module sets"):
                 self.gate(root, "gate", "renpy", "renpy/v3.1.0", assets, *manifests)

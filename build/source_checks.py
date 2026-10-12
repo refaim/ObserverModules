@@ -34,7 +34,6 @@ _POWERSHELL_SUFFIXES = frozenset({".ps1", ".psm1"})
 _CPPCHECK = {
     "x86": ("win32W", "_M_IX86=600"),
     "x64": ("win64", "_M_X64=100"),
-    "arm64": ("win64", "_M_ARM64=1"),
 }
 # A fuzz project links the LLVM ASan/libFuzzer archives and has no ordinary entry point, so the
 # analyzer compiles its translation units with the compile-only target instead of rebuilding.

@@ -18,7 +18,6 @@ class AuditError(RuntimeError):
 _MACHINES = {
     "x86": r"14C machine \(x86\)",
     "x64": r"8664 machine \(x64\)",
-    "arm64": r"AA64 machine \(ARM64\)",
 }
 _ALLOWED_DLLS = {
     "advapi32.dll",

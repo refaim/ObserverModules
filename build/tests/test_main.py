@@ -32,7 +32,7 @@ _NATIVE_TOOLS = SimpleNamespace(msbuild=Path("msbuild.exe"), vcpkg=Path("vcpkg/v
 _TOOLCHAIN = SimpleNamespace(llvm_dir=Path("llvm"))
 _FULL_ROUTE = VerifyRoute(("x64",), ("x64",), ("x86", "x64"), ("x64",), ("x86", "x64"), ())
 _EMPTY_ROUTE = VerifyRoute(
-    (), (), (), (), (), (DeferredGate("tests", "arm64", "host cannot execute arm64 tests"),)
+    (), (), (), (), (), (DeferredGate("tests", "x64", "host cannot execute x64 tests"),)
 )
 
 
@@ -141,19 +141,25 @@ class DispatchTests(Harness):
 
         self.restore.reset_mock()
         self.invoke([
-            "restore", "-Repository", str(self.repo), "-Arch", "arm64,x86", "-RestoreFlavor", "all",
+            "restore", "-Repository", str(self.repo), "-Arch", "x86,x64", "-RestoreFlavor", "all",
         ])
         self.restore.assert_called_once_with(
-            self.repo, ("arm64", "x86"), tools=_NATIVE_TOOLS, runner=self.processes.native
+            self.repo, ("x86", "x64"), tools=_NATIVE_TOOLS, runner=self.processes.native
         )
-        self.assertEqual(self.processes.native.call_count, 1)
-        self.assertIn("unpackrat-x86-windows-static-asan", self.processes.native.call_args.args[0])
+        self.assertEqual(self.processes.native.call_count, 2)
+        self.assertIn(
+            "unpackrat-x86-windows-static-asan", self.processes.native.call_args_list[0].args[0]
+        )
+        self.assertIn(
+            "unpackrat-x64-windows-static-asan", self.processes.native.call_args_list[1].args[0]
+        )
 
         self.restore.reset_mock()
         self.processes.native.reset_mock()
-        self.invoke(["restore", "-Repository", str(self.repo), "-Arch", "arm64", "-RestoreFlavor", "asan"])
+        self.invoke(["restore", "-Repository", str(self.repo), "-Arch", "x64", "-RestoreFlavor", "asan"])
         self.restore.assert_not_called()
-        self.processes.native.assert_not_called()
+        self.assertEqual(self.processes.native.call_count, 1)
+        self.assertIn("unpackrat-x64-windows-static-asan", self.processes.native.call_args.args[0])
 
     def test_source_and_analysis_commands_use_their_own_output_tree(self) -> None:
         self.invoke(["source-checks", "-Repository", str(self.repo)])
@@ -497,18 +503,18 @@ class VerifyTests(Harness):
             stdout = StringIO()
             with redirect_stdout(stdout):
                 result = self.invoke([
-                    "verify-arch", "-Repository", str(self.repo), "-Arch", "arm64",
+                    "verify-arch", "-Repository", str(self.repo), "-Arch", "x64",
                     "-FuzzSeconds", "5", "-LeakWarmup", "1", "-LeakIterations", "1",
                     "-LeakWindows", "3", "-LeakToleranceBytes", "0",
                 ])
         self.assertEqual(result, 0)
         self.build.assert_any_call(
-            self.repo, ("arm64",), ("Debug", "Release"), jobs=None, tools=_NATIVE_TOOLS,
+            self.repo, ("x64",), ("Debug", "Release"), jobs=None, tools=_NATIVE_TOOLS,
             runner=self.processes.native,
         )
         self.test.assert_not_called()
         self.coverage.assert_not_called()
-        self.assertIn("[DEFERRED] tests-arm64: host cannot execute arm64 tests", stdout.getvalue())
+        self.assertIn("[DEFERRED] tests-x64: host cannot execute x64 tests", stdout.getvalue())
 
     def test_verify_includes_the_python_coverage_gate(self) -> None:
         with mock.patch.object(main, "verify_route", return_value=_FULL_ROUTE), \
@@ -548,7 +554,7 @@ class VerifyTests(Harness):
         with mock.patch.object(main, "verify_route", return_value=_EMPTY_ROUTE), \
              redirect_stdout(StringIO()), redirect_stderr(StringIO()):
             result = self.invoke([
-                "verify-arch", "-Repository", str(self.repo), "-Arch", "arm64",
+                "verify-arch", "-Repository", str(self.repo), "-Arch", "x64",
                 "-ExportDir", str(self.repo / "ev"),
             ])
         self.assertEqual(result, 1)
@@ -597,14 +603,13 @@ class VerifyTests(Harness):
         self.assertEqual(self.export.call_args.kwargs["packages"], ())
 
 
-class Arm64ExportRegressionTests(unittest.TestCase):
+class CrossBuildExportRegressionTests(unittest.TestCase):
     """A cross-built, non-runnable architecture must export a unique ``build-<arch>`` record.
 
-    This exercises the real result exporter (never a mock), because the CI failure was the
-    exporter rejecting a duplicated operation name: ``verify-arch -Arch arm64`` on an x64 host
-    recorded the cross-build as ``tests-arm64`` and then the routing deferral added a second
-    ``tests-arm64``.  The record must be named ``build-arm64`` instead, leaving ``tests-arm64``
-    to carry only the deferred verdict.
+    This exercises the real result exporter (never a mock), because the exporter rejects a
+    duplicated operation name: ``verify-arch -Arch x64`` on an x86 host records the cross-build
+    as ``build-x64`` and then the routing deferral adds ``tests-x64``, so the record must be named
+    ``build-x64`` to leave ``tests-x64`` carrying only the deferred verdict.
     """
 
     def setUp(self) -> None:
@@ -633,7 +638,7 @@ class Arm64ExportRegressionTests(unittest.TestCase):
             mock.patch.object(main.packaging_ops, "locate_packaging_tools", return_value="packaging-tools"),
             mock.patch.object(main.packaging_ops, "audit_binaries", self.audit),
             mock.patch.object(main.packaging_ops, "package", self.package),
-            mock.patch.object(main, "detect_host_architecture", return_value="x64"),
+            mock.patch.object(main, "detect_host_architecture", return_value="x86"),
             mock.patch.object(main, "_prioritize", return_value=None),
             mock.patch.object(main, "_restore_priority"),
             mock.patch.object(main, "_processes", return_value=self.processes),
@@ -642,12 +647,12 @@ class Arm64ExportRegressionTests(unittest.TestCase):
             patcher.start()
             self.addCleanup(patcher.stop)
 
-    def test_arm64_cross_build_exports_a_unique_build_record(self) -> None:
-        export = self.repo / "evidence-arm64"
+    def test_cross_build_exports_a_unique_build_record(self) -> None:
+        export = self.repo / "evidence-x64"
         stdout, stderr = StringIO(), StringIO()
         with redirect_stdout(stdout), redirect_stderr(stderr):
             result = main.main([
-                "verify-arch", "-Repository", str(self.repo), "-Arch", "arm64",
+                "verify-arch", "-Repository", str(self.repo), "-Arch", "x64",
                 "-ExportDir", str(export),
             ])
         self.assertEqual(result, 0, stderr.getvalue())
@@ -655,11 +660,14 @@ class Arm64ExportRegressionTests(unittest.TestCase):
         manifest = json.loads((export / "manifest.json").read_text(encoding="utf-8"))
         names = [item["name"] for item in manifest["operations"]]
         self.assertEqual(len(names), len(set(names)), names)
-        self.assertIn("build-arm64", manifest["passed"])
-        self.assertNotIn("tests-arm64", manifest["passed"])
+        self.assertIn("build-x64", manifest["passed"])
+        self.assertNotIn("tests-x64", manifest["passed"])
         self.assertEqual(
             [item["name"] for item in manifest["deferred"]],
-            ["tests-arm64", "package-runtime-arm64"],
+            [
+                "tests-x64", "package-runtime-x64", "coverage-x64", "asan-x64",
+                "ubsan-x64", "leaks-x64", "fuzz-x64",
+            ],
         )
         for name in ("source", "compiler-analysis", "audit", "package"):
             self.assertIn(name, manifest["passed"])
@@ -667,11 +675,11 @@ class Arm64ExportRegressionTests(unittest.TestCase):
         self.assertEqual(manifest["packages"], [])
 
         self.build.assert_called_once_with(
-            self.repo, ("arm64",), ("Debug", "Release"), jobs=None, tools=_NATIVE_TOOLS,
+            self.repo, ("x64",), ("Debug", "Release"), jobs=None, tools=_NATIVE_TOOLS,
             runner=self.processes.native,
         )
         self.test.assert_not_called()
-        self.assertIn("[DEFERRED] tests-arm64", stdout.getvalue())
+        self.assertIn("[DEFERRED] tests-x64", stdout.getvalue())
 
 
 class AuditDirectoryRegressionTests(unittest.TestCase):
@@ -680,8 +688,9 @@ class AuditDirectoryRegressionTests(unittest.TestCase):
     ``packaging_ops.audit_binaries`` fails closed unless its output root already exists, and the
     shared ``work`` tree is reset fresh per run, so the audit gate itself must create
     ``work/audit``; otherwise the whole verification aborts with ``output directory must be an
-    existing directory`` before any gate evidence is exported (GitHub run 38161629221).  The
-    real audit work is mocked away, but its output boundary is asserted to be a real directory.
+    existing directory`` before any gate evidence is exported.  The real audit work is mocked
+    away, but its output boundary is asserted to be a real directory.  The selected x64 target is
+    cross-built on an x86 host, so routing defers the runtime gates instead of exercising them.
     """
 
     def setUp(self) -> None:
@@ -717,7 +726,7 @@ class AuditDirectoryRegressionTests(unittest.TestCase):
             mock.patch.object(main.packaging_ops, "locate_packaging_tools", return_value="packaging-tools"),
             mock.patch.object(main.packaging_ops, "audit_binaries", self.audit),
             mock.patch.object(main.packaging_ops, "package", self.package),
-            mock.patch.object(main, "detect_host_architecture", return_value="x64"),
+            mock.patch.object(main, "detect_host_architecture", return_value="x86"),
             mock.patch.object(main, "_prioritize", return_value=None),
             mock.patch.object(main, "_restore_priority"),
             mock.patch.object(main, "_processes", return_value=self.processes),
@@ -727,11 +736,11 @@ class AuditDirectoryRegressionTests(unittest.TestCase):
             self.addCleanup(patcher.stop)
 
     def test_verify_arch_creates_the_audit_root_before_auditing(self) -> None:
-        export = self.repo / "evidence-arm64"
+        export = self.repo / "evidence-x64"
         stdout, stderr = StringIO(), StringIO()
         with redirect_stdout(stdout), redirect_stderr(stderr):
             result = main.main([
-                "verify-arch", "-Repository", str(self.repo), "-Arch", "arm64",
+                "verify-arch", "-Repository", str(self.repo), "-Arch", "x64",
                 "-ExportDir", str(export),
             ])
         self.assertEqual(result, 0, stderr.getvalue())
@@ -922,9 +931,9 @@ class HelperTests(unittest.TestCase):
                     repository, ("x64",), ("Debug", "Release"), corpus=None, jobs=None,
                     tools=_NATIVE_TOOLS, runner=processes.native, host="x64",
                 )
-                main._tests_action(repository, args, "arm64", ("x64",), processes, "x64")()
+                main._tests_action(repository, args, "x64", (), processes, "x86")()
                 build.assert_called_once_with(
-                    repository, ("arm64",), ("Debug", "Release"), jobs=None, tools=_NATIVE_TOOLS,
+                    repository, ("x64",), ("Debug", "Release"), jobs=None, tools=_NATIVE_TOOLS,
                     runner=processes.native,
                 )
                 # The selected architecture's report tree is cleared before the build or test.
@@ -1155,6 +1164,7 @@ class GrammarTests(Harness):
             ["build", "-Arch", "mips"], ["build", "-Arch", "all,x64"], ["build", "-Config", "Profile"],
             ["build", "-Jobs", "0"], ["restore", "-RestoreFlavor", "ubsan"], ["fuzz", "-Arch", "arm64"],
             ["fuzz", "-FuzzSeconds", "0"], ["test-leaks", "-Arch", "x86"], ["verify-arch", "-Arch", "all"],
+            ["build", "-Arch", "arm64"], ["verify-arch", "-Arch", "arm64"],
             ["build", "-SkipDependencyRestore"], ["verify-arch", "-Arch", "x64", "-PruneCas"],
             ["audit-binaries", "-Module", "bad"],
         )

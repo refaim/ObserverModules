@@ -59,8 +59,7 @@ _ASAN_RUNTIMES = {
     "x64": "clang_rt.asan_dynamic-x86_64.dll",
 }
 # clang resolves its runtime directory relative to its own binary, so every 32-bit compiler-rt
-# archive only ever exists in the 32-bit toolset that ships beside the x64 one. ARM64 coverage and
-# ARM64 fuzzing are rejected, so that toolset is deliberately absent here.
+# archive only ever exists in the 32-bit toolset that ships beside the x64 one.
 _LLVM_TOOLSETS = {"x86": "VC/Tools/Llvm", "x64": "VC/Tools/Llvm/x64"}
 PROFILE_LIBRARIES = {
     "x86": "clang_rt.profile-i386.lib",

@@ -1,6 +1,5 @@
 Version 2.1.0
 -------------
- + Added ARM64 builds alongside the existing x86 and x64 builds.
  + Added self-contained builds that need no extra runtime installation.
  * Malformed and truncated archives are now rejected with an error.
  * Fixed file names so stored relative paths are preserved instead of losing their first characters.

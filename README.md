@@ -13,7 +13,7 @@ external runtime DLLs to install.
 Install [FAR Manager](https://farmanager.com/download.php?l=en) and the
 [Observer](https://github.com/lazyhamster/Observer/releases) plugin host first; unpackrat adds archive
 support on top of them. Take the module ZIP whose architecture matches your FAR Manager and Observer
-build (x86, x64 or ARM64), not the architecture of your operating system. Each module owns its own
+build (x86 or x64), not the architecture of your operating system. Each module owns its own
 version and its own release listing; the versions below are what the current sources build, and each
 listing shows the versions that are actually published.
 
@@ -77,7 +77,7 @@ unpackrat module, so its license does not apply to this project and is not repro
 
 ## Building
 
-The build produces self-contained `/MT` MSVC modules for x86, x64 and ARM64 with no external runtime
+The build produces self-contained `/MT` MSVC modules for x86 and x64 with no external runtime
 DLLs to ship. The full command contract, prerequisites and quality gates live in
 [`docs/build-system.md`](docs/build-system.md); the common entry points are:
 

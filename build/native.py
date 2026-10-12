@@ -21,8 +21,8 @@ import sys
 from core import host as host_policy
 
 
-ARCHITECTURES: tuple[str, ...] = ("x86", "x64", "arm64")
-PLATFORMS: Mapping[str, str] = {"x86": "Win32", "x64": "x64", "arm64": "ARM64"}
+ARCHITECTURES: tuple[str, ...] = ("x86", "x64")
+PLATFORMS: Mapping[str, str] = {"x86": "Win32", "x64": "x64"}
 # The direct route builds only what MSVC alone provides.  Coverage, sanitizer,
 # fuzz and UBSan configurations select ClangCL and LLVM, which stay out of scope.
 CONFIGURATIONS: tuple[str, ...] = ("Debug", "Release")

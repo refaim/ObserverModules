@@ -23,7 +23,7 @@ Use the root entry point from an ordinary PowerShell or `cmd.exe` console:
 
 Run the relevant build, tests, and checks after changing code. Do not install or update developer tools automatically;
 report missing prerequisites to the user. Release modules must remain MSVC-built, `/MT`, self-contained binaries for
-x86, x64, and ARM64 with no third-party runtime DLLs.
+x86 and x64 with no third-party runtime DLLs.
 
 All production changes follow strict TDD: state the observable requirement or invariant, add a focused test that fails
 for the expected reason, implement the smallest correct change, and refactor only while the suite remains green. Every
@@ -38,6 +38,17 @@ This project uses C++23 and follows the high-assurance engineering policy in
 
 - Preserve clean dependency direction: platform/Observer adapters depend on application and parser code, never the
   reverse. Format parsing belongs in a platform-neutral core and must not acquire Observer or Win32 dependencies.
+- Isolate every third-party library used by production code behind a project-owned adapter, whether that library is
+  written in C or C++. External headers, types, error codes, and allocator or ownership contracts stay inside the
+  adapter implementation; our interfaces expose only our own types and errors, explicit input/output bounds, and
+  values or borrowed ranges. Test-only libraries and frameworks, and unmodified vendored code, are exempt. Prefer
+  caller-provided buffers and our allocator hooks where the library supports them; a library-created context or buffer
+  is owned immediately by our RAII wrapper together with the library's matching release function. Raw ownership leaks,
+  mismatched allocators, exceptions escaping C callbacks, and manual naked lifetime management in application code stay
+  prohibited, and this isolation is our ownership and control contract rather than a claim that every library permits
+  replacing its internal allocator. The existing first-party zlib wrapper is one local example, not evidence that all
+  current dependencies already comply, and it does not justify blanket wrappers around test-only Catch2, JSON, or
+  xxHash use.
 - Keep the C ABI boundary strict. Export only C-compatible, fixed-layout data and explicit sizes. Never let STL types,
   C++ exceptions, allocator ownership, or implicit lifetime assumptions cross the boundary. Validate all inbound
   pointers and structure sizes, initialize outputs defensively, and translate every internal failure to the documented

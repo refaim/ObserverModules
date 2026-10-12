@@ -5,7 +5,6 @@
     <ArtifactsRoot>$(RepositoryRoot)out\work\manual-msbuild\</ArtifactsRoot>
     <PlatformMoniker Condition="'$(Platform)' == 'Win32'">x86</PlatformMoniker>
     <PlatformMoniker Condition="'$(Platform)' == 'x64'">x64</PlatformMoniker>
-    <PlatformMoniker Condition="'$(Platform)' == 'ARM64'">arm64</PlatformMoniker>
     <VcpkgTriplet Condition="'$(Configuration)' != 'ASan' And '$(Configuration)' != 'Fuzz'">unpackrat-$(PlatformMoniker)-windows-static</VcpkgTriplet>
     <VcpkgTriplet Condition="'$(Configuration)' == 'ASan' Or '$(Configuration)' == 'Fuzz'">unpackrat-$(PlatformMoniker)-windows-static-asan</VcpkgTriplet>
     <VcpkgEnableManifest>true</VcpkgEnableManifest>
@@ -81,7 +80,7 @@
       <DataExecutionPrevention>true</DataExecutionPrevention>
       <RandomizedBaseAddress>true</RandomizedBaseAddress>
       <ControlFlowGuard Condition="'$(Configuration)' == 'Release'">Guard</ControlFlowGuard>
-      <CETCompat Condition="'$(Configuration)' == 'Release' And '$(Platform)' != 'ARM64'">true</CETCompat>
+      <CETCompat Condition="'$(Configuration)' == 'Release'">true</CETCompat>
       <EnableCOMDATFolding Condition="'$(Configuration)' == 'Release'">true</EnableCOMDATFolding>
       <OptimizeReferences Condition="'$(Configuration)' == 'Release'">true</OptimizeReferences>
       <LinkTimeCodeGeneration Condition="'$(Configuration)' == 'Release'">UseLinkTimeCodeGeneration</LinkTimeCodeGeneration>
@@ -95,6 +94,6 @@
     <Error Condition="'$(unpackratCompileAnalysis)' != 'true' And '$(unpackratProfileRuntime)' != '' And '$(LLVMRuntimeDir)' == ''"
            Text="Coverage links the LLVM profile runtime and requires LLVMRuntimeDir; build through build.ps1 test-coverage." />
     <Error Condition="'$(unpackratCompileAnalysis)' != 'true' And '$(Configuration)' == 'Coverage' And '$(unpackratProfileRuntime)' == ''"
-           Text="Coverage is supported on Win32 and x64 only; ARM64 ships no usable profile runtime." />
+           Text="Coverage is supported on Win32 and x64 only." />
   </Target>
 </Project>

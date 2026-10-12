@@ -38,6 +38,13 @@ class BinaryAuditTests(unittest.TestCase):
         with self.assertRaisesRegex(AuditError, "unsupported.*riscv64") as raised:
             require_release_pe("riscv64", "", "", "")
         self.assertIsInstance(raised.exception.__cause__, KeyError)
+        with self.assertRaisesRegex(AuditError, "unsupported.*arm64"):
+            require_release_pe(
+                "arm64",
+                " AA64 machine (ARM64)\n",
+                " KERNEL32.dll\n",
+                " 1 0 1 LoadSubModule\n 2 1 2 UnloadSubModule\n",
+            )
 
     def test_release_pe_executable_accepts_a_self_contained_exe_without_exports(self) -> None:
         # The actual leak-probe.exe is an x64 /MT EXE whose dumpbin export table is empty.

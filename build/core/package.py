@@ -17,7 +17,7 @@ from core.module_version import ModuleVersionError, parse_version
 from core.changelog import CHANGELOG_FILES, ChangelogError, latest_notes
 
 
-ARCHITECTURES = ("x86", "x64", "arm64")
+ARCHITECTURES = ("x86", "x64")
 # Each module ships its own MIT grant, the Observer API header's LGPLv3 notice plus the full
 # GPLv3 text the LGPL incorporates, and then only that module's own third-party notices.
 LICENSES = {

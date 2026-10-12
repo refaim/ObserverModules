@@ -113,7 +113,6 @@ class ScriptedRunner:
         architectures = {
             "x86": b" 14C machine (x86)\n",
             "x64": b" 8664 machine (x64)\n",
-            "arm64": b" AA64 machine (ARM64)\n",
         }
         architecture = next(part for part in Path(binary).parts if part in architectures)
         return architectures[architecture]
@@ -277,21 +276,22 @@ class SelectionTests(unittest.TestCase):
                 packaging_ops._modules(selection)
 
     def test_architecture_selection_is_unique_and_supported(self) -> None:
-        self.assertEqual(packaging_ops._architectures(("arm64", "x86")), ("x86", "arm64"))
+        self.assertEqual(packaging_ops._architectures(("x64", "x86")), ("x86", "x64"))
         for architectures, message in (
             ((), "at least one"),
             (("riscv64",), "unsupported architecture"),
+            (("arm64",), "unsupported architecture"),
             (("x64", "x64"), "must not repeat"),
         ):
             with self.subTest(architectures=architectures), self.assertRaisesRegex(ValueError, message):
                 packaging_ops._architectures(architectures)
 
     def test_smoke_selection_must_be_a_selected_subset(self) -> None:
-        self.assertEqual(packaging_ops._smoke(("x64", "arm64"), None), ("x64", "arm64"))
-        self.assertEqual(packaging_ops._smoke(("x64", "arm64"), ("arm64",)), ("arm64",))
-        for smokes, message in ((("x86",), "not selected"), (("x64", "x64"), "must not repeat")):
+        self.assertEqual(packaging_ops._smoke(("x86", "x64"), None), ("x86", "x64"))
+        self.assertEqual(packaging_ops._smoke(("x86", "x64"), ("x64",)), ("x64",))
+        for smokes, message in ((("arm64",), "not selected"), (("x64", "x64"), "must not repeat")):
             with self.subTest(smokes=smokes), self.assertRaisesRegex(ValueError, message):
-                packaging_ops._smoke(("x64", "arm64"), smokes)
+                packaging_ops._smoke(("x86", "x64"), smokes)
 
 
 class ConfinementTests(unittest.TestCase):
@@ -807,19 +807,19 @@ class AuditTests(unittest.TestCase):
 
     def test_audit_includes_the_x64_leak_probe_only(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            fixture = Fixture(Path(temporary), architectures=("x64", "arm64"))
+            fixture = Fixture(Path(temporary), architectures=("x86", "x64"))
             touch(fixture.repository, "out/native/bin/x64/Release/leak-probe.exe")
             tools = fixture.tools()
             runner = ScriptedRunner(tools, fixture.inventory())
             audit_binaries(
-                fixture.repository, ("x64", "arm64"), fixture.output,
+                fixture.repository, ("x86", "x64"), fixture.output,
                 modules=("renpy",), include_leak_probe=True, tools=tools, runner=runner,
             )
             probe_calls = [call for call in runner.calls if call.argv[0] == str(tools.dumpbin)]
             probe = [call for call in probe_calls if "leak-probe.exe" in call.argv[2]]
             self.assertEqual(len(probe), 3)
             self.assertTrue(all("x64" in call.argv[2] for call in probe))
-            self.assertFalse(any("arm64" in call.argv[2] for call in probe))
+            self.assertFalse(any("x86" in call.argv[2] for call in probe))
 
     def test_audit_binds_the_executable_kind_to_the_leak_probe_only(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -913,25 +913,25 @@ class PackageTests(unittest.TestCase):
                 self.assertRegex(record["content"], r"^[0-9a-f]{64}$")
             self.assertFalse((fixture.output / "staging").exists())
 
-    def test_package_all_architectures_yields_nine_module_zips_and_three_symbol_bundles(self) -> None:
+    def test_package_all_architectures_yields_six_module_zips_and_three_symbol_bundles(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            fixture = Fixture(Path(temporary), architectures=("x86", "x64", "arm64"))
-            result, _runner = self.invoke(fixture, architectures=("x86", "x64", "arm64"))
+            fixture = Fixture(Path(temporary), architectures=("x86", "x64"))
+            result, _runner = self.invoke(fixture, architectures=("x86", "x64"))
             packages = fixture.output / "packages"
             module_zips = [
-                path for architecture in ("x86", "x64", "arm64")
+                path for architecture in ("x86", "x64")
                 for path in (packages / architecture).iterdir()
             ]
             symbol_zips = [
                 path for path in packages.iterdir() if path.name.endswith("-pdb.zip")
             ]
-            self.assertEqual(len(module_zips), 9)
+            self.assertEqual(len(module_zips), 6)
             self.assertEqual(len(symbol_zips), 3)
-            self.assertEqual(len(result.archives), 12)
+            self.assertEqual(len(result.archives), 9)
             with zipfile.ZipFile(packages / "renpy-3.1.0-pdb.zip") as archive:
                 self.assertEqual(
                     archive.namelist(),
-                    ["arm64/renpy.pdb", "x64/renpy.pdb", "x86/renpy.pdb"],
+                    ["x64/renpy.pdb", "x86/renpy.pdb"],
                 )
 
     def test_package_selects_one_module_only(self) -> None:
@@ -958,19 +958,19 @@ class PackageTests(unittest.TestCase):
 
     def test_package_smokes_runnable_architectures_and_defers_the_rest(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            fixture = Fixture(Path(temporary), architectures=("x64", "arm64"))
+            fixture = Fixture(Path(temporary), architectures=("x86", "x64"))
             result, runner = self.invoke(
-                fixture, architectures=("x64", "arm64"), host="x64",
+                fixture, architectures=("x86", "x64"), host="x86",
             )
             smoke = [call.argv for call in runner.calls if len(call.argv) > 3 and call.argv[3] == "smoke"]
-            tests = str(fixture.repository / "out/native/bin/x64/Release/tests.exe")
+            tests = str(fixture.repository / "out/native/bin/x86/Release/tests.exe")
         self.assertEqual(
             result.deferred,
-            (DeferredGate("package-runtime", "arm64", "host cannot execute arm64 package-runtime"),),
+            (DeferredGate("package-runtime", "x64", "host cannot execute x64 package-runtime"),),
         )
         self.assertEqual(len(smoke), len(MODULES))
         for argv in smoke:
-            self.assertEqual(argv[:5], (*python("core.package"), "smoke", "x64"))
+            self.assertEqual(argv[:5], (*python("core.package"), "smoke", "x86"))
             self.assertIn(argv[5], MODULES)
             self.assertTrue(argv[6].endswith(".zip"))
             self.assertEqual(argv[7], tests)
@@ -1073,7 +1073,7 @@ class PackageTests(unittest.TestCase):
 
     def test_package_rerun_drops_superseded_version_and_architecture_assets(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            fixture = Fixture(Path(temporary), architectures=("x64", "arm64"))
+            fixture = Fixture(Path(temporary), architectures=("x86", "x64"))
             self.invoke(fixture, architectures=("x64",), modules=("renpy",))
             (fixture.repository / "src/modules/renpy/VERSION").write_text(
                 "3.2.0\n", encoding="utf-8"
@@ -1082,8 +1082,8 @@ class PackageTests(unittest.TestCase):
                 (fixture.repository / "src/modules/renpy" / name).write_text(
                     changelog("renpy", "3.2.0", language), encoding="utf-8"
                 )
-            self.invoke(fixture, architectures=("x64", "arm64"), modules=("renpy",))
-            for architecture in ("x64", "arm64"):
+            self.invoke(fixture, architectures=("x86", "x64"), modules=("renpy",))
+            for architecture in ("x86", "x64"):
                 self.assertEqual(
                     {item.name for item in (fixture.output / "packages" / architecture).iterdir()},
                     {f"renpy-3.2.0-{architecture}.zip"},
@@ -1102,7 +1102,7 @@ class PackageTests(unittest.TestCase):
         self.assertEqual(
             {archive["name"] for archive in document["archives"]},
             {
-                "renpy-3.2.0-x64.zip", "renpy-3.2.0-arm64.zip",
+                "renpy-3.2.0-x86.zip", "renpy-3.2.0-x64.zip",
                 "renpy-3.2.0-pdb.zip",
             },
         )
