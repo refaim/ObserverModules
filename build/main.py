@@ -492,9 +492,7 @@ def _restore(repository: Path, args: argparse.Namespace, processes: _Processes) 
     if "default" in args.restore:
         outputs += native.restore(repository, args.arch, tools=tools, runner=processes.native)
     if "asan" in args.restore:
-        architectures = tuple(item for item in args.arch if item != "arm64")
-        if architectures:
-            outputs += _restore_asan(repository, architectures, tools, processes)
+        outputs += _restore_asan(repository, args.arch, tools, processes)
     return outputs
 
 
@@ -831,8 +829,6 @@ _HANDLERS: dict[str, Callable[[Path, argparse.Namespace, _Processes], tuple[Path
 def _validate_architecture_rules(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
     if args.command == "test-leaks" and args.arch != ("x64",):
         parser.error("test-leaks requires -Arch x64")
-    if args.command == "fuzz" and any(item not in _FUZZ_ARCHITECTURES for item in args.arch):
-        parser.error("fuzz requires -Arch x86, x64, or x86,x64")
     if args.command == "verify-arch" and len(args.arch) != 1:
         parser.error("verify-arch requires exactly one architecture")
 

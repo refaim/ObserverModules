@@ -73,6 +73,16 @@ exact export allowlists, import audits, and package smoke tests.
 - Use `std::shared_ptr` only when no single owner can be identified; record the lifetime reason in the design review.
 - Wrap `FILE*`, Win32 `HANDLE`/`HMODULE`, archive streams, zlib state, and temporary-file cleanup in move-only RAII
   types with non-throwing destructors.
+- Isolate every third-party library that production code uses behind a project-owned adapter, for C and C++ libraries
+  alike. External headers, types, error codes, and allocator/ownership contracts stay inside the adapter
+  implementation; our public interfaces expose only our own types and errors, explicit input/output bounds, and values
+  or borrowed ranges. Test-only libraries and frameworks, and unmodified vendored code, are exempt. Prefer
+  caller-provided buffers and our allocator hooks where the library supports them. A library-created context or buffer
+  is owned immediately by our RAII wrapper with the library's matching release function: no raw ownership leaks, no
+  mismatched allocators, no exceptions escaping C callbacks, and no manual naked lifetime management in application
+  code. This is our ownership and control contract, not a promise that every library allows replacing its internal
+  allocator. The existing zlib wrapper is one local example, not evidence that all current dependencies already comply,
+  and it does not justify blanket wrappers around test-only Catch2, JSON, or xxHash use.
 - Do not call owning `new`, `delete`, `malloc`, `calloc`, `realloc`, or `free` in application C++. Placement new inside
   a reviewed low-level resource abstraction is a possible deviation, not a general exception.
 - Destructors and cleanup paths must not throw. Move operations should be `noexcept` when their members permit it.
@@ -110,8 +120,7 @@ Every layer finds a different defect class; passing one does not substitute for 
 1. **Fast deterministic tests:** parser/unit tests, common archive-operation tests, and ABI contract tests.
 2. **Structural coverage:** 100% LLVM line and branch coverage over first-party production code, plus review of tests
    that reach each branch.
-3. **Exact-toolchain tests:** MSVC Debug and shippable MSVC Release on runnable x86 and x64 targets; ARM64 is
-   cross-built, analyzed, audited, and packaged, with unavailable runtime checks reported explicitly as deferred.
+3. **Exact-toolchain tests:** MSVC Debug and shippable MSVC Release on runnable x86 and x64 targets.
 4. **Static analysis:** compiler warnings-as-errors, MSVC `/analyze`, clang-tidy, Cppcheck, and PowerShell analysis.
    Diagnostics are fixed or narrowly justified, never globally muted. Additional services such as CodeQL may repeat or
    extend this evidence but cannot replace a local gate.

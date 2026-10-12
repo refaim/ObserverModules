@@ -35,8 +35,6 @@ jobs:
             arch: x86
           - job: x64
             arch: x64
-          - job: arm64
-            arch: arm64
 
     steps:
       - name: Check out the repository
@@ -349,7 +347,7 @@ jobs:
           $assets = Join-Path $env:RUNNER_TEMP 'release-assets'
           New-Item -ItemType Directory -Force -Path $gate, $assets | Out-Null
           $manifests = @(
-            foreach ($arch in @('x86', 'x64', 'arm64')) {
+            foreach ($arch in @('x86', 'x64')) {
               $path = Join-Path $downloads "packages-$arch\packages.json"
               if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
                 throw "A verified package manifest is missing: $path"
@@ -387,8 +385,8 @@ jobs:
             Get-ChildItem -LiteralPath $assets -Filter '*.zip' |
               ForEach-Object { $_.FullName }
           )
-          if ($packages.Count -ne 4) {
-            throw "Expected four selected-module archives, found $($packages.Count)."
+          if ($packages.Count -ne 3) {
+            throw "Expected three selected-module archives, found $($packages.Count)."
           }
           $evidence = @(
             Get-ChildItem -LiteralPath $downloads -Directory -Filter 'evidence-*' |
@@ -398,8 +396,8 @@ jobs:
                 $bundle
               }
           )
-          if ($evidence.Count -ne 4) {
-            throw "Expected four evidence bundles, found $($evidence.Count)."
+          if ($evidence.Count -ne 3) {
+            throw "Expected three evidence bundles, found $($evidence.Count)."
           }
           $report = Get-Content -Raw -LiteralPath (Join-Path $gate 'release.json') | ConvertFrom-Json
           $title = $report.title

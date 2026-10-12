@@ -35,7 +35,7 @@ from core.package import _zip
 
 # The architectures a module release must publish. Kept here (rather than imported from the
 # packaging code) so the gate is an independent oracle for the names it verifies.
-ARCHITECTURES = ("x86", "x64", "arm64")
+ARCHITECTURES = ("x86", "x64")
 _TAG_ROOT = "v"
 _IDENTITY = re.compile(r"[0-9a-f]{64}")
 # A published asset is a plain file name, so any separator or traversal segment is rejected.

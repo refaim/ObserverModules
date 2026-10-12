@@ -13,7 +13,7 @@ Philosophy: one operation runs one real tool through one explicit output directo
 `core` validator's gate) is the verdict. A missing prerequisite fails closed; a check is never weakened to make a run
 pass. Whatever this document does not state is derivable from the code, and the code wins.
 
-Release contract, non-negotiable: Windows-only native C++23 through MSVC `cl.exe`; x86, x64, ARM64; MSVC runtime and all
+Release contract, non-negotiable: Windows-only native C++23 through MSVC `cl.exe`; x86, x64; MSVC runtime and all
 third-party libraries linked statically (`/MT`, static vcpkg triplets); a release archive carries no redistributable
 runtime and no non-system DLL; CMake is not part of this tree (vcpkg ports may use it internally); no `/clr`. Each
 shipped module (`renpy`, `rpgmaker`, `zanzarah`) owns an independent semantic version in `src/modules/<module>/VERSION`
@@ -23,7 +23,7 @@ and its own `renpy/vX.Y.Z` release lineage; there is no repository release versi
 
 A Windows 11 host with:
 
-- Visual Studio Build Tools 2022 with the v143 toolset for x86, x64 and ARM64, and the matching
+- Visual Studio Build Tools 2022 with the v143 toolset for x86 and x64, and the matching
   Spectre-mitigated libraries;
 - the Windows 11 SDK, for the tooling the binary audit and leak operations shell out to;
 - PowerShell 7.4 or newer, the shell `build.ps1` targets;
@@ -88,8 +88,6 @@ you run need.
   gate measures the DLLs FAR Manager actually loads, not the test binary.
 - Coverage is `/MTd`, not `/MT` (`unpackrat-project.props:59-60`). Leak checking is an operation over `Release|x64`, not a
   seventh configuration.
-- ARM64 coverage, fuzzing and ASan are refused rather than composed: no toolset ships an ARM64 profile runtime, and the
-  cross runtime for the module DLLs is explicitly deferred instead of approximated.
 - Only the timed x64 fuzz run consumes a wall-clock budget; x86 fuzzing is a replay-only gate over the same targets and
   is the only place 32-bit `size_t` overflow thresholds execute at all.
 - Each leak scenario runs a preflight, a capture-and-judge measurement and a gate, because window diffs can only run in
@@ -102,7 +100,7 @@ you run need.
 ## Running things
 
 ```powershell
-.\build.ps1 build -Arch x86,x64,arm64 -Config Release
+.\build.ps1 build -Arch x86,x64 -Config Release
 .\build.ps1 verify-arch -Arch x64 -ExportDir C:\evidence
 .\build.ps1 verify-source          # python tests + 100% gate, clang-format, Cppcheck, PSScriptAnalyzer, contracts
 .\build.ps1 fuzz -Arch x86,x64 -FuzzTarget all -FuzzSeconds 60
@@ -131,18 +129,18 @@ you run need.
   a generated `LICENSES.txt` at its root: the project's own MIT license, the Observer API header's LGPLv3 notice with the
   accompanying full GPLv3 text, and only that module's dependency notices; documentation-only format references follow
   in their own labeled section.
-- A module release publishes exactly three per-architecture module archives and one
-  `<module>-<version>-pdb.zip`. Every architecture's manifest names the same intermediate symbol bundle, each carrying
-  its one `<arch>/<module>.pdb`, so the gate assembles the disjoint architectures into the published bundle before the
-  normal merge, version-lineage and asset gates run; a local all-architecture run produces the same bundle directly.
-  There is no repository-wide symbol bundle.
+- A module release publishes exactly two per-architecture module archives and one
+  `<module>-<version>-pdb.zip`. Every architecture's manifest names the same intermediate symbol bundle, so the
+  published bundle carries one `<module>.pdb` for each of the two supported architectures (`x86` and `x64`); the gate
+  assembles the disjoint architectures before the normal merge, version-lineage and asset gates run. There is no
+  repository-wide symbol bundle.
 
 ## CI
 
-Four verification jobs — `source` (`verify-source`) and `x86`/`x64`/`arm64` (`verify-arch -Arch …`) — plus a `release`
+Three verification jobs — `source` (`verify-source`) and `x86`/`x64` (`verify-arch -Arch …`) — plus a `release`
 job on `renpy/vX.Y.Z`, `rpgmaker/vX.Y.Z` or `zanzarah/vX.Y.Z` tags. Triggers: `pull_request` on `master`, `push` on
-`master` and the module tag prefixes; no `workflow_dispatch`, no schedule, no ARM64-native runner, and ARM64 runtime
-tests are reported deferred rather than executed. Every mandatory check stays runnable from a local console through the
+`master` and the module tag prefixes; no `workflow_dispatch` and no schedule. Every mandatory check stays runnable
+from a local console through the
 same public entry points. The `source` row installs only the source-check tools, the architecture rows provision BinSkim
 by operation, and the x64 row pins UMDH from the Windows 10 SDK 2004 line (a documented capture defect in Windows 11
 SDKs); only the native vcpkg binary cache remains. Python owns the version, content and asset validation policy
@@ -166,8 +164,3 @@ streaming buffer, finishing deterministically against repository-owned fixtures.
 PSScriptAnalyzer, BinSkim and the x64 UMDH MSI by version or SHA-256, but never LLVM: `clang-cl`, `clang-tidy`,
 `clang-format`, `llvm-cov` come from the hosted image's VS install (`core/toolchain.py`), and the runtime locator only
 checks presence. Pin the versions `doctor` accepts and provision LLVM explicitly.
-
-**ARM64 runtime deferral.** The ARM64 module DLLs, packages and PDBs are built, audited and gated for PE/BinSkim/version,
-but their runtime tests, coverage, fuzz and leak gates are reported deferred because the hosted verification host and no
-local x64 host can execute them. Publishing an ARM64 archive without an executed runtime gate stays an explicit,
-reported deferral rather than a silent pass.

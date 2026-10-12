@@ -28,10 +28,21 @@ class HostTests(unittest.TestCase):
             detect_host_architecture("mips64")
 
     def test_runnable_matrix_matches_windows_emulation_contract(self) -> None:
-        requested = ("x86", "x64", "arm64")
+        requested = ("x86", "x64")
         self.assertEqual(runnable_architectures(requested, "x86"), ("x86",))
         self.assertEqual(runnable_architectures(requested, "x64"), ("x86", "x64"))
-        self.assertEqual(runnable_architectures(requested, "arm64"), requested)
+        # An ARM64 Windows host may execute emulated x86/x64 targets, but ARM64 itself is
+        # not a supported target and can never be requested.
+        self.assertEqual(runnable_architectures(requested, "arm64"), ("x86", "x64"))
+
+    def test_arm64_is_not_an_accepted_requested_target(self) -> None:
+        for requested in (("arm64",), ("x86", "arm64")):
+            with self.subTest(requested=requested), self.assertRaisesRegex(
+                ValueError, "unsupported requested architecture"
+            ):
+                runnable_architectures(requested, "x64")
+        with self.assertRaisesRegex(ValueError, "unsupported requested architecture"):
+            verify_route(("arm64",), "arm64")
 
     def test_invalid_requested_and_host_architectures_are_rejected(self) -> None:
         with self.assertRaisesRegex(ValueError, "unsupported requested architecture"):
@@ -40,13 +51,15 @@ class HostTests(unittest.TestCase):
             runnable_architectures(("x64",), "sparc")
 
     def test_test_command_contract_rejects_nonrunnable_requests(self) -> None:
-        with self.assertRaisesRegex(RuntimeError, "cannot run arm64 tests on x64 host"):
-            require_runnable(("x86", "arm64"), "x64")
+        with self.assertRaisesRegex(RuntimeError, "cannot run x64 tests on x86 host"):
+            require_runnable(("x86", "x64"), "x86")
+        with self.assertRaisesRegex(ValueError, "unsupported requested architecture"):
+            require_runnable(("arm64",), "x64")
 
         self.assertEqual(require_runnable(("x86", "x64"), "x64"), ("x86", "x64"))
 
     def test_verify_route_selects_host_capable_specialists(self) -> None:
-        route = verify_route(("x86", "x64", "arm64"), "x64")
+        route = verify_route(("x86", "x64"), "x64")
 
         self.assertEqual(route.runnable, ("x86", "x64"))
         self.assertEqual(route.coverage, ("x64",))
@@ -54,11 +67,7 @@ class HostTests(unittest.TestCase):
         self.assertEqual(route.ubsan, ("x64",))
         self.assertEqual(route.fuzz, ("x86", "x64"))
         self.assertTrue(route.run_x64_specialists)
-        self.assertEqual(
-            [(item.gate, item.architecture) for item in route.deferred],
-            [("tests", "arm64"), ("package-runtime", "arm64")],
-        )
-        self.assertTrue(all(item.reason for item in route.deferred))
+        self.assertEqual(route.deferred, ())
 
     def test_verify_route_defers_nonrunnable_specialists_explicitly(self) -> None:
         route = verify_route(("x64",), "x86")

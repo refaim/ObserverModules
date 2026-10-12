@@ -18,8 +18,13 @@ _MACHINE_ARCHITECTURES = {
 _RUNNABLE = {
     "x86": frozenset({"x86"}),
     "x64": frozenset({"x86", "x64"}),
-    "arm64": frozenset({"x86", "x64", "arm64"}),
+    # An ARM64 Windows host may execute emulated x86/x64 targets, but ARM64 itself is not a
+    # supported build target and can never be requested.
+    "arm64": frozenset({"x86", "x64"}),
 }
+# The supported build targets.  A requested architecture is validated against these rather than
+# the host keys, so the ARM64 host alias cannot smuggle ARM64 in as a target.
+_TARGETS = frozenset({"x86", "x64"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,7 +62,7 @@ def runnable_architectures(
     host = detect_host_architecture() if host_architecture is None else host_architecture
     if host not in _RUNNABLE:
         raise ValueError(f"unsupported host architecture: {host}")
-    unsupported = set(requested) - _RUNNABLE.keys()
+    unsupported = set(requested) - _TARGETS
     if unsupported:
         raise ValueError(f"unsupported requested architecture: {sorted(unsupported)[0]}")
     return tuple(architecture for architecture in requested if architecture in _RUNNABLE[host])

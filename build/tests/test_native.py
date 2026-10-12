@@ -74,8 +74,8 @@ class LayoutTests(unittest.TestCase):
             repository / "out" / "native" / "vcpkg_installed" / "x64",
         )
         self.assertEqual(
-            native.bin_directory(repository, "arm64", "Release"),
-            repository / "out" / "native" / "bin" / "arm64" / "Release",
+            native.bin_directory(repository, "x64", "Release"),
+            repository / "out" / "native" / "bin" / "x64" / "Release",
         )
 
     def test_artifacts_are_the_shipped_module_and_test_binaries(self) -> None:
@@ -129,7 +129,7 @@ class BuildCommandTests(unittest.TestCase):
             tools = _tools(repository)
             artifacts = repository / "out" / "native"
 
-            command = native.build_command(repository, "arm64", "Release", 6, tools)
+            command = native.build_command(repository, "x64", "Release", 6, tools)
 
             self.assertEqual(
                 command,
@@ -141,7 +141,7 @@ class BuildCommandTests(unittest.TestCase):
                     "/nr:false",
                     "/t:Build",
                     "/p:Configuration=Release",
-                    "/p:Platform=ARM64",
+                    "/p:Platform=x64",
                     f"/p:ArtifactsRoot={artifacts}{os.sep}",
                     f"/p:VcpkgRoot={tools.vcpkg.parent}",
                     "/p:VcpkgManifestInstall=false",
@@ -163,7 +163,6 @@ class BuildCommandTests(unittest.TestCase):
                 {
                     "x86": "/p:Platform=Win32",
                     "x64": "/p:Platform=x64",
-                    "arm64": "/p:Platform=ARM64",
                 },
             )
 
@@ -217,6 +216,8 @@ class SelectionTests(unittest.TestCase):
 
         with self.assertRaises(argparse.ArgumentTypeError):
             architecture("sparc")
+        with self.assertRaises(argparse.ArgumentTypeError):
+            architecture("arm64")
 
     def test_all_is_only_accepted_on_its_own(self) -> None:
         for choices in (native.ARCHITECTURES, native.CONFIGURATIONS):
@@ -343,11 +344,12 @@ class HostTests(unittest.TestCase):
 
     def test_runtime_tests_refuse_targets_the_host_cannot_execute(self) -> None:
         native.require_runnable(("x86", "x64"), "x64")
-        native.require_runnable(("x86", "x64", "arm64"), "arm64")
-        with self.assertRaisesRegex(ValueError, "cannot run"):
-            native.require_runnable(("arm64",), "x64")
         with self.assertRaisesRegex(ValueError, "cannot run"):
             native.require_runnable(("x64",), "x86")
+        with self.assertRaisesRegex(ValueError, "unsupported requested architecture"):
+            native.require_runnable(("arm64",), "x64")
+        with self.assertRaisesRegex(ValueError, "unsupported requested architecture"):
+            native.require_runnable(("arm64",), "arm64")
         with self.assertRaisesRegex(ValueError, "unsupported host architecture"):
             native.require_runnable(("x64",), "sparc")
 
@@ -510,16 +512,16 @@ class BuildTests(unittest.TestCase):
             runner = RecordingRunner()
 
             outputs = native.build(
-                repository, ("x64", "arm64"), ("Debug", "Release"), jobs=3,
+                repository, ("x86", "x64"), ("Debug", "Release"), jobs=3,
                 tools=tools, runner=runner,
             )
 
             # Every dependency tree is restored before any compilation starts.
             expected_commands = [
                 native.restore_command(repository, architecture, tools)
-                for architecture in ("x64", "arm64")
+                for architecture in ("x86", "x64")
             ]
-            for architecture in ("x64", "arm64"):
+            for architecture in ("x86", "x64"):
                 for configuration in ("Debug", "Release"):
                     expected_commands.append(
                         native.build_command(repository, architecture, configuration, 3, tools)
@@ -530,7 +532,7 @@ class BuildTests(unittest.TestCase):
 
             expected_artifacts = tuple(
                 artifact
-                for architecture in ("x64", "arm64")
+                for architecture in ("x86", "x64")
                 for configuration in ("Debug", "Release")
                 for artifact in native.artifacts(repository, architecture, configuration)
             )
@@ -735,6 +737,17 @@ class TestRunTests(unittest.TestCase):
             tools, runner = self._tools_and_runner(repository)
 
             with self.assertRaisesRegex(ValueError, "cannot run"):
+                native.test(
+                    repository, ("x64",), ("Release",), host="x86", tools=tools, runner=runner,
+                )
+            self.assertEqual(runner.calls, [])
+
+    def test_runtime_tests_reject_an_arm64_target_before_running_any_tool(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            repository = Path(temporary)
+            tools, runner = self._tools_and_runner(repository)
+
+            with self.assertRaisesRegex(ValueError, "unsupported architecture"):
                 native.test(
                     repository, ("arm64",), ("Release",), host="x64", tools=tools, runner=runner,
                 )

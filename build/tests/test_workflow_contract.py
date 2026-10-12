@@ -127,11 +127,11 @@ class WorkflowContractTests(unittest.TestCase):
         matrix_rows = re.findall(r"- job: ([^\n]+)\n\s+arch: ([^\n]+)", workflow)
         self.assertEqual(
             matrix_rows,
-            [("source", "none"), ("x86", "x86"), ("x64", "x64"), ("arm64", "arm64")],
+            [("source", "none"), ("x86", "x86"), ("x64", "x64")],
         )
 
         # The full doctor inventory demands every tool (including BinSkim and UMDH) and so cannot
-        # run on the source or arm64 rows; each verify operation must discover what it needs.
+        # run on the source row; each verify operation must discover what it needs.
         self.assertNotIn("./build.ps1 doctor", workflow)
         self.assertEqual(workflow.count("./build.ps1 verify-source"), 1)
         self.assertEqual(workflow.count("./build.ps1 verify-arch"), 1)
@@ -327,7 +327,7 @@ class WorkflowContractTests(unittest.TestCase):
             "Where-Object { -not $_.Name.EndsWith('-pdb.zip', [StringComparison]::Ordinal) }",
             workflow,
         )
-        self.assertIn("if ($packages.Count -ne 4) {", workflow)
+        self.assertIn("if ($packages.Count -ne 3) {", workflow)
         # Unknown listing/download failures must fail instead of looking like an absent release.
         self.assertIn("Unable to list", workflow)
         # The current tag's existence is queried exactly once, before lineage resolution; only a
@@ -678,7 +678,7 @@ class RepositoryMetadataTests(unittest.TestCase):
         self.assertIn("%FARHOME%\\Plugins\\Observer\\modules", readme)
         self.assertIn("observer_user.ini", readme)
         self.assertIn("restart", readme.lower())
-        for architecture in ("x86", "x64", "ARM64"):
+        for architecture in ("x86", "x64"):
             with self.subTest(architecture=architecture):
                 self.assertIn(architecture, readme)
 
@@ -719,7 +719,6 @@ class RepositoryMetadataTests(unittest.TestCase):
         requirements = (
             "Build Tools 2022",
             "v143",
-            "ARM64",
             "Spectre",
             "Windows 11 SDK",
             "PowerShell 7.4",
