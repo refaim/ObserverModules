@@ -2,16 +2,12 @@ from __future__ import annotations
 
 from pathlib import Path
 import re
-import sys
 import unittest
 import xml.etree.ElementTree as ET
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 MSBUILD = "{http://schemas.microsoft.com/developer/msbuild/2003}"
-sys.path.insert(0, str(REPOSITORY_ROOT / "build"))
-
-from core.module_version import ModuleVersionError, parse_version  # noqa: E402
 
 
 def _project(relative_path: str) -> ET.Element:
@@ -249,7 +245,7 @@ class MSBuildContractsTests(unittest.TestCase):
             item_group.get("Condition"), "'$(unpackratConfigurationType)' == 'DynamicLibrary'"
         )
 
-        # MSBuild and core.module_version.parse_version must accept exactly the same versions.
+        # MSBuild is the single version-format authority; the Python driver reads the file plain.
         valid = project.find(f".//{MSBUILD}unpackratModuleVersionValid")
         self.assertIsNotNone(valid)
         self.assertEqual(
@@ -262,14 +258,9 @@ class MSBuildContractsTests(unittest.TestCase):
         for version in ("3.1.0", "0.0.0", "65535.65535.65535"):
             with self.subTest(version=version):
                 self.assertIsNotNone(pattern.fullmatch(version))
-                self.assertEqual(parse_version(version), tuple(
-                    int(part) for part in version.split(".")
-                ))
         for version in ("03.1.0", "3.1", "3.1.0.0", "3.1.0-rc1", "", "999999.0.0"):
             with self.subTest(version=version):
                 self.assertIsNone(pattern.fullmatch(version))
-                with self.assertRaises(ModuleVersionError):
-                    parse_version(version)
 
         errors = project.findall(
             f".//{MSBUILD}Target[@Name='ValidateunpackratModuleVersion']/{MSBUILD}Error"

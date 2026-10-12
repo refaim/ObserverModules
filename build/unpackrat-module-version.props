@@ -12,7 +12,7 @@
     <unpackratModuleVersionFile>$(RepositoryRoot)src\modules\$(unpackratModuleName)\VERSION</unpackratModuleVersionFile>
     <unpackratModuleVersionRaw Condition="'$(unpackratModuleName)' != '' And Exists('$(unpackratModuleVersionFile)')">$([System.IO.File]::ReadAllText('$(unpackratModuleVersionFile)'))</unpackratModuleVersionRaw>
     <unpackratModuleVersion>$(unpackratModuleVersionRaw.Trim())</unpackratModuleVersion>
-    <!-- This pattern must stay identical to core.module_version.parse_version. -->
+    <!-- MSBuild is the single version-format authority; the Python driver reads VERSION plain. -->
     <unpackratModuleVersionValid Condition="'$(unpackratModuleVersion)' != ''">$([System.Text.RegularExpressions.Regex]::IsMatch('$(unpackratModuleVersion)', '^(0|[1-9][0-9]{0,4})\.(0|[1-9][0-9]{0,4})\.(0|[1-9][0-9]{0,4})$'))</unpackratModuleVersionValid>
     <unpackratModuleVersionMajor Condition="'$(unpackratModuleVersionValid)' == 'true'">$([System.Version]::Parse('$(unpackratModuleVersion)').Major)</unpackratModuleVersionMajor>
     <unpackratModuleVersionMinor Condition="'$(unpackratModuleVersionValid)' == 'true'">$([System.Version]::Parse('$(unpackratModuleVersion)').Minor)</unpackratModuleVersionMinor>

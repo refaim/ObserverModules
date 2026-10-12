@@ -67,7 +67,7 @@ class GitIgnoreTests(unittest.TestCase):
             generated = (
                 "build/__pycache__/main.cpython-314.pyc",
                 "src/modules/renpy/__pycache__/__init__.cpython-314.pyc",
-                "build/packaging_ops.pyc",
+                "build/leaks.pyc",
                 "build/tooling.pyd",
                 "build/optimised.pyo",
                 ".vs/unpackrat/v17/Browse.VC.db",
@@ -96,7 +96,7 @@ class GitIgnoreTests(unittest.TestCase):
             repository = self._repository(Path(temporary))
             visible = (
                 "build/main.py",
-                "build/source_checks.py",
+                "build/leaks.py",
                 "build.ps1",
                 "src/api.h",
                 "src/modules/renpy/pickle.cpp",

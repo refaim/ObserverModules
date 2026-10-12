@@ -17,11 +17,10 @@ organization, a certified toolchain, or the complete requirements-to-binary evid
    then make the smallest production change, then refactor with the suite green. Every defect starts with a regression
    test. A test that executes a branch without checking behavior is not sufficient.
 3. **All first-party production code has 100% line and branch coverage.** Coverage is a necessary completeness signal,
-   not proof of correctness. The build system's own Python holds the same gate with one narrow, audited escape hatch —
-   an explicit per-line `# pragma: no cover` for internal-invariant guards no public surface can reach; see the pragma
-   policy in `docs/build-system.md` (`Dependencies, toolchain, and static-analysis policy`). Dangerous compound
-   decisions additionally require executable data-driven decision tables and targeted MC/DC reasoning so each
-   independent condition is shown to affect the result.
+   not proof of correctness. The build system's own Python holds the same unlimited gate with no excluded lines: its
+   CLI entry points are exercised for real rather than hidden behind a coverage pragma; see the coverage policy in
+   `docs/build-system.md` (`Invariants`). Dangerous compound decisions additionally require executable data-driven
+   decision tables and targeted MC/DC reasoning so each independent condition is shown to affect the result.
 4. **Architecture boundaries are enforced.** Observer/FAR and Win32 integration are outer adapters. Archive operations
    and format parsers are inner policy. Dependencies point inward; parser code must be independently testable without
    loading FAR, Observer, or Win32 UI infrastructure.
@@ -42,7 +41,8 @@ organization, a certified toolchain, or the complete requirements-to-binary evid
    failure, malformed input, exhaustion, and I/O errors have tested outcomes. Outermost ABI functions validate inputs,
    initialize outputs, catch only at the boundary, and translate failures to the documented result contract.
 9. **Evidence is produced by the exact deliverable.** Unit and parser tests may use seams, but ABI integration,
-   import/export audit, packaging smoke tests, and leak tests exercise the MSVC Release DLLs that are shipped.
+   import/export audit, BinSkim analysis, and leak tests exercise the MSVC Release DLLs that are shipped. Packaging
+   then assembles those verified Release binaries directly, without re-auditing the archived bytes.
 10. **A green gate is never manufactured.** Threshold reductions, first-party exclusions, broad suppressions, swallowed
     sanitizer failures, or catch-all fuzz targets are prohibited. Any necessary deviation is narrow, justified,
     time-bounded where appropriate, and owner-reviewed.
@@ -63,7 +63,7 @@ Every exported function and callback must satisfy all of the following:
   ABI version change is made.
 
 Compatibility is checked at both source and binary levels: compile-time layout assertions, real-DLL contract tests,
-exact export allowlists, import audits, and package smoke tests.
+exact export allowlists, import audits, and BinSkim analysis of the shipped modules.
 
 ## C++ ownership and resource rules
 
@@ -129,8 +129,9 @@ Every layer finds a different defect class; passing one does not substitute for 
    load/unload cycles. Peak private bytes and resource budgets are checked separately from leak growth.
 6. **Coverage-guided fuzzing:** every parser and its meaningful decoding surfaces receive libFuzzer targets, curated
    seed corpora, bounded input/resources, persisted crash artifacts, and regression tests for every confirmed defect.
-7. **Binary and package assurance:** exact exports, forbidden imports, `/MT` runtime audit, BinSkim, PDB archive audit,
-   archive-content allowlists, and smoke tests of the packaged DLL bytes.
+7. **Binary assurance:** the MSVC Release modules are checked for exact exports and forbidden imports with dumpbin and
+   analyzed with BinSkim. Packaging then assembles the verified Release binaries directly; it does not re-audit the
+   archived bytes.
 8. **Release evidence:** clean-checkout build, pinned dependencies, full gate results, hashes/artifacts, and a reviewed
    decision/deviation log.
 

@@ -4,7 +4,7 @@ on:
   push:
     branches: [master]
     # A module release is published by manually pushing a renpy/vX.Y.Z, rpgmaker/vX.Y.Z or
-    # zanzarah/vX.Y.Z tag. Each tag selects exactly one module and its own version lineage.
+    # zanzarah/vX.Y.Z tag. Each tag selects exactly one module's three release archives.
     tags: ['renpy/v*', 'rpgmaker/v*', 'zanzarah/v*']
   pull_request:
     branches: [master]
@@ -178,64 +178,47 @@ jobs:
           "UNPACKRAT_UMDH=$umdh" | Add-Content -Path $env:GITHUB_ENV
 
       - name: Verify repository sources
-        id: verify-source
         if: matrix.job == 'source'
         shell: pwsh
-        run: |
-          $evidence = Join-Path $env:RUNNER_TEMP 'evidence-source'
-          ./build.ps1 verify-source -ExportDir $evidence -Priority normal
+        run: ./build.ps1 ci-source -Jobs 4
 
       - name: Verify one architecture
-        id: verify-arch
         if: matrix.job != 'source'
         shell: pwsh
-        run: |
-          $evidence = Join-Path $env:RUNNER_TEMP 'evidence-${{ matrix.job }}'
-          $fuzzSeconds = if ('${{ github.event_name }}' -eq 'pull_request') { 5 } else { 60 }
-          $leakWarmup = if ('${{ github.event_name }}' -eq 'pull_request') { 1 } else { 8 }
-          $leakIterations = if ('${{ github.event_name }}' -eq 'pull_request') { 1 } else { 100 }
-          ./build.ps1 verify-arch -Arch '${{ matrix.arch }}' -ExportDir $evidence `
-            -FuzzSeconds $fuzzSeconds -LeakWarmup $leakWarmup `
-            -LeakIterations $leakIterations -LeakWindows 3 -Priority normal
+        run: ./build.ps1 ci-arch -Arch '${{ matrix.arch }}' -Jobs 4
 
-      - name: Upload verification evidence
-        if: always() && (steps.verify-source.outcome != 'skipped' || steps.verify-arch.outcome != 'skipped')
+      - name: Upload the Release binaries
+        if: matrix.job != 'source'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: evidence-${{ matrix.job }}
-          path: |
-            ${{ runner.temp }}/evidence-${{ matrix.job }}/manifest.json
-            ${{ runner.temp }}/evidence-${{ matrix.job }}/reports
-            ${{ runner.temp }}/evidence-${{ matrix.job }}/logs
-          if-no-files-found: error
-          include-hidden-files: true
-          retention-days: ${{ github.event_name == 'pull_request' && 7 || 30 }}
-
-      - name: Upload verified packages and symbols
-        if: success() && github.event_name == 'push' && matrix.job != 'source'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: packages-${{ matrix.job }}
-          path: ${{ runner.temp }}/evidence-${{ matrix.job }}/packages
+          name: release-${{ matrix.job }}
+          path: out/native/bin/${{ matrix.job }}/Release
           if-no-files-found: error
           retention-days: 30
 
-  release:
-    name: release
+      - name: Upload the test reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: diagnostics-${{ matrix.job }}-reports
+          path: out/native/reports
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload the coverage summaries
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: diagnostics-${{ matrix.job }}-coverage
+          path: out/native/coverage
+          if-no-files-found: warn
+          retention-days: 14
+
+  packaging:
+    name: packaging
     needs: verification
-    if: startsWith(github.ref, 'refs/tags/renpy/v') || startsWith(github.ref, 'refs/tags/rpgmaker/v') || startsWith(github.ref, 'refs/tags/zanzarah/v')
-    # Serialize fresh publications of the same module so two releases cannot race the history
-    # lookup, the version gate and the publish. A job-level group cannot read step outputs, so
-    # the module comes from github.ref_name; cancel-in-progress is off so a running publication
-    # is never killed.
-    concurrency:
-      group: release-${{ startsWith(github.ref_name, 'renpy/') && 'renpy' || startsWith(github.ref_name, 'rpgmaker/') && 'rpgmaker' || 'zanzarah' }}
-      cancel-in-progress: false
     runs-on: windows-2022
     timeout-minutes: 30
-    permissions:
-      contents: write
-
     steps:
       - name: Check out the repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -248,196 +231,86 @@ jobs:
           version: "0.13.0"
           enable-cache: true
           cache-dependency-glob: build/uv.lock
-          cache-suffix: release
+          cache-suffix: packaging
 
       - name: Prepare the pinned Python environment
         shell: pwsh
-        run: |
-          "TEMP=$env:RUNNER_TEMP" | Add-Content -Path $env:GITHUB_ENV
-          "TMP=$env:RUNNER_TEMP" | Add-Content -Path $env:GITHUB_ENV
-          uv sync --project build --frozen
+        run: uv sync --project build --frozen
 
-      - name: Collect the verified evidence and package bundles
+      - name: Collect the verified x86 Release binaries
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          path: ${{ runner.temp }}/artifacts
+          name: release-x86
+          path: out/native/bin/x86/Release
 
-      - name: Resolve the selected module from the release tag
-        id: tag
-        shell: pwsh
-        run: |
-          # `uv run --directory build` changes the working directory, so a relative --repository
-          # would validate build/src instead of the checked out repository root.
-          uv run --directory build --frozen --no-sync python -m core.release tag `
-            --repository "$env:GITHUB_WORKSPACE" --tag $env:GITHUB_REF_NAME `
-            --github-output $env:GITHUB_OUTPUT
+      - name: Collect the verified x64 Release binaries
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-x64
+          path: out/native/bin/x64/Release
 
-      - name: Resolve the previous release of the same module
-        id: previous
+      - name: Package the Release outputs
         shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          $repo = '${{ github.repository }}'
-          $tag = $env:GITHUB_REF_NAME
-          # The exact tag is probed before any lineage work: only a confirmed HTTP 404 means the
-          # release does not exist yet, and every other failure is fatal. The captured output is
-          # joined into one string so a 404 body line cannot hide the status.
-          $probe = (gh api "repos/$repo/releases/tags/$tag" --jq '.tag_name' 2>&1 | Out-String)
-          $exists = $LASTEXITCODE -eq 0
-          if (-not $exists -and $probe -notmatch 'HTTP 404') {
-            throw "Unable to determine whether $tag is already published:`n$probe"
-          }
-          "exists=$($exists.ToString().ToLower())" | Add-Content -Path $env:GITHUB_OUTPUT
-          $resolved = Join-Path $env:RUNNER_TEMP 'previous-tag.txt'
-          if ($exists) {
-            # A rerun never reconstructs the lineage from the mutable history: it downloads the
-            # immutable release.json published with the tag and reuses the predecessor recorded
-            # there, so a concurrent or hand-inserted release cannot change the comparison.
-            $current = Join-Path $env:RUNNER_TEMP 'current'
-            New-Item -ItemType Directory -Force -Path $current | Out-Null
-            gh release download $tag --pattern 'release.json' --dir $current
-            if ($LASTEXITCODE -ne 0) {
-              throw "The published release $tag publishes no readable release.json."
-            }
-            uv run --directory build --frozen --no-sync python -m core.release previous `
-              --tag $tag --current-exists --current-report (Join-Path $current 'release.json') `
-              --output $resolved
-          }
-          else {
-            # Every page of the release history is scanned so an older lineage never disappears
-            # behind a fixed page of newer releases. Draft and prerelease entries are emitted too
-            # and filtered out by the lineage helper.
-            $listing = Join-Path $env:RUNNER_TEMP 'releases.jsonl'
-            New-Item -ItemType File -Force -Path $listing | Out-Null
-            gh api --paginate "repos/$repo/releases?per_page=100" `
-              --jq '.[] | {tag: .tag_name, draft: .draft, prerelease: .prerelease}' |
-              Set-Content -LiteralPath $listing
-            if ($LASTEXITCODE -ne 0) {
-              throw 'Unable to list the published releases.'
-            }
-            uv run --directory build --frozen --no-sync python -m core.release previous `
-              --tag $tag --releases $listing --output $resolved
-          }
-          if ($LASTEXITCODE -ne 0) {
-            throw 'Unable to resolve the previous release of this module.'
-          }
-          # The resolved predecessor is written as a bare tag; an empty file means a first release.
-          $previous = (Get-Content -Raw -LiteralPath $resolved).Trim()
-          $manifest = ''
-          if (-not [string]::IsNullOrWhiteSpace($previous)) {
-            $directory = Join-Path $env:RUNNER_TEMP 'previous'
-            New-Item -ItemType Directory -Force -Path $directory | Out-Null
-            gh release download $previous --pattern 'packages.json' --dir $directory
-            if ($LASTEXITCODE -ne 0) {
-              throw "The previous module release $previous publishes no readable packages.json."
-            }
-            $manifest = Join-Path $directory 'packages.json'
-          }
-          "manifest=$manifest" | Add-Content -Path $env:GITHUB_OUTPUT
+        run: ./build.ps1 package -Output out/packages
 
-      - name: Gate the selected module through the public build tool
-        shell: pwsh
-        env:
-          MODULE: ${{ steps.tag.outputs.module }}
-          PREVIOUS_MANIFEST: ${{ steps.previous.outputs.manifest }}
-        run: |
-          $downloads = Join-Path $env:RUNNER_TEMP 'artifacts'
-          $gate = Join-Path $env:RUNNER_TEMP 'release-gate'
-          $assets = Join-Path $env:RUNNER_TEMP 'release-assets'
-          New-Item -ItemType Directory -Force -Path $gate, $assets | Out-Null
-          $manifests = @(
-            foreach ($arch in @('x86', 'x64')) {
-              $path = Join-Path $downloads "packages-$arch\packages.json"
-              if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
-                throw "A verified package manifest is missing: $path"
-              }
-              $path
-            }
-          )
-          Get-ChildItem -LiteralPath $downloads -Directory -Filter 'packages-*' |
-            ForEach-Object { Get-ChildItem -LiteralPath $_.FullName -Filter '*.zip' } |
-            Where-Object { $_.Name.StartsWith("$env:MODULE-", [StringComparison]::Ordinal) } |
-            # Every architecture ships the same intermediate symbol bundle name, so the
-            # per-architecture PDB bundles stay beside their own packages.json and only the
-            # module archives are copied flat; the gate assembles the final bundle.
-            Where-Object { -not $_.Name.EndsWith('-pdb.zip', [StringComparison]::Ordinal) } |
-            ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination $assets }
-          $previous = @()
-          if (-not [string]::IsNullOrWhiteSpace($env:PREVIOUS_MANIFEST)) {
-            $previous = @('--previous', $env:PREVIOUS_MANIFEST)
-          }
-          uv run --directory build --frozen --no-sync python -m core.release gate `
-            --module $env:MODULE --tag $env:GITHUB_REF_NAME `
-            --repository "$env:GITHUB_WORKSPACE" `
-            --output $gate --assets $assets @previous @manifests
+      - name: Upload the module archives
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: packages
+          path: out/packages/*.zip
+          if-no-files-found: error
+          retention-days: 30
+
+  release:
+    name: release
+    needs: packaging
+    if: startsWith(github.ref, 'refs/tags/renpy/v') || startsWith(github.ref, 'refs/tags/rpgmaker/v') || startsWith(github.ref, 'refs/tags/zanzarah/v')
+    runs-on: windows-2022
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Collect the module archives
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: packages
+          path: packages
 
       - name: Publish the module release
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $downloads = Join-Path $env:RUNNER_TEMP 'artifacts'
-          $gate = Join-Path $env:RUNNER_TEMP 'release-gate'
-          $assets = Join-Path $env:RUNNER_TEMP 'release-assets'
-          $tag = $env:GITHUB_REF_NAME
-          $packages = @(
-            Get-ChildItem -LiteralPath $assets -Filter '*.zip' |
-              ForEach-Object { $_.FullName }
-          )
-          if ($packages.Count -ne 3) {
-            throw "Expected three selected-module archives, found $($packages.Count)."
+          $module = $env:GITHUB_REF_NAME.Split('/')[0]
+          $version = $env:GITHUB_REF_NAME.Split('/')[1].TrimStart('v')
+          $notes = Join-Path $env:RUNNER_TEMP 'notes.md'
+          $latest = {
+            param([string] $Path)
+            $section = [System.Collections.Generic.List[string]]::new()
+            $started = $false
+            foreach ($line in (Get-Content -LiteralPath $Path)) {
+              if ($line -match '^(Version|Версия)\s') {
+                if ($started) { break }
+                $started = $true
+              }
+              if ($started) { [void] $section.Add($line) }
+            }
+            ($section -join "`n")
           }
-          $evidence = @(
-            Get-ChildItem -LiteralPath $downloads -Directory -Filter 'evidence-*' |
-              ForEach-Object {
-                $bundle = Join-Path $gate "$($_.Name).zip"
-                Compress-Archive -Path (Join-Path $_.FullName '*') -DestinationPath $bundle
-                $bundle
-              }
+          $en = & $latest "src/modules/$module/ChangeLog.en.txt"
+          $ru = & $latest "src/modules/$module/ChangeLog.ru.txt"
+          "$en`n`n$ru" | Set-Content -LiteralPath $notes -Encoding utf8
+          $archives = @(
+            "packages/$module-$version-bin-x64.zip"
+            "packages/$module-$version-bin-x86.zip"
+            "packages/$module-$version-pdb.zip"
           )
-          if ($evidence.Count -ne 3) {
-            throw "Expected three evidence bundles, found $($evidence.Count)."
-          }
-          $report = Get-Content -Raw -LiteralPath (Join-Path $gate 'release.json') | ConvertFrom-Json
-          $title = $report.title
-          # Only the byte-deterministic release assets are compared on an idempotent rerun; the
-          # evidence bundles are re-compressed each run and are only required to be present.
-          $deterministic = $packages + @(
-            (Join-Path $gate 'packages.json'), (Join-Path $gate 'release.json'),
-            (Join-Path $gate 'notes.md')
-          )
-          # Whether the exact tag is already published was resolved once, before the lineage
-          # lookup; reuse that recorded result instead of probing a second time.
-          $alreadyPublished = '${{ steps.previous.outputs.exists }}' -eq 'true'
-          if ($alreadyPublished) {
-            $published = Join-Path $env:RUNNER_TEMP 'published'
-            New-Item -ItemType Directory -Force -Path $published | Out-Null
-            gh release download $tag --dir $published
-            if ($LASTEXITCODE -ne 0) {
-              throw "Unable to download the published assets of $tag."
-            }
-            foreach ($file in $deterministic) {
-              $name = Split-Path -Leaf $file
-              $publishedFile = Join-Path $published $name
-              if (-not (Test-Path -LiteralPath $publishedFile -PathType Leaf)) {
-                throw "The published release $tag is missing $name."
-              }
-              if ((Get-FileHash -LiteralPath $publishedFile -Algorithm SHA256).Hash -ne
-                  (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash) {
-                throw "The published asset $name does not match the verified bytes."
-              }
-            }
-            foreach ($file in $evidence) {
-              if (-not (Test-Path -LiteralPath (Join-Path $published (Split-Path -Leaf $file)) -PathType Leaf)) {
-                throw "The published release $tag is missing $(Split-Path -Leaf $file)."
-              }
-            }
-          }
-          else {
-            gh release create $tag --verify-tag --title $title `
-              --notes-file (Join-Path $gate 'notes.md') @deterministic @evidence
-            if ($LASTEXITCODE -ne 0) {
-              throw "Unable to publish the release $tag."
-            }
+          gh release create $env:GITHUB_REF_NAME --verify-tag --notes-file $notes @archives
+          if ($LASTEXITCODE -ne 0) {
+            throw "Unable to publish the release $env:GITHUB_REF_NAME."
           }

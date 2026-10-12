@@ -82,9 +82,11 @@ DLLs to ship. The full command contract, prerequisites and quality gates live in
 [`docs/build-system.md`](docs/build-system.md); the common entry points are:
 
 ```powershell
-.\build.ps1 doctor
-.\build.ps1 build -Arch all -Config Release
+.\build.ps1 build -Arch x86,x64 -Config Release
 .\build.ps1 test -Arch x86,x64 -Config Debug
+.\build.ps1 ci-source
+.\build.ps1 ci-arch -Arch x64
+.\build.ps1 package
 ```
 
 Each module also publishes an optional `-pdb.zip` symbol bundle beside its module archives.

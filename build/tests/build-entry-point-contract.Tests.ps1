@@ -4,7 +4,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 # PowerShell parses an unquoted `x86,x64` in argument mode as an array literal, so an entry
-# point that forwards `@args` verbatim splats it into three separate driver arguments and every
+# point that forwards `@args` verbatim splats it into several separate driver arguments and every
 # documented multi-value example fails with `unrecognized arguments`. These cases pin the forwarding
 # contract of the root launcher: the driver must receive exactly one argument per written argument.
 
@@ -48,21 +48,6 @@ function Get-ForwardedArgv {
     return @($argv | Select-Object -Skip 1)
 }
 
-function Assert-ForwardedArgv {
-    param(
-        [Parameter(Mandatory)][string[]] $ProcessArgument,
-        [Parameter(Mandatory)][string] $Description,
-        [Parameter(Mandatory)][AllowEmptyCollection()][string[]] $Expected
-    )
-
-    $actual = @(Get-ForwardedArgv -ProcessArgument $ProcessArgument -Description $Description)
-    $separator = [char]31
-    if ([string]::Join($separator, $actual) -ne [string]::Join($separator, $Expected)) {
-        throw ("'$Description' must reach the driver as [$([string]::Join('] [', $Expected))] " +
-            "but reached it as [$([string]::Join('] [', $actual))].")
-    }
-}
-
 function Assert-CommandLine {
     param(
         [Parameter(Mandatory)][string] $CommandLine,
@@ -72,19 +57,14 @@ function Assert-CommandLine {
     # -Command reproduces the parsing a console or CI step performs; -File would flatten every
     # argument to a string and hide the array-literal defect this contract exists for. -Command
     # reports only success or failure by itself, so the launcher's own code is republished.
-    Assert-ForwardedArgv -ProcessArgument @('-Command', "& '$invocation' $CommandLine; exit `$LASTEXITCODE") `
-        -Description $CommandLine -Expected $Expected
+    $actual = @(Get-ForwardedArgv -ProcessArgument @('-Command', "& '$invocation' $CommandLine; exit `$LASTEXITCODE") `
+        -Description $CommandLine)
+    $separator = [char]31
+    if ([string]::Join($separator, $actual) -ne [string]::Join($separator, $Expected)) {
+        throw ("'$CommandLine' must reach the driver as [$([string]::Join('] [', $Expected))] " +
+            "but reached it as [$([string]::Join('] [', $actual))].")
+    }
 }
-
-# An empty command line reaches the driver as no arguments at all, which is how the launcher
-# forwards the documented help path. Assert-CommandLine cannot express it: its mandatory string
-# parameters reject the empty string.
-Assert-ForwardedArgv -ProcessArgument @('-Command', "& '$invocation'; exit `$LASTEXITCODE") `
-    -Description 'no arguments' -Expected @()
-
-Assert-CommandLine -CommandLine 'help' -Expected @('help')
-
-Assert-CommandLine -CommandLine 'doctor' -Expected @('doctor')
 
 Assert-CommandLine -CommandLine 'build -Arch x86,x64 -Config Release' `
     -Expected @('build', '-Arch', 'x86,x64', '-Config', 'Release')
@@ -95,37 +75,20 @@ Assert-CommandLine -CommandLine "build -Arch 'x86,x64' -Config Release" `
 Assert-CommandLine -CommandLine 'test -Arch x86,x64 -Config Debug' `
     -Expected @('test', '-Arch', 'x86,x64', '-Config', 'Debug')
 
-Assert-CommandLine -CommandLine 'test -Arch x64 -Config Debug' `
-    -Expected @('test', '-Arch', 'x64', '-Config', 'Debug')
-
-# Generality: every multi-value option, not only -Arch, survives the unquoted comma form.
-Assert-CommandLine -CommandLine 'restore -Arch x86,x64 -RestoreFlavor default,asan' `
-    -Expected @('restore', '-Arch', 'x86,x64', '-RestoreFlavor', 'default,asan')
-
 Assert-CommandLine -CommandLine 'build -Arch all -Config Debug,Release' `
     -Expected @('build', '-Arch', 'all', '-Config', 'Debug,Release')
 
-Assert-CommandLine -CommandLine 'fuzz -Arch x64 -FuzzTarget pickle,renpy,rpgmaker,zanzarah -FuzzSeconds 60' `
-    -Expected @('fuzz', '-Arch', 'x64', '-FuzzTarget', 'pickle,renpy,rpgmaker,zanzarah', '-FuzzSeconds', '60')
+Assert-CommandLine -CommandLine 'ci-arch -Arch x64 -Corpus C:\corpus -Jobs 8' `
+    -Expected @('ci-arch', '-Arch', 'x64', '-Corpus', 'C:\corpus', '-Jobs', '8')
 
-Assert-CommandLine -CommandLine 'fuzz -Arch x86,x64 -FuzzTarget all -FuzzSeconds 60' `
-    -Expected @('fuzz', '-Arch', 'x86,x64', '-FuzzTarget', 'all', '-FuzzSeconds', '60')
-
-Assert-CommandLine -CommandLine 'clean -CleanMode reports' -Expected @('clean', '-CleanMode', 'reports')
-
-# The complete CI command line, including options, integers, and a quoted path.
-Assert-CommandLine -CommandLine ("verify-arch -Arch x64 -ExportDir 'C:\evidence dir\x64' " +
-    '-FuzzSeconds 5 -LeakWarmup 1 -LeakIterations 1 -LeakWindows 3 -LeakToleranceBytes 0 ' +
-    '-Priority normal -Jobs 8 -Corpus C:\corpus') `
-    -Expected @('verify-arch', '-Arch', 'x64', '-ExportDir', 'C:\evidence dir\x64',
-        '-FuzzSeconds', '5', '-LeakWarmup', '1', '-LeakIterations', '1', '-LeakWindows', '3',
-        '-LeakToleranceBytes', '0', '-Priority', 'normal', '-Jobs', '8',
-        '-Corpus', 'C:\corpus')
+Assert-CommandLine -CommandLine 'package -Module renpy,rpgmaker -Output out\packages' `
+    -Expected @('package', '-Module', 'renpy,rpgmaker', '-Output', 'out\packages')
 
 # build.cmd routes through `pwsh -File`, where every argument already arrives as one string.
-Assert-ForwardedArgv -ProcessArgument (@('-File', $entryPoint) +
-    @('build', '-Arch', 'x86,x64', '-Config', 'Release')) `
-    -Description 'build.cmd shim' `
-    -Expected @('build', '-Arch', 'x86,x64', '-Config', 'Release')
+$actual = @(Get-ForwardedArgv -ProcessArgument (@('-File', $entryPoint) + @('ci-source', '-Jobs', '4')) `
+    -Description 'build.cmd shim')
+if ([string]::Join([char]31, $actual) -ne [string]::Join([char]31, @('ci-source', '-Jobs', '4'))) {
+    throw 'build.cmd must forward every argument unchanged.'
+}
 
 Write-Host '[OK] The root entry point forwards every documented argument form unchanged.'
