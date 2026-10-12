@@ -1,30 +1,24 @@
 Version 3.1.0
 -------------
- * Reject truncated or malformed Pickle indexes.
- * Limit the compressed and decompressed index to 64 MiB each.
- * Handle an invalid Pickle MARK safely.
- * Report a cancelled extraction as SER_USERABORT and propagate write and output close errors.
- * Harden the shared ABI inbound argument checks.
- * Ship self-contained MSVC builds for x86, x64 and ARM64 with no third-party runtime DLLs.
- * Add ARM64 support and PE version metadata to the module binaries.
- * Publish separate per-module releases; the versioned per-architecture ZIP carries the module, its Observer registration ini, the English and Russian ChangeLog files and the merged LICENSES.txt, and nothing else.
- * Ship debug symbols separately as one <module>-<version>-pdb.zip per module, holding the x86, x64 and ARM64 PDBs; no symbols are placed inside the module ZIP.
+ + Added ARM64 builds alongside the existing x86 and x64 builds.
+ + Added self-contained builds that need no extra runtime installation.
+ * Fixed opening archives with a corrupted or malformed index.
 
 Version 3.0.0
 -------------
- * Rewrite the module around a single extractor and complete RPA 3.0 file listing and prefix restoration.
- * Speed up file-list preparation.
- * Support archive prefixes encoded as Python bytes in addition to Unicode and Latin-1 strings.
- * Add an in-module Pickle parser, removing the external Python dependency; this also fixes machines without Python and adds x86 builds.
- * Stop emitting extra trailing bytes when extracting files that carry a prefix.
- * Add RPA 2.0 archive support.
+ + Added support for RPA 2.0 archives.
+ + Improved compatibility with RPA 3.0 archives.
+ + Added x86 builds and removed the external Python requirement, so the module works on machines without Python.
+ + Improved the speed of opening archives with many files.
+ * Fixed extraction of prefixed entries, which no longer gain extra garbage at the end of the file.
 
 Version 2.0.0
 -------------
- * The surviving legacy Ren'Py source reports version 2.0; the original release notes and release date are unknown.
- * Read RPA 3.0 archives with a zlib-compressed Pickle index parsed through Python.
- * Restore XOR-obfuscated offsets and lengths and the indexed file prefixes.
+ + Improved compatibility with archives from older Ren'Py games created with Python 2.
+ * Fixed progress reporting during extraction.
+ * Fixed opening archives larger than 4 GiB.
+ * Fixed a crash when opening certain archives.
 
 Version 1.0.0
 -------------
- * Historical change information for this version has not survived in the available repository.
+ + Added the first working Ren'Py module: it lists and extracts files from RPA 3.0 archives, including file names that use non-ASCII characters.

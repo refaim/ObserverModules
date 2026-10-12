@@ -1,14 +1,10 @@
 Version 1.1.0
 -------------
- * Reject truncated or malformed archive tables.
- * Check the claimed filename length against the archive before allocating, using both the limit and the actual bytes available.
- * Fix shared cancellation, write-error and ABI argument handling.
- * Ship self-contained MSVC builds for x86, x64 and ARM64 with no third-party runtime DLLs.
- * Add ARM64 support and PE version metadata to the module binaries.
- * Publish separate per-module releases; the versioned per-architecture ZIP carries the module, its Observer registration ini, the English and Russian ChangeLog files and the merged LICENSES.txt, and nothing else.
- * Ship debug symbols separately as one <module>-<version>-pdb.zip per module, holding the x86, x64 and ARM64 PDBs; no symbols are placed inside the module ZIP.
+ + Added ARM64 builds alongside the existing x86 and x64 builds.
+ + Added self-contained builds that need no extra runtime installation.
+ * Malformed and truncated archives are now rejected with an error.
 
 Version 1.0.0
 -------------
- * Add the first functional RPG Maker VX Ace module for RGSS3A (.rgss3a) archives.
- * Read the archive table, decrypt entry content including the final partial 32-bit word, and open, list and extract entries.
+ + Added the first working RPG Maker VX Ace module: it lists and extracts files from RGSS3A (.rgss3a) archives.
+ + Added complete extraction of every entry, including the final bytes of a file.

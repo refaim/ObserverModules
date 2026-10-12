@@ -1,23 +1,17 @@
 Version 2.1.0
 -------------
- * Bound record counts and path lengths before allocating and reject tables that claim more records or bytes than the archive holds.
- * Validate block sizes and file content bounds.
- * Strip a leading "..\" only when it is present and keep already relative paths unchanged.
- * Fix shared extraction cancellation and write-error handling.
- * Ship self-contained MSVC builds for x86, x64 and ARM64 with no third-party runtime DLLs.
- * Add ARM64 support and PE version metadata to the module binaries.
- * Publish separate per-module releases; the versioned per-architecture ZIP carries the module, its Observer registration ini, the English and Russian ChangeLog files and the merged LICENSES.txt, and nothing else.
- * Ship debug symbols separately as one <module>-<version>-pdb.zip per module, holding the x86, x64 and ARM64 PDBs; no symbols are placed inside the module ZIP.
+ + Added ARM64 builds alongside the existing x86 and x64 builds.
+ + Added self-contained builds that need no extra runtime installation.
+ * Malformed and truncated archives are now rejected with an error.
+ * Fixed file names so stored relative paths are preserved instead of losing their first characters.
 
 Version 2.0.0
 -------------
- * Make the PAK module functional and correct file enumeration and premature archive-handle release.
- * Move the module onto the common extractor.
- * Support both the original and the Steam PAK variants.
- * Add x86 builds.
- * Fix the size of extracted files.
- * Read the table after the signature and fix the metadata read start.
+ + Added support for both the original and the Steam PAK variants.
+ + Added x86 builds.
+ * Fixed the module so that archives open and their contents list correctly.
+ * Fixed extracted files that were cut short and lost their last bytes.
 
 Version 1.0.0
 -------------
- * Historical change information for this version has not survived in the available repository.
+ + Added the first working PAK module: it lists and extracts archives from Zanzarah: The Hidden Portal.

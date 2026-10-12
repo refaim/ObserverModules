@@ -30,6 +30,17 @@ _IDENTITY = re.compile(r"[0-9a-f]{64}")
 # rule so the same source bytes always concatenate to the same archive entry.
 _LICENSE_SEPARATOR = "=" * 72
 _LICENSE_TITLE = "Observer Modules"
+# A short English intro opens the document so a reader knows which artifact the file belongs to
+# and what the following sections reproduce before the first titled license section.
+_LICENSE_PREAMBLE = (
+    "This file accompanies the Observer Modules plugin {module}.so and describes the\n"
+    "licenses that apply to it. Observer Modules is published at\n"
+    "https://github.com/refaim/ObserverModules.\n"
+    "\n"
+    "The sections below contain the project license and the notices for third-party\n"
+    "code and format references relevant to this module; each original license text is\n"
+    "reproduced in full.\n"
+)
 
 
 class PackageError(RuntimeError):
@@ -82,7 +93,8 @@ def licenses_document(repository: Path, module: str) -> bytes:
         heading = f"{_LICENSE_SEPARATOR}\n{title}\n{_LICENSE_SEPARATOR}\n\n".encode("utf-8")
         body = text if text.endswith(b"\n") else text + b"\n"
         sections.append(heading + body)
-    return b"\n".join(sections)
+    preamble = (_LICENSE_PREAMBLE.format(module=module) + "\n").encode("utf-8")
+    return preamble + b"\n".join(sections)
 
 
 def _payload_files(payload: Path) -> dict[str, Path]:

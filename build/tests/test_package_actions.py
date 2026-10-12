@@ -227,15 +227,61 @@ class PackageActionTests(unittest.TestCase):
 
             document = licenses_document(repository, "renpy")
 
-            expected = b"\n".join([
+            sections = b"\n".join([
                 section("Observer Modules", (repository / "LICENSE.txt").read_bytes()),
                 *(section(name, (repository / "licenses" / name).read_bytes())
                   for name in LICENSES["renpy"]),
             ])
-            self.assertEqual(document, expected)
+            # The original notice sections survive byte for byte after the preamble.
+            self.assertTrue(document.endswith(sections))
+            preamble = document[: len(document) - len(sections)]
+            self.assertTrue(preamble.strip())
+            self.assertNotIn(SEPARATOR.encode(), preamble)
             # Stable and deterministic across repeated reads of the same source bytes.
             self.assertEqual(document, licenses_document(repository, "renpy"))
             self.assertEqual(document.count(SEPARATOR.encode()), 2 * (1 + len(LICENSES["renpy"])))
+
+    def test_licenses_document_preamble_identifies_the_module_and_project(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repository = self.repository(root / "repo")
+
+            for module in MODULES:
+                with self.subTest(module=module):
+                    document = licenses_document(repository, module)
+                    delimiter = SEPARATOR.encode("utf-8")
+                    self.assertTrue(document.startswith(b"This file"), document[:80])
+                    first = document.index(delimiter)
+                    preamble = document[:first]
+
+                    # The intro names the shipped artifact and the project it belongs to.
+                    self.assertIn(f"{module}.so".encode("utf-8"), preamble)
+                    self.assertIn(b"Observer Modules", preamble)
+                    self.assertIn(b"https://github.com/refaim/ObserverModules", preamble)
+                    # It explains that the following sections reproduce the notices in full.
+                    self.assertIn(b"project license", preamble)
+                    self.assertIn(b"third-party", preamble)
+                    self.assertIn(b"format references", preamble)
+                    self.assertIn(b"reproduced in full", preamble)
+                    # It stays prose: no delimiters and a blank line before the first section.
+                    self.assertNotIn(delimiter, preamble)
+                    self.assertTrue(preamble.endswith(b"\n\n"))
+                    # It does not misstate how the referenced components are incorporated.
+                    self.assertNotIn(b"statically linked", preamble)
+                    # One module's preamble never claims another module's artifact.
+                    for other in (name for name in MODULES if name != module):
+                        self.assertNotIn(f"{other}.so".encode("utf-8"), preamble)
+                    # Each document keeps exactly this module's selective notices.
+                    for name in LICENSES[module]:
+                        self.assertIn(f"{SEPARATOR}\n{name}\n{SEPARATOR}".encode("utf-8"), document)
+                    exclusive = {
+                        name
+                        for other in MODULES
+                        if other != module
+                        for name in LICENSES[other]
+                    } - set(LICENSES[module])
+                    for name in exclusive:
+                        self.assertNotIn(f"{SEPARATOR}\n{name}\n{SEPARATOR}".encode("utf-8"), document)
 
     def test_licenses_document_fails_closed_on_missing_or_empty_notices(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
