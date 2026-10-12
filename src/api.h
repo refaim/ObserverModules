@@ -23,16 +23,6 @@ It includes/modifies code originally from Observer (https://github.com/lazyhamst
 #define _WIN32_WINNT 0x0600
 #endif
 
-#ifndef _WIN32_WINDOWS
-// Specifies that the minimum required platform is Windows 98.
-#define _WIN32_WINDOWS 0x0410
-#endif
-
-#ifndef _WIN32_IE
-// Specifies that the minimum required platform is Internet Explorer 7.0.
-#define _WIN32_IE 0x0700
-#endif
-
 // Exclude rarely-used stuff from Windows headers.
 #define WIN32_LEAN_AND_MEAN
 
@@ -41,7 +31,7 @@ It includes/modifies code originally from Observer (https://github.com/lazyhamst
 #define MODULE_EXPORT __stdcall
 
 // Extract progress callbacks
-typedef int (CALLBACK *ExtractProgressFunc)(HANDLE, __int64);
+typedef int(CALLBACK *ExtractProgressFunc)(HANDLE, __int64);
 
 #pragma pack(push, 1)
 
@@ -93,15 +83,15 @@ struct ExtractOperationParams
     ExtractProcessCallbacks Callbacks;
 };
 
-typedef int (MODULE_EXPORT *OpenStorageFunc)(StorageOpenParams params, HANDLE *storage, StorageGeneralInfo *info);
+typedef int(MODULE_EXPORT *OpenStorageFunc)(StorageOpenParams params, HANDLE *storage, StorageGeneralInfo *info);
 
-typedef int (MODULE_EXPORT *PrepareFilesFunc)(HANDLE storage);
+typedef int(MODULE_EXPORT *PrepareFilesFunc)(HANDLE storage);
 
-typedef void (MODULE_EXPORT *CloseStorageFunc)(HANDLE storage);
+typedef void(MODULE_EXPORT *CloseStorageFunc)(HANDLE storage);
 
-typedef int (MODULE_EXPORT *GetItemFunc)(HANDLE storage, int item_index, StorageItemInfo *item_info);
+typedef int(MODULE_EXPORT *GetItemFunc)(HANDLE storage, int item_index, StorageItemInfo *item_info);
 
-typedef int (MODULE_EXPORT *ExtractFunc)(HANDLE storage, ExtractOperationParams params);
+typedef int(MODULE_EXPORT *ExtractFunc)(HANDLE storage, ExtractOperationParams params);
 
 struct module_cbs
 {
@@ -114,10 +104,10 @@ struct module_cbs
 
 struct ModuleLoadParameters
 {
-    //IN
+    // IN
     size_t StructSize;
     const wchar_t *Settings;
-    //OUT
+    // OUT
     GUID ModuleId;
     DWORD ModuleVersion;
     DWORD ApiVersion;
@@ -127,12 +117,12 @@ struct ModuleLoadParameters
 #pragma pack(pop)
 
 // Function that should be exported from modules
-typedef int (MODULE_EXPORT *LoadSubModuleFunc)(ModuleLoadParameters *);
+typedef int(MODULE_EXPORT *LoadSubModuleFunc)(ModuleLoadParameters *);
 
-typedef void (MODULE_EXPORT *UnloadSubModuleFunc)(void);
+typedef void(MODULE_EXPORT *UnloadSubModuleFunc)(void);
 
-#define MAKEMODULEVERSION(mj,mn) ((mj << 16) | mn)
-#define STRBUF_SIZE(x) ( sizeof(x) / sizeof(x[0]) )
+#define MAKEMODULEVERSION(mj, mn) (((mj) << 16) | (mn))
+#define STRBUF_SIZE(x) (sizeof(x) / sizeof((x)[0]))
 
 // Open storage return results
 #define SOR_INVALID_FILE 0

@@ -1,2 +1,5 @@
-/.PVS-Studio
-/build
+/out/
+/build/.venv/
+/build/.uv-cache/
+/build/.coverage*
+/.idea/

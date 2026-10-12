@@ -1,12 +1,13 @@
 #pragma once
 
-#include <vector>
-#include <unordered_map>
-#include <variant>
-#include <string>
+#include <cstdint>
 #include <memory>
 #include <span>
 #include <stdexcept>
+#include <string>
+#include <unordered_map>
+#include <variant>
+#include <vector>
 
 namespace pickle
 {
@@ -18,8 +19,8 @@ namespace pickle
 
     class value
     {
-    public:
-        enum class type
+      public:
+        enum class type : std::uint8_t
         {
             none,
             bool_,
@@ -32,19 +33,19 @@ namespace pickle
             tuple
         };
 
-    private:
+      private:
         type type_;
-        std::variant<
-            std::monostate, // none
-            bool, // bool_
-            int64_t, // int64
-            double, // float64
-            std::string, // bytes/string
-            list, // list/tuple
-            dict // dict
-        > data_;
+        std::variant<std::monostate, // none
+                     bool,           // bool_
+                     int64_t,        // int64
+                     double,         // float64
+                     std::string,    // bytes/string
+                     list,           // list/tuple
+                     dict            // dict
+                     >
+            data_;
 
-    public:
+      public:
         explicit value(const type t) : type_(t)
         {
         }
@@ -110,7 +111,10 @@ namespace pickle
             return v;
         }
 
-        type get_type() const { return type_; }
+        type get_type() const
+        {
+            return type_;
+        }
 
         bool as_bool() const
         {
@@ -169,9 +173,11 @@ namespace pickle
         }
     };
 
+    value_ptr clone(const value &source);
+
     class parser
     {
-    private:
+      private:
         std::span<const std::byte> data_;
         size_t pos_ = 0;
         std::vector<value_ptr> stack_;
@@ -196,7 +202,7 @@ namespace pickle
 
         value_ptr parse_value();
 
-    public:
+      public:
         explicit parser(const std::span<const std::byte> data) : data_(data)
         {
         }
@@ -207,4 +213,4 @@ namespace pickle
     value_ptr loads(std::span<const std::byte> data);
 
     value_ptr loads(const std::string &data);
-}
+} // namespace pickle

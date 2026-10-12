@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Direct native build entry point.
+
+  MSBuild owns the project graph, the schedule and the incremental object
+  state: this project only names the native projects and hands one
+  configuration/platform request to a single parallel MSBuild submission.  The
+  content-addressed graph used to render one shell command per project here.
+
+  Call it through build/native.py, which supplies the stable ArtifactsRoot and
+  the vcpkg root, or evaluate it directly with the same global properties.
+-->
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <Configuration Condition="'$(Configuration)' == ''">Debug</Configuration>
+    <Platform Condition="'$(Platform)' == ''">x64</Platform>
+    <ArtifactsRoot Condition="'$(ArtifactsRoot)' == ''">$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\out\native\'))</ArtifactsRoot>
+    <BuildInParallel Condition="'$(BuildInParallel)' == ''">true</BuildInParallel>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ObserverProject Include="$(MSBuildThisFileDirectory)projects\renpy.vcxproj" />
+    <ObserverProject Include="$(MSBuildThisFileDirectory)projects\rpgmaker.vcxproj" />
+    <ObserverProject Include="$(MSBuildThisFileDirectory)projects\zanzarah.vcxproj" />
+    <ObserverProject Include="$(MSBuildThisFileDirectory)projects\tests.vcxproj" />
+  </ItemGroup>
+
+  <Target Name="Build">
+    <MSBuild Projects="@(ObserverProject)"
+             Targets="Build"
+             BuildInParallel="$(BuildInParallel)"
+             Properties="Configuration=$(Configuration);Platform=$(Platform);ArtifactsRoot=$(ArtifactsRoot);VcpkgRoot=$(VcpkgRoot);VcpkgManifestInstall=false" />
+  </Target>
+</Project>

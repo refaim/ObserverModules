@@ -1,5 +1,6 @@
 #pragma once
 
+#include <istream>
 #include <memory>
 #include <span>
 #include <stdexcept>
@@ -27,8 +28,8 @@ namespace extractor
 
     class read_error final : public std::runtime_error
     {
-    public:
-        read_error(): runtime_error("")
+      public:
+        read_error() : runtime_error("")
         {
         }
     };
@@ -44,23 +45,23 @@ namespace extractor
     {
         std::string path;
         std::string header;
-        int64_t offset;
-        int64_t compressed_body_size_in_bytes;
-        int64_t uncompressed_body_size_in_bytes;
+        int64_t offset = 0;
+        int64_t compressed_body_size_in_bytes = 0;
+        int64_t uncompressed_body_size_in_bytes = 0;
         uint32_t magic = 0;
     };
 
     class extractor
     {
-    public:
+      public:
         virtual ~extractor() = default;
 
-        static std::vector<std::byte> get_signature() noexcept;
+        static std::vector<std::byte> get_signature();
 
-        archive_info get_archive_info(const std::span<const std::byte> &data) noexcept;
+        archive_info get_archive_info(const std::span<const std::byte> &data);
 
-        std::vector<std::unique_ptr<file> > list_files(std::ifstream &stream);
+        std::vector<std::unique_ptr<file>> list_files(std::istream &stream);
 
         uint32_t decrypt(uint32_t magic, std::vector<char> &data) const;
     };
-}
+} // namespace extractor

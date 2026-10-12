@@ -1,0 +1,13 @@
+---
+Checks: >
+  -*,
+  clang-analyzer-*,
+  bugprone-*,
+  performance-*,
+  portability-*,
+  -bugprone-easily-swappable-parameters
+WarningsAsErrors: '*'
+HeaderFilterRegex: '.*[\\/]src[\\/].*'
+SystemHeaders: false
+FormatStyle: file
+...
