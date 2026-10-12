@@ -1,7 +1,7 @@
 [project]
 name = "unpackrat-build"
-version = "0.1.0"
-description = "Direct MSBuild and validator build tooling for unpackrat"
+version = "0.2.0"
+description = "Minimal MSBuild build driver and packaging for unpackrat"
 requires-python = "==3.14.7"
 dependencies = [
     "coverage==7.15.2",
@@ -19,9 +19,8 @@ command_line = "-m unittest discover -s tests -p test_*.py"
 source = ["."]
 
 [tool.coverage.report]
-exclude_lines = ["pragma: no cover"]
+exclude_lines = []
 fail_under = 100
-include = ["core/*", "main.py", "native.py", "source_checks.py", "diagnostics.py",
-           "packaging_ops.py"]
+include = ["main.py", "leaks.py"]
 show_missing = true
 skip_covered = false

@@ -2,6 +2,7 @@
 
 #include "observer.h"
 
+#include <cstdint>
 #include <fstream>
 
 #include <catch2/catch_test_macros.hpp>
@@ -11,6 +12,16 @@
 
 namespace test
 {
+    namespace
+    {
+        std::uint64_t file_size_bytes(const std::filesystem::path &path)
+        {
+            WIN32_FILE_ATTRIBUTE_DATA attributes{};
+            REQUIRE(GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &attributes));
+            return (static_cast<std::uint64_t>(attributes.nFileSizeHigh) << 32U) | attributes.nFileSizeLow;
+        }
+    } // namespace
+
     class temporary_file final
     {
       public:
@@ -99,8 +110,7 @@ namespace test
             temporary_file extracted(make_unique_path(path, file));
             file.extract(extracted.path());
             REQUIRE(file.uncompressed_size >= 0);
-            REQUIRE(std::filesystem::file_size(extracted.path()) ==
-                    static_cast<std::uintmax_t>(file.uncompressed_size));
+            REQUIRE(file_size_bytes(extracted.path()) == static_cast<std::uintmax_t>(file.uncompressed_size));
             REQUIRE(read_file(extracted.path()) == expected->contents);
         }
     }
@@ -132,7 +142,7 @@ namespace test
         for (const auto files = plugin.list_files(archive_path); const auto &file : files) {
             temporary_file extracted(make_unique_path(archive_path, file));
             file.extract(extracted.path());
-            const auto file_size = std::filesystem::file_size(extracted.path());
+            const auto file_size = file_size_bytes(extracted.path());
             REQUIRE(file.uncompressed_size >= 0);
             REQUIRE(file_size == static_cast<decltype(file_size)>(file.uncompressed_size));
             actual_strings.emplace_back(

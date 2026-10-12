@@ -1,0 +1,412 @@
+"""Focused regression contracts for the driver findings (review 2026-10-12).
+
+Each test encodes the observable behaviour ``build/main.py`` or ``build/leaks.py`` must
+have after the review fixes, so every test is expected to fail against the frozen
+production.  The assertions are about native command shape, path composition and failure
+behaviour reached through the public operations (``ci_arch``, ``ci_source``, ``build``,
+``main``) and the ``leaks`` worker, with ``main.run`` and the tool lookups faked so no real
+compiler, debugger or network is ever touched.  A test that fails because a helper the fix
+introduces is still missing is a missing-signature failure; a test that fails on an
+assertion is a wrong-behaviour failure.  Both are the intended RED for this phase.
+"""
+
+from __future__ import annotations
+
+import io
+import json
+import os
+from pathlib import Path
+import re
+import subprocess
+import sys
+import tempfile
+import unittest
+from unittest import mock
+
+
+BUILD_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(BUILD_ROOT))
+
+import leaks  # noqa: E402
+import main  # noqa: E402
+from leaks import LeakError  # noqa: E402
+
+
+FULL_COVERAGE = {
+    "data": [{"totals": {"lines": {"count": 10, "covered": 10}, "branches": {"count": 4, "covered": 4}}}]
+}
+
+
+def _dumpbin(argv) -> str:
+    flag = argv[1]
+    if flag == "/headers":
+        return "8664 machine (x64)" if "x64" in argv[2] else "14C machine (x86)"
+    if flag == "/dependents":
+        return "    KERNEL32.dll"
+    return "   1    0 00001000 LoadSubModule\n   2    0 00001010 UnloadSubModule"
+
+
+class PipelineRun:
+    """A checked ``main.run`` stand-in covering every tool the CI operations reach."""
+
+    def __init__(self, *, vswhere: str = "", dumpbin=None, sarif=None, junit_parents: bool = False) -> None:
+        self.calls: list[tuple[str, ...]] = []
+        self._vswhere = vswhere
+        self._dumpbin = dumpbin
+        self._sarif = sarif
+        self._junit_parents = junit_parents
+
+    def __call__(self, argv, cwd=None, env=None, capture=False, **_options: object) -> subprocess.CompletedProcess:
+        recorded = tuple(str(item) for item in argv)
+        self.calls.append(recorded)
+        name = os.path.basename(recorded[0]).lower()
+        if self._junit_parents:
+            for item in recorded:
+                if item.startswith("JUnit::out="):
+                    report = Path(item.split("=", 1)[1])
+                    if not report.parent.is_dir():
+                        raise subprocess.CalledProcessError(1, list(recorded), f"cannot create {report.parent}")
+        if name == "binskim.exe":
+            document = self._sarif if self._sarif is not None else {"version": "2.1.0", "runs": []}
+            destination = Path(recorded[recorded.index("--output") + 1])
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_text(json.dumps(document), encoding="utf-8")
+            return subprocess.CompletedProcess(list(recorded), 0, "")
+        if capture:
+            if "vswhere" in name:
+                return subprocess.CompletedProcess(list(recorded), 0, self._vswhere)
+            if name == "dumpbin.exe" and self._dumpbin is not None:
+                return subprocess.CompletedProcess(list(recorded), 0, self._dumpbin(recorded))
+            if "llvm-cov" in name:
+                return subprocess.CompletedProcess(list(recorded), 0, json.dumps(FULL_COVERAGE))
+            return subprocess.CompletedProcess(list(recorded), 0, "")
+        if env and "LLVM_PROFILE_FILE" in env:
+            path = Path(env["LLVM_PROFILE_FILE"].replace("%m", "1").replace("%p", "2"))
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"raw")
+        return subprocess.CompletedProcess(list(recorded), 0, None)
+
+    def tools(self) -> list[str]:
+        return [os.path.basename(call[0]).lower() for call in self.calls]
+
+    def by_tool(self, tool: str) -> list[tuple[str, ...]]:
+        return [call for call in self.calls if os.path.basename(call[0]).lower() == tool]
+
+
+def _properties(argv: tuple[str, ...]) -> dict[str, str]:
+    found: dict[str, str] = {}
+    for item in argv:
+        match = re.match(r"^[-/](?:p|property):(?P<name>[^=]+)=(?P<value>.*)$", item)
+        if match is not None:
+            found[match.group("name")] = match.group("value")
+    return found
+
+
+class DriverCase(unittest.TestCase):
+    def setUp(self) -> None:
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        self.repo = self.root / "repo"
+        self.repo.mkdir()
+
+        # Hard guard: nothing here may start a real native tool even from a partial driver.
+        forbidden = AssertionError("a real subprocess launch is forbidden in this test")
+        self.enterContext(mock.patch.object(subprocess, "Popen", side_effect=forbidden))
+        self.enterContext(mock.patch.object(subprocess, "run", side_effect=forbidden))
+
+        self.llvm = main.Llvm(
+            directory=self.root / "llvm",
+            runtime=self.root / "llvm" / "runtime",
+            cov=self.root / "llvm-cov.exe",
+            profdata=self.root / "llvm-profdata.exe",
+        )
+        self.asan = self.root / "asan.dll"
+        self.asan.write_bytes(b"x")
+        self.msbuild = self.root / "MSBuild.exe"
+        self.vcpkg = self.root / "vcpkg.exe"
+
+    def tools(self, run: PipelineRun):
+        return mock.patch.multiple(
+            main,
+            create=True,
+            run=run,
+            _native_tools=mock.Mock(return_value=(self.msbuild, self.vcpkg)),
+            _llvm=mock.Mock(return_value=self.llvm),
+            _find_dumpbin=mock.Mock(return_value=self.root / "dumpbin.exe"),
+            _find_umdh=mock.Mock(return_value=self.root / "umdh.exe"),
+            _asan_runtime=mock.Mock(return_value=self.asan),
+            _find_binskimm=mock.Mock(return_value=self.root / "binskim.exe"),
+        )
+
+    def make_module(self, module: str = "renpy", version: str = "1.2.3") -> None:
+        module_dir = self.repo / "src" / "modules" / module
+        module_dir.mkdir(parents=True)
+        (module_dir / "VERSION").write_text(version + "\n", encoding="utf-8")
+        (module_dir / "observer_user.ini").write_bytes(b"[Modules]\n")
+        (module_dir / "ChangeLog.en.txt").write_bytes(b"Version 1.2.3\n-\n+ note\n")
+        (module_dir / "ChangeLog.ru.txt").write_bytes("\u0412\u0435\u0440\u0441\u0438\u044f 1.2.3\n-\n+ note\n".encode("utf-8"))
+        (self.repo / "LICENSE.txt").write_bytes(b"MIT license text\n")
+        licenses = self.repo / "licenses"
+        licenses.mkdir(exist_ok=True)
+        for name in ("Observer.txt", "GPL-3.0.txt", "rpatool.txt", "serde-pickle.txt", "zlib.txt", "rgssad.txt"):
+            (licenses / name).write_bytes(name.encode() + b" notice")
+        for architecture in main.ARCHITECTURES:
+            stage = self.repo / "out" / "native" / "bin" / architecture / "Release"
+            stage.mkdir(parents=True, exist_ok=True)
+            (stage / f"{module}.so").write_bytes(b"binary")
+            (stage / f"{module}.pdb").write_bytes(b"symbols")
+        for target in main.FUZZ_TARGETS:
+            seeds = self.repo / "src" / "fuzz" / "corpus" / target
+            seeds.mkdir(parents=True, exist_ok=True)
+            (seeds / "seed.hex").write_text("414243", encoding="ascii")
+
+    # ----- finding 3: fresh-tree JUnit report directories ---------------------------------
+
+    def test_coverage_creates_the_junit_report_directory(self) -> None:
+        run = PipelineRun(junit_parents=True)
+        with self.tools(run):
+            main._coverage(self.repo, "x64", self.msbuild, self.vcpkg, self.llvm)
+        reports = self.repo / "out" / "native" / "reports" / "tests" / "x64" / "Coverage" / "unit"
+        self.assertTrue(reports.is_dir(), "coverage must create the JUnit report directory before the suite runs")
+
+    def test_sanitizer_creates_the_junit_report_directory(self) -> None:
+        run = PipelineRun(junit_parents=True)
+        with self.tools(run):
+            main._sanitizer(self.repo, "asan", "x64", self.msbuild, self.vcpkg, self.llvm)
+        reports = self.repo / "out" / "native" / "reports" / "tests" / "x64" / "ASan" / "asan"
+        self.assertTrue(reports.is_dir(), "the sanitizer must create the JUnit report directory before the suite runs")
+
+    # ----- finding 4: native analyze / clang-tidy / BinSkim ------------------------------
+
+    def test_release_build_enables_msvc_analyze_and_clang_tidy(self) -> None:
+        run = PipelineRun(vswhere=str(self.root / "vs"))
+        with self.tools(run):
+            main.build("x64", "Release", repository=self.repo)
+        msbuild = run.by_tool("msbuild.exe")
+        self.assertEqual(len(msbuild), 1)
+        properties = _properties(msbuild[0])
+        self.assertEqual(properties.get("RunCodeAnalysis"), "true", "the Release build must run the native analyzer")
+        self.assertEqual(
+            properties.get("EnableClangTidyCodeAnalysis"), "true", "the Release build must run clang-tidy"
+        )
+        clang_tidy = properties.get("ClangTidyToolExeAdditionalOptions", "")
+        self.assertIn("warnings-as-errors", clang_tidy.replace(" ", ""), clang_tidy)
+        self.assertIn("*", clang_tidy, clang_tidy)
+
+    def test_ci_arch_fails_when_binskim_reports_a_warning(self) -> None:
+        self.make_module()
+        warning = {
+            "version": "2.1.0",
+            "runs": [{"results": [{"ruleId": "BA2001", "level": "warning", "message": {"text": "load config"}}]}],
+        }
+        run = PipelineRun(dumpbin=_dumpbin, sarif=warning)
+        with self.tools(run), self.assertRaises(main.BuildError):
+            main.ci_arch(["x64"], repository=self.repo)
+
+    def test_ci_arch_accepts_omitted_level_hint_only_for_ba2027(self) -> None:
+        self.make_module()
+        # A result with no explicit level follows the SARIF default (warning) and must fail...
+        omitted = {
+            "version": "2.1.0",
+            "runs": [{"results": [{"ruleId": "BA2001", "message": {"text": "no level"}}]}],
+        }
+        run = PipelineRun(dumpbin=_dumpbin, sarif=omitted)
+        with self.tools(run), self.assertRaises(main.BuildError):
+            main.ci_arch(["x64"], repository=self.repo)
+        # ...while only the BA2027 *warning* is the single documented exception.
+        exempt = {
+            "version": "2.1.0",
+            "runs": [{"results": [{"ruleId": "BA2027", "level": "warning", "message": {"text": "exempt"}}]}],
+        }
+        run = PipelineRun(dumpbin=_dumpbin, sarif=exempt)
+        with self.tools(run):
+            main.ci_arch(["x64"], repository=self.repo)
+
+    # ----- finding 5: PSScriptAnalyzer scope ---------------------------------------------
+
+    def test_pssa_scans_root_and_build_scripts_not_only_src(self) -> None:
+        self.repo.joinpath("src").mkdir()
+        (self.repo / "src" / "app.ps1").write_bytes(b"x")
+        (self.repo / "build").mkdir()
+        (self.repo / "build" / "tool.ps1").write_bytes(b"x")
+        (self.repo / "root.ps1").write_bytes(b"x")
+        for ignored in ("out", ".git", ".venv"):
+            directory = self.repo / ignored
+            directory.mkdir()
+            (directory / "skip.ps1").write_bytes(b"x")
+        run = PipelineRun()
+        with mock.patch.object(main, "run", run):
+            main._pssa(self.repo, main.SourceTools(self.root / "cf.exe", self.root / "cc.exe", self.root / "pwsh.exe"))
+        pwsh = run.by_tool("pwsh.exe")
+        self.assertEqual(len(pwsh), 1)
+        scanned = {Path(item) for item in pwsh[0][pwsh[0].index("-Settings") + 2:]}
+        self.assertIn(self.repo / "root.ps1", scanned)
+        self.assertIn(self.repo / "build" / "tool.ps1", scanned)
+        self.assertIn(self.repo / "src" / "app.ps1", scanned)
+        for ignored in ("out", ".git", ".venv"):
+            self.assertNotIn(self.repo / ignored / "skip.ps1", scanned)
+
+    # ----- finding 6: -Jobs reaches MSBuild ----------------------------------------------
+
+    def test_jobs_reaches_the_build_and_test_msbuild_invocations(self) -> None:
+        for command in ("build", "test"):
+            with self.subTest(command=command):
+                run = PipelineRun(vswhere=str(self.root / "vs"))
+                with self.tools(run):
+                    self.assertEqual(
+                        main.main([command, "-Repository", str(self.repo), "-Arch", "x64", "-Config", "Debug", "-Jobs", "3"]),
+                        0,
+                    )
+                msbuild = run.by_tool("msbuild.exe")
+                self.assertTrue(msbuild, f"{command} must drive MSBuild")
+                self.assertTrue(
+                    all("/m:3" in call for call in msbuild),
+                    f"{command} did not forward -Jobs 3 to MSBuild: {msbuild[0]}",
+                )
+
+    # ----- finding 7: no Python version validator ----------------------------------------
+
+    def test_read_version_reads_an_opaque_version_without_python_validation(self) -> None:
+        module = self.repo / "src" / "modules" / "renpy"
+        module.mkdir(parents=True)
+        (module / "VERSION").write_text("opaque-build-42\n", encoding="utf-8")
+        self.assertEqual(main.read_version(self.repo, "renpy"), "opaque-build-42")
+        self.assertFalse(
+            hasattr(main, "parse_version"),
+            "the redundant Python version parser must be removed; MSBuild owns the format",
+        )
+
+    # ----- finding 10: bounded leak marker wait and UMDH tool timeouts --------------------
+
+    def test_leak_read_accepts_a_timeout_bound(self) -> None:
+        process = _StallingProbe()
+        with self.assertRaises(LeakError):
+            leaks._read(process, "READY", "", timeout=0.05)
+
+    def test_umdh_snapshot_and_diff_invocations_have_a_finite_timeout(self) -> None:
+        environment = self._leak_environment()
+        recorded: list[dict] = []
+
+        def runner(argv, **options: object) -> subprocess.CompletedProcess:
+            recorded.append({"argv": list(argv), "options": options})
+            if os.path.basename(argv[0]).lower() == "gflags.exe":
+                return subprocess.CompletedProcess(list(argv), 0, "Current Registry Settings for leak-probe.exe executable are: 00000000")
+            Path(argv[-1].removeprefix("-f:")).write_text(
+                "Total increase == 0\n" if "-d" in argv else "BackTrace\n", encoding="utf-8"
+            )
+            return subprocess.CompletedProcess(list(argv), 0, "")
+
+        with environment, mock.patch("leaks.psutil.Popen", return_value=_CleanProbe()), mock.patch(
+            "leaks.subprocess.run", side_effect=runner
+        ):
+            leaks.main(("measure", str(self.root), str(self.root / "umdh.exe"), "operations", "malformed", "1", "2", "3", "0"))
+
+        umdh_calls = [call for call in recorded if os.path.basename(call["argv"][0]).lower() == "umdh.exe"]
+        self.assertTrue(umdh_calls, "the leak worker must invoke UMDH")
+        for call in umdh_calls:
+            timeout = call["options"].get("timeout")
+            self.assertIsInstance(timeout, (int, float), f"UMDH invocation has no finite timeout: {call['argv']}")
+            self.assertGreater(timeout, 0)
+
+    def test_umdh_timeout_surfaces_as_a_leak_error_and_kills_the_probe(self) -> None:
+        probe = _CleanProbe()
+
+        def runner(argv, **options: object) -> subprocess.CompletedProcess:
+            if os.path.basename(argv[0]).lower() == "gflags.exe":
+                return subprocess.CompletedProcess(list(argv), 0, "Current Registry Settings for leak-probe.exe executable are: 00000000")
+            raise subprocess.TimeoutExpired(list(argv), 1)
+
+        with self._leak_environment(), mock.patch(
+            "leaks.psutil.Popen", return_value=probe
+        ), mock.patch("leaks.subprocess.run", side_effect=runner), mock.patch("leaks.psutil.wait_procs"), self.assertRaises(LeakError):
+            leaks.main(("measure", str(self.root), str(self.root / "umdh.exe"), "operations", "malformed", "1", "2", "3", "0"))
+        self.assertTrue(probe.killed, "a stalled UMDH invocation must still reap the probe")
+
+    def _leak_environment(self):
+        for name in ("leak-probe.exe", "umdh.exe", "gflags.exe"):
+            (self.root / name).touch()
+        output = self.root / "evidence"
+        output.mkdir(exist_ok=True)
+        return mock.patch.dict(os.environ, {"UNPACKRAT_OUT_DIR": str(output)}, clear=False)
+
+    # ----- finding 11: ordinary-console tool lookup --------------------------------------
+
+    def test_source_and_llvm_tools_resolve_from_the_installed_vs_without_path(self) -> None:
+        install = self.root / "vs"
+        llvm_bin = install / "VC" / "Tools" / "Llvm" / "x64" / "bin"
+        llvm_bin.mkdir(parents=True)
+        (llvm_bin / "clang-cl.exe").write_bytes(b"x")
+        (llvm_bin / "clang-format.exe").write_bytes(b"x")
+        (install / "VC" / "Tools" / "Llvm" / "x64" / "lib" / "clang" / "19.1.5" / "lib" / "windows").mkdir(parents=True)
+        dumpbin = install / "VC" / "Tools" / "MSVC" / "14.4" / "bin" / "Hostx64" / "x64" / "dumpbin.exe"
+        dumpbin.parent.mkdir(parents=True)
+        dumpbin.write_bytes(b"x")
+        pf86 = self.root / "pf86"
+        vswhere = pf86 / "Microsoft Visual Studio" / "Installer" / "vswhere.exe"
+        vswhere.parent.mkdir(parents=True)
+        vswhere.write_bytes(b"x")
+
+        def which(name: str):
+            # An ordinary console: none of the VS/LLVM tools are on PATH.
+            return str(self.root / f"{name}.exe") if name in ("cppcheck", "pwsh") else None
+
+        run = PipelineRun(vswhere=str(install))
+        with mock.patch.object(main, "run", run), mock.patch("shutil.which", side_effect=which), mock.patch.dict(
+            os.environ, {"ProgramFiles(x86)": str(pf86)}
+        ):
+            tools = main._source_tools()
+            directory = main._llvm_dir()
+            found_dumpbin = main._find_dumpbin()
+
+        self.assertEqual(tools.clang_format, llvm_bin / "clang-format.exe")
+        self.assertEqual(directory, install / "VC" / "Tools" / "Llvm" / "x64")
+        self.assertEqual(found_dumpbin, dumpbin)
+        # The lookup must use the installed tools, never install anything.
+        self.assertTrue(all(os.path.basename(call[0]).lower() == "vswhere.exe" for call in run.calls), run.tools())
+
+
+class _StallingProbe:
+    """A probe whose stdout never yields the marker; the read must be time-bounded."""
+
+    def __init__(self) -> None:
+        self.stdout = io.StringIO("noise line\n" * 4)
+        self.stdin = io.StringIO()
+        self.pid = 77
+
+
+class _CleanProbe:
+    def __init__(self) -> None:
+        labels = ("baseline", "window-1", "window-2", "window-3")
+        self.stdout = io.StringIO(
+            "\n".join(
+                [
+                    "UNPACKRAT_LEAK_PROBE|READY|pid=77|mode=operations|configuration=Release|scenarios=malformed",
+                    *(f"UNPACKRAT_LEAK_PROBE|SNAPSHOT|{label}|pid=77|" for label in labels),
+                    "UNPACKRAT_LEAK_PROBE|DONE|pid=77|",
+                ]
+            )
+            + "\n"
+        )
+        self.stdin = io.StringIO()
+        self.pid = 77
+        self.returncode: int | None = None
+        self.killed = False
+
+    def wait(self, timeout: int = 0) -> int:
+        self.returncode = 0
+        return 0
+
+    def poll(self) -> int | None:
+        return self.returncode
+
+    def children(self, *, recursive: bool) -> list[object]:
+        return []
+
+    def kill(self) -> None:
+        self.killed = True
+        self.returncode = -9
+
+
+if __name__ == "__main__":
+    unittest.main()

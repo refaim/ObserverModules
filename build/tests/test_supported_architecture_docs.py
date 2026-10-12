@@ -130,6 +130,24 @@ class SupportedArchitectureDocumentTests(unittest.TestCase):
         self.assertIn("x86 and x64", item)
         self.assertNotIn("deferred", item)
 
+    def test_methodology_describes_the_real_binary_gate_without_removed_checks(self) -> None:
+        # The packaged bytes are not re-audited, so the methodology must not promise packaging
+        # smoke tests, a PDB archive audit, an archive-content allowlist or a packaged-DLL-bytes
+        # smoke test; it may only name the native gates the build actually runs.
+        docs = flat(read(METHODOLOGY))
+        for removed in (
+            "packaging smoke tests",
+            "package smoke tests",
+            "PDB archive audit",
+            "archive-content allowlists",
+            "smoke tests of the packaged DLL bytes",
+        ):
+            with self.subTest(removed=removed):
+                self.assertNotIn(removed, docs)
+        self.assertIn("exact exports", docs)
+        self.assertIn("forbidden imports", docs)
+        self.assertIn("BinSkim", docs)
+
     def test_changelogs_drop_the_arm_build_claim_and_keep_the_version_history(self) -> None:
         headers = {"en": "Version", "ru": "\u0412\u0435\u0440\u0441\u0438\u044f"}
         for module in MODULES:

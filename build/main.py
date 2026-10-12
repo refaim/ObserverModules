@@ -1,121 +1,863 @@
-"""Console entry point for the direct MSBuild build and verification route.
+"""Minimal console build driver for unpackrat.
 
-This replaces the content-addressed graph driver with plain, coarse calls: the
-native route (:mod:`native`) lets MSBuild own project dependencies, scheduling
-and incremental state under a stable ``out/native`` tree, and every other
-family is a direct function that shells out to the retained ``core`` validators
-(:mod:`diagnostics`, :mod:`source_checks`, :mod:`packaging_ops`).  The argument
-and command surface is preserved.  Verification runs explicit, ordered gate
-calls with a small keep-going evidence collector: independent gates always run,
-only a dependent package is blocked by an earlier failure, and the current
-reports are exported before the run exits nonzero.
+One direct route: vcpkg restores the pinned manifest, MSBuild owns project evaluation,
+dependencies and incremental state under ``out/native``, and every other operation is a
+short function that runs one real tool and lets that tool's exit code be the verdict.
+The public surface is ``build``, ``test``, ``package``, ``coverage_complete``, ``run`` and
+``main``; the CLI exposes ``build``, ``test``, ``ci-source``, ``ci-arch`` and ``package``.
 """
 
 from __future__ import annotations
 
 import argparse
-from collections.abc import Callable, Sequence
-from contextlib import redirect_stdout
+from collections.abc import Sequence
 from dataclasses import dataclass
-from io import StringIO
+import json
 import os
 from pathlib import Path
+import re
+import shutil
 import subprocess
 import sys
-import traceback
-from typing import TextIO
-
-import win32api
-import win32process
-
-import diagnostics
-import native
-import packaging_ops
-import source_checks
-from core.clean import CleanError, _is_reparse, clean as clean_output, prepare_fresh
-from core.doctor import main as doctor_main
-from core.host import detect_host_architecture, verify_route
-from core.package import MODULES
-from core.quality_tools import (
-    resolve_asan_runtimes,
-    resolve_fuzzer_runtime,
-    resolve_llvm,
-    resolve_profile_runtime,
-    resolve_ubsan_runtime,
-    resolve_umdh,
-)
-from core.toolchain import discover_msvc_toolchain
-from core.windows_process import WindowsProcessRunner
-from core import result_export
+from typing import Any
+import zipfile
 
 
-_ARCHITECTURES = native.ARCHITECTURES
-_CONFIGURATIONS = native.CONFIGURATIONS
-_FUZZ_TARGETS = diagnostics.FUZZ_TARGETS
-_FUZZ_ARCHITECTURES = ("x86", "x64")
-
-# A job-wide priority class keeps an interactive desktop responsive while the build saturates
-# the machine.  It is applied to this process and to the kill-on-close job every child lives in,
-# so the whole tree inherits it; a hosted runner has no desktop to protect and asks for the
-# normal class explicitly.
-_PRIORITIES: dict[str, int | None] = {
-    "below-normal": win32process.BELOW_NORMAL_PRIORITY_CLASS,
-    "normal": None,
+REPOSITORY = Path(__file__).resolve().parents[1]
+ARCHITECTURES = ("x86", "x64")
+PLATFORMS = {"x86": "Win32", "x64": "x64"}
+CONFIGURATIONS = ("Debug", "Release")
+MODULES = ("renpy", "rpgmaker", "zanzarah")
+MODULE_BINARIES = {"renpy": "renpy.so", "rpgmaker": "rpgmaker.so", "zanzarah": "zanzarah.so"}
+OUT_NATIVE = "out/native"
+OUT_PACKAGES = "out/packages"
+TEST_PROJECT = "build/projects/tests.vcxproj"
+LEAK_PROBE_PROJECT = "build/projects/leak-probe.vcxproj"
+VCPKG_TRIPLETS = "build/vcpkg/triplets"
+# A module ships its own MIT grant, the Observer API header's LGPLv3 notice with the full GPLv3
+# text the LGPL incorporates, and then only that module's own third-party notices.
+LICENSES = {
+    "renpy": ("Observer.txt", "GPL-3.0.txt", "rpatool.txt", "serde-pickle.txt", "zlib.txt"),
+    "rpgmaker": ("Observer.txt", "GPL-3.0.txt", "rgssad.txt"),
+    "zanzarah": ("Observer.txt", "GPL-3.0.txt"),
 }
-
-_OPERATION_ERRORS: tuple[type[Exception], ...] = (
-    OSError,
-    ValueError,
-    CleanError,
-    packaging_ops.PackagingError,
-    diagnostics.DiagnosticsError,
-    result_export.ResultExportError,
+FUZZ_TARGETS = ("pickle", "renpy", "rpgmaker", "zanzarah")
+FUZZ_MAX_LENGTH = {"pickle": 262144, "renpy": 1048576, "rpgmaker": 1048576, "zanzarah": 1048576}
+FUZZ_SECONDS = 60
+LEAK_MODES = ("operations", "lifecycle")
+LEAK_SCENARIOS = (
+    "small-success", "malformed", "cancellation", "read-failure", "write-failure",
+    "large-metadata", "sparse-metadata",
+)
+LEAK_PROBE = "leak-probe.exe"
+CPPCHECK_PLATFORMS = {"x86": ("win32W", "_M_IX86=600"), "x64": ("win64", "_M_X64=100")}
+COVERAGE_IGNORED = (
+    r"([\\/]src[\\/](tests|fuzz)[\\/])|([\\/]vcpkg_installed[\\/])|"
+    r"([\\/]Microsoft Visual Studio[\\/])|([\\/]Windows Kits[\\/])"
+)
+_ASAN_CONFIGURATIONS = frozenset({"ASan", "Fuzz"})
+_ASAN_OPTIONS = "halt_on_error=1:alloc_dealloc_mismatch=1"
+_UBSAN_OPTIONS = "halt_on_error=1:print_stacktrace=1"
+_ASAN_RUNTIMES = {"x86": "clang_rt.asan_dynamic-i386.dll", "x64": "clang_rt.asan_dynamic-x86_64.dll"}
+_LICENSE_SEPARATOR = "=" * 72
+_CPP_SUFFIXES = (".cpp", ".h")
+_PS_SUFFIXES = (".ps1", ".psm1")
+_IGNORED_DIRECTORIES = frozenset({".git", ".venv", "__pycache__", "out"})
+_MACHINES = {"x86": r"14C machine \(x86\)", "x64": r"8664 machine \(x64\)"}
+_ALLOWED_DLLS = frozenset(
+    {
+        "advapi32.dll", "bcrypt.dll", "kernel32.dll", "ntdll.dll", "ole32.dll",
+        "oleaut32.dll", "shell32.dll", "shlwapi.dll", "user32.dll",
+    }
+)
+_FORBIDDEN_DLL = re.compile(
+    r"^(?:vcruntime|msvcp|ucrtbase|api-ms-win-crt-|ext-ms-win-crt-|zlib|zstd|xxhash|clang_rt\.).*\.dll$",
+    re.IGNORECASE,
+)
+# The Release variant runs the real native gates: the MSVC static analyzer and clang-tidy.
+_ANALYSIS_PROPERTIES = (
+    "/p:RunCodeAnalysis=true",
+    "/p:unpackratRunCodeAnalysis=true",
+    "/p:EnableClangTidyCodeAnalysis=true",
+    "/p:unpackratEnableClangTidy=true",
+    "/p:ClangTidyToolExeAdditionalOptions=-warnings-as-errors=*",
 )
 
 
-class VerificationFailed(RuntimeError):
-    """One or more verification operations failed; the evidence was exported first."""
-
-    def __init__(self, outputs: tuple[Path, ...], failures: tuple[str, ...]) -> None:
-        super().__init__("verification failed: " + ", ".join(failures))
-        self.outputs = outputs
-        self.failures = failures
+class BuildError(RuntimeError):
+    """A build operation could not satisfy its contract."""
 
 
 @dataclass(frozen=True, slots=True)
-class _Processes:
-    """One job-owned runner adapted to each repository runner contract."""
-
-    native: Callable[..., None]
-    tools: Callable[..., diagnostics.ToolResult]
-    packaging: Callable[..., None]
+class SourceTools:
+    clang_format: Path
+    cppcheck: Path
+    pwsh: Path
 
 
-class _Tee:
-    """Write-through stream so an operation both shows its output and records it."""
-
-    def __init__(self, *streams: TextIO) -> None:
-        self._streams = streams
-
-    def write(self, text: str) -> int:
-        for stream in self._streams:
-            stream.write(text)
-        return len(text)
-
-    def flush(self) -> None:
-        for stream in self._streams:
-            stream.flush()
+@dataclass(frozen=True, slots=True)
+class Llvm:
+    directory: Path
+    runtime: Path
+    cov: Path
+    profdata: Path
 
 
-def _selection(choices: tuple[str, ...]) -> Callable[[str], tuple[str, ...]]:
+def run(
+    argv: Sequence[str],
+    *,
+    cwd: Path | str | None = None,
+    env: dict[str, str] | None = None,
+    capture: bool = False,
+) -> subprocess.CompletedProcess[str]:
+    """Run one checked child and return its ``CompletedProcess``.
+
+    The single checked subprocess entry point: a nonzero exit raises
+    ``CalledProcessError``.  ``capture`` merges the child's output into ``stdout``.
+    """
+
+    return subprocess.run(
+        [os.fspath(item) for item in argv],
+        cwd=None if cwd is None else os.fspath(cwd),
+        env=None if env is None else {**os.environ, **env},
+        text=True,
+        stdout=subprocess.PIPE if capture else None,
+        stderr=subprocess.STDOUT if capture else None,
+        check=True,
+    )
+
+
+def _job_count(jobs: int | None) -> int:
+    if jobs is None:
+        return os.cpu_count() or 1
+    if isinstance(jobs, bool) or not isinstance(jobs, int) or jobs < 1:
+        raise BuildError("jobs must be a positive integer")
+    return jobs
+
+
+def _require_tool(name: str) -> Path:
+    found = shutil.which(name)
+    if found is None:
+        raise FileNotFoundError(f"{name} was not found on PATH")
+    return Path(found)
+
+
+def _vs_installation() -> Path:
+    """Return the installed Visual Studio root via vswhere, once per lookup."""
+
+    base = os.environ.get("ProgramFiles(x86)")
+    if not base:
+        raise FileNotFoundError("ProgramFiles(x86) is not set; cannot locate vswhere.exe")
+    vswhere = Path(base) / "Microsoft Visual Studio" / "Installer" / "vswhere.exe"
+    completed = run(
+        [
+            str(vswhere), "-latest", "-products", "*",
+            "-requires", "Microsoft.Component.MSBuild",
+            "-requires", "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
+            "-property", "installationPath",
+        ],
+        capture=True,
+    )
+    installation = next(
+        (line.strip() for line in (completed.stdout or "").splitlines() if line.strip()), None
+    )
+    if installation is None:
+        raise FileNotFoundError("vswhere did not report a Visual Studio installation")
+    return Path(installation)
+
+
+def _find_msbuild() -> Path:
+    directory = _vs_installation() / "MSBuild" / "Current" / "Bin"
+    amd64 = directory / "amd64" / "MSBuild.exe"
+    return amd64 if amd64.is_file() else directory / "MSBuild.exe"
+
+
+def _find_vcpkg() -> Path:
+    root = os.environ.get("VCPKG_ROOT")
+    if root:
+        integration = Path(root) / "scripts" / "buildsystems" / "msbuild" / "vcpkg.props"
+        if integration.is_file():
+            return Path(root) / "vcpkg.exe"
+    found = shutil.which("vcpkg")
+    if found is None:
+        raise FileNotFoundError("vcpkg was not found; set VCPKG_ROOT")
+    return Path(found)
+
+
+def _native_tools() -> tuple[Path, Path]:
+    return _find_msbuild(), _find_vcpkg()
+
+
+def _llvm_home() -> Path:
+    return _vs_installation() / "VC" / "Tools" / "Llvm" / "x64"
+
+
+def _llvm_dir() -> Path:
+    # The compiler, coverage and profiling tools come from the LLVM bundled with the selected
+    # Visual Studio.  A global LLVM on PATH is ignored on purpose: hosted images ship a version
+    # whose clang_rt lacks the 32-bit runtime an x86 build needs.
+    return _llvm_home()
+
+
+def _llvm_tool(name: str) -> Path:
+    found = shutil.which(name)
+    if found is not None:
+        return Path(found)
+    return _llvm_home() / "bin" / f"{name}.exe"
+
+
+def _source_tools() -> SourceTools:
+    return SourceTools(_llvm_tool("clang-format"), _require_tool("cppcheck"), _require_tool("pwsh"))
+
+
+def _llvm(architecture: str = "x64") -> Llvm:
+    directory = _llvm_dir()
+    root = directory / "lib" / "clang"
+    version = None
+    if root.is_dir():
+        for candidate in sorted((path for path in root.iterdir() if path.is_dir()), key=lambda path: path.name):
+            if (candidate / "lib" / "windows").is_dir():
+                version = candidate.name
+    if version is None:
+        raise FileNotFoundError(f"missing LLVM runtime directory below {root}")
+    # x64 uses the runtime beside the compiler; x86 takes profile-i386 from the sibling
+    # ``VC/Tools/Llvm`` root.  Both name the same bundled version so the forwarded
+    # ``LLVMToolsVersion`` stays consistent with the compiler.
+    runtime_root = directory if architecture == "x64" else directory.parent
+    runtime = runtime_root / "lib" / "clang" / version / "lib" / "windows"
+    if not runtime.is_dir():
+        raise FileNotFoundError(f"missing LLVM {architecture} runtime below {runtime_root}")
+    cov = directory / "bin" / "llvm-cov.exe"
+    profdata = directory / "bin" / "llvm-profdata.exe"
+    if not cov.is_file() or not profdata.is_file():
+        raise FileNotFoundError(f"missing LLVM coverage tools below {directory}")
+    return Llvm(directory, runtime, cov, profdata)
+
+
+def _find_dumpbin() -> Path:
+    found = shutil.which("dumpbin")
+    if found is not None:
+        return Path(found)
+    matches = sorted(
+        (_vs_installation() / "VC" / "Tools" / "MSVC").glob("*/bin/Host*/x64/dumpbin.exe")
+    )
+    if not matches:
+        raise FileNotFoundError("dumpbin was not found; install the MSVC C++ toolset")
+    return matches[-1]
+
+
+def _find_binskimm() -> Path:
+    return _require_tool("binskim")
+
+
+def _find_umdh() -> Path:
+    override = os.environ.get("UNPACKRAT_UMDH")
+    if override:
+        path = Path(override)
+        if not path.is_file():
+            raise FileNotFoundError(f"missing UMDH override: {path}")
+        return path
+    base = os.environ.get("ProgramFiles(x86)")
+    if base:
+        for version in ("11", "10"):
+            candidate = Path(base) / "Windows Kits" / version / "Debuggers" / "x64" / "umdh.exe"
+            if candidate.is_file():
+                return candidate
+    raise FileNotFoundError("missing UMDH: set UNPACKRAT_UMDH or install the Windows Debugging Tools")
+
+
+def _asan_runtime(architecture: str) -> Path:
+    msbuild = _native_tools()[0]
+    installation = next(
+        (path.parent for path in Path(msbuild).parents if path.name.casefold() == "msbuild"), None
+    )
+    if installation is None:
+        raise FileNotFoundError(f"cannot locate the Visual Studio installation from {msbuild}")
+    pattern = f"VC/Tools/MSVC/*/bin/Hostx64/{architecture}/{_ASAN_RUNTIMES[architecture]}"
+    matches = sorted(installation.glob(pattern))
+    if not matches:
+        raise FileNotFoundError(f"missing MSVC ASan runtime for {architecture}")
+    return matches[-1]
+
+
+def artifacts_root(repository: Path | str) -> Path:
+    return Path(repository) / "out" / "native"
+
+
+def bin_directory(repository: Path | str, architecture: str, configuration: str) -> Path:
+    return artifacts_root(repository) / "bin" / architecture / configuration
+
+
+def restore_root(repository: Path | str, architecture: str, configuration: str) -> Path:
+    suffix = "-asan" if configuration in _ASAN_CONFIGURATIONS else ""
+    return artifacts_root(repository) / "vcpkg_installed" / f"{architecture}{suffix}"
+
+
+def triplet(architecture: str, configuration: str) -> str:
+    suffix = "-asan" if configuration in _ASAN_CONFIGURATIONS else ""
+    return f"unpackrat-{architecture}-windows-static{suffix}"
+
+
+def _report_path(repository: Path, architecture: str, configuration: str, scope: str) -> Path:
+    return artifacts_root(repository) / "reports" / "tests" / architecture / configuration / scope / "tests.xml"
+
+
+def _restore(repository: Path, architecture: str, configuration: str, vcpkg: Path) -> None:
+    suffix = "-asan" if configuration in _ASAN_CONFIGURATIONS else ""
+    scratch = artifacts_root(repository) / "vcpkg_scratch" / f"{architecture}{suffix}"
+    run(
+        [
+            str(vcpkg), "install",
+            f"--x-install-root={restore_root(repository, architecture, configuration)}",
+            f"--x-buildtrees-root={scratch / 'buildtrees'}",
+            f"--x-packages-root={scratch / 'packages'}",
+            "--triplet", triplet(architecture, configuration),
+            f"--x-manifest-root={repository}",
+            "--overlay-triplets", str(repository / "build" / "vcpkg" / "triplets"),
+        ],
+        cwd=repository,
+    )
+
+
+def _msbuild_command(
+    repository: Path, project: Path, architecture: str, configuration: str,
+    jobs: int | None, msbuild: Path, vcpkg: Path, *, llvm: Llvm | None = None,
+) -> tuple[str, ...]:
+    command = [
+        str(msbuild), str(project), "/nologo", f"/m:{_job_count(jobs)}", "/nr:false", "/t:Build",
+        f"/p:Configuration={configuration}",
+        f"/p:Platform={PLATFORMS[architecture]}",
+        f"/p:ArtifactsRoot={artifacts_root(repository)}{os.sep}",
+        f"/p:VcpkgRoot={vcpkg.parent}",
+        "/p:VcpkgManifestInstall=false",
+    ]
+    if llvm is not None:
+        # ``LLVMToolsVersion`` must name the layout we point MSBuild at; otherwise
+        # Microsoft.Cpp.ClangCl.Common.props derives its include version from the pinned
+        # default and MSBuild fails with MSB8073.  The runtime is
+        # ``<root>/lib/clang/<version>/lib/windows``, so the version is its grandparent name.
+        tools_version = llvm.runtime.parent.parent.name
+        command += [
+            f"/p:LLVMInstallDir={llvm.directory}",
+            f"/p:LLVMRuntimeDir={llvm.runtime}",
+            f"/p:LLVMToolsVersion={tools_version}",
+        ]
+    if configuration == "Release":
+        command += list(_ANALYSIS_PROPERTIES)
+    return tuple(command)
+
+
+def build(
+    architecture: str, configuration: str, *,
+    repository: Path | str = REPOSITORY, jobs: int | None = None,
+) -> Path:
+    """Restore the pinned manifest and build ``tests.vcxproj`` for one variant."""
+
+    repository = Path(repository).resolve()
+    msbuild, vcpkg = _native_tools()
+    _restore(repository, architecture, configuration, vcpkg)
+    run(
+        _msbuild_command(repository, repository / TEST_PROJECT, architecture, configuration, jobs, msbuild, vcpkg),
+        cwd=repository,
+    )
+    return bin_directory(repository, architecture, configuration)
+
+
+def test_command(
+    repository: Path, architecture: str, configuration: str, report: Path, corpus: Path | None
+) -> tuple[str, ...]:
+    executable = bin_directory(repository, architecture, configuration) / "tests.exe"
+    command = [str(executable)]
+    if corpus is not None:
+        command.append("[compatibility]")
+    command += [
+        "--reporter", "compact",
+        "--reporter", f"JUnit::out={report}",
+        "--durations", "yes",
+        "--order", "lex",
+    ]
+    return tuple(command)
+
+
+def test(
+    architecture: str, configuration: str, *,
+    repository: Path | str = REPOSITORY, corpus: Path | str | None = None,
+    jobs: int | None = None,
+) -> tuple[Path, ...]:
+    """Build and run the Catch2 suite; an optional corpus adds one compatibility pass."""
+
+    repository = Path(repository).resolve()
+    build(architecture, configuration, repository=repository, jobs=jobs)
+    stage = bin_directory(repository, architecture, configuration)
+    suites: list[tuple[str, Path | None]] = [("unit", None)]
+    if corpus is not None:
+        suites.append(("corpus", Path(corpus).resolve(strict=True)))
+    reports: list[Path] = []
+    for scope, corpus_path in suites:
+        report = _report_path(repository, architecture, configuration, scope)
+        report.parent.mkdir(parents=True, exist_ok=True)
+        env = None if corpus_path is None else {"UNPACKRAT_TEST_CORPUS": str(corpus_path)}
+        run(test_command(repository, architecture, configuration, report, corpus_path), cwd=stage, env=env)
+        reports.append(report)
+    return tuple(reports)
+
+
+def _licenses_document(repository: Path, module: str) -> bytes:
+    parts = [_license_section("unpackrat", (repository / "LICENSE.txt").read_bytes())]
+    for name in LICENSES[module]:
+        parts.append(_license_section(name, (repository / "licenses" / name).read_bytes()))
+    preamble = (
+        f"This file accompanies the unpackrat plugin {module}.so and describes the\n"
+        "licenses that apply to it. unpackrat is published under the MIT license; the\n"
+        "sections below reproduce its own grant, the Observer API header's LGPLv3 notice\n"
+        "with the full GPLv3 text, and the third-party notices relevant to this module.\n"
+    )
+    return preamble.encode("utf-8") + b"\n" + b"\n".join(parts)
+
+
+def _license_section(title: str, text: bytes) -> bytes:
+    heading = f"{_LICENSE_SEPARATOR}\n{title}\n{_LICENSE_SEPARATOR}\n\n".encode("utf-8")
+    body = text if text.endswith(b"\n") else text + b"\n"
+    return heading + body
+
+
+def _write_zip(path: Path, members: dict[str, bytes]) -> None:
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as archive:
+        for name in sorted(members):
+            archive.writestr(name, members[name])
+
+
+def read_version(repository: Path | str, module: str) -> str:
+    path = Path(repository) / "src" / "modules" / module / "VERSION"
+    try:
+        version = path.read_text(encoding="utf-8").strip()
+    except OSError as error:
+        raise BuildError(f"module version file is unreadable: {path}") from error
+    return version
+
+
+def package(
+    *, repository: Path | str = REPOSITORY, output: Path | str = OUT_PACKAGES,
+    modules: Sequence[str] | None = None,
+) -> tuple[Path, ...]:
+    """Write ``<module>-<version>-bin-<arch>.zip`` and ``<module>-<version>-pdb.zip`` archives."""
+
+    repository = Path(repository).resolve()
+    output = Path(output)
+    output.mkdir(parents=True, exist_ok=True)
+    selected = MODULES if modules is None else tuple(modules)
+    created: list[Path] = []
+    for module in selected:
+        version = read_version(repository, module)
+        module_dir = repository / "src" / "modules" / module
+        common = {
+            "observer_user.ini": (module_dir / "observer_user.ini").read_bytes(),
+            "ChangeLog.en.txt": (module_dir / "ChangeLog.en.txt").read_bytes(),
+            "ChangeLog.ru.txt": (module_dir / "ChangeLog.ru.txt").read_bytes(),
+            "LICENSES.txt": _licenses_document(repository, module),
+        }
+        for architecture in ARCHITECTURES:
+            binary = bin_directory(repository, architecture, "Release") / MODULE_BINARIES[module]
+            members = {MODULE_BINARIES[module]: binary.read_bytes(), **common}
+            path = output / f"{module}-{version}-bin-{architecture}.zip"
+            _write_zip(path, members)
+            created.append(path)
+        symbols = {
+            f"{architecture}/{module}.pdb":
+                (bin_directory(repository, architecture, "Release") / f"{module}.pdb").read_bytes()
+            for architecture in ARCHITECTURES
+        }
+        path = output / f"{module}-{version}-pdb.zip"
+        _write_zip(path, symbols)
+        created.append(path)
+    return tuple(created)
+
+
+def _metric(totals: object, name: str) -> tuple[int, int]:
+    try:
+        metric = totals[name]  # type: ignore[index]
+        count, covered = metric["count"], metric["covered"]
+    except (KeyError, TypeError) as error:
+        raise ValueError("malformed LLVM coverage totals") from error
+    if (
+        isinstance(count, bool) or not isinstance(count, int) or count < 0
+        or isinstance(covered, bool) or not isinstance(covered, int) or covered < 0
+        or covered > count
+    ):
+        raise ValueError("malformed LLVM coverage totals")
+    return count, covered
+
+
+def coverage_complete(document: object) -> bool:
+    """Return ``True`` only for nonempty, exact 100% first-party line and branch coverage."""
+
+    try:
+        totals = document["data"][0]["totals"]  # type: ignore[index]
+    except (KeyError, IndexError, TypeError) as error:
+        raise ValueError("malformed LLVM coverage report") from error
+    for name in ("lines", "branches"):
+        count, covered = _metric(totals, name)
+        if count == 0:
+            raise ValueError(f"no first-party {name} in LLVM coverage report")
+        if covered != count:
+            raise ValueError(f"first-party {name} coverage is {covered}/{count}, required 100%")
+    return True
+
+
+def _source_files(repository: Path, suffixes: tuple[str, ...]) -> tuple[Path, ...]:
+    found: list[Path] = []
+    for directory, directories, names in repository.walk():
+        directories[:] = sorted(set(directories) - _IGNORED_DIRECTORIES)
+        for name in names:
+            if Path(name).suffix in suffixes:
+                found.append(directory / name)
+    return tuple(sorted(found, key=str))
+
+
+def _format_check(repository: Path, tools: SourceTools) -> None:
+    sources = _source_files(repository, _CPP_SUFFIXES)
+    if sources:
+        run([str(tools.clang_format), "--dry-run", "--Werror", *(str(path) for path in sources)], cwd=repository)
+
+
+def _cppcheck(
+    repository: Path, architecture: str, configuration: str, tools: SourceTools
+) -> None:
+    platform, define = CPPCHECK_PLATFORMS[architecture]
+    # The dependencies restored for this variant must be on the include path so the third-party
+    # headers resolve; their findings are exempted below because they are not first-party code.
+    triplet_name = triplet(architecture, configuration)
+    include_dir = restore_root(repository, architecture, configuration) / triplet_name / "include"
+    run(
+        [
+            str(tools.cppcheck), str(repository / "src"), "--std=c++23",
+            f"--platform={platform}", "-DWIN32=1", "-D_WIN32=1", "-DUNICODE=1", "-D_UNICODE=1",
+            f"-D{define}", f"-I{repository / 'src'}", f"-I{include_dir}",
+            "--enable=warning,style,performance,portability", "--check-level=exhaustive",
+            "--inconclusive", "--inline-suppr",
+            "--suppress=missingIncludeSystem", "--suppress=uninitMemberVarNoCtor:src/api.h",
+            f"--suppress=*:*\\{triplet_name}\\include\\*", "--suppress=functionStatic",
+            f"--relative-paths={repository}", "--error-exitcode=1",
+        ],
+        cwd=repository,
+    )
+
+
+def _pssa(repository: Path, tools: SourceTools) -> None:
+    sources = _source_files(repository, _PS_SUFFIXES)
+    if sources:
+        run(
+            [
+                str(tools.pwsh), "-NoLogo", "-NoProfile", "-NonInteractive", "-File",
+                str(repository / "build" / "checks" / "psscriptanalyzer.ps1"),
+                "-Settings", str(repository / "build" / "PSScriptAnalyzerSettings.psd1"),
+                *(str(path) for path in sources),
+            ],
+            cwd=repository,
+        )
+
+
+def _contracts(repository: Path, tools: SourceTools) -> None:
+    for script in sorted((repository / "build" / "tests").glob("*.Tests.ps1")):
+        run([str(tools.pwsh), "-NoLogo", "-NoProfile", "-NonInteractive", "-File", str(script)], cwd=repository)
+
+
+def _python_coverage(repository: Path) -> None:
+    build_root = repository / "build"
+    run(
+        [sys.executable, "-m", "coverage", "run", "--rcfile", str(build_root / "pyproject.toml"),
+         "-m", "unittest", "discover", "-s", "tests", "-p", "test_*.py"],
+        cwd=build_root,
+    )
+    run(
+        [sys.executable, "-m", "coverage", "report", "--rcfile", str(build_root / "pyproject.toml"),
+         "--fail-under=100"],
+        cwd=build_root,
+    )
+
+
+def ci_source(*, repository: Path | str = REPOSITORY, jobs: int | None = None) -> Path:
+    """Restore the x64 dependencies, then run the format, Cppcheck, PSScriptAnalyzer,
+    contract and Python coverage checks."""
+
+    repository = Path(repository).resolve()
+    _job_count(jobs)
+    msbuild, vcpkg = _native_tools()
+    tools = _source_tools()
+    _restore(repository, "x64", "Debug", vcpkg)
+    _format_check(repository, tools)
+    _cppcheck(repository, "x64", "Debug", tools)
+    _pssa(repository, tools)
+    _contracts(repository, tools)
+    _python_coverage(repository)
+    return repository
+
+
+def _coverage_export(repository: Path, architecture: str, profile: Path, llvm: Llvm) -> tuple[str, ...]:
+    stage = bin_directory(repository, architecture, "Coverage")
+    command = [
+        str(llvm.cov), "export", str(stage / "tests.exe"),
+        "--instr-profile", str(profile),
+        "--ignore-filename-regex", COVERAGE_IGNORED,
+    ]
+    for module in MODULES:
+        command += ["--object", str(stage / MODULE_BINARIES[module])]
+    command.append("--summary-only")
+    return tuple(command)
+
+
+def _coverage(
+    repository: Path, architecture: str, msbuild: Path, vcpkg: Path, llvm: Llvm, *,
+    corpus: Path | str | None = None, jobs: int | None = None,
+) -> Path:
+    _restore(repository, architecture, "Coverage", vcpkg)
+    run(
+        _msbuild_command(repository, repository / TEST_PROJECT, architecture, "Coverage", jobs, msbuild, vcpkg, llvm=llvm),
+        cwd=repository,
+    )
+    stage = bin_directory(repository, architecture, "Coverage")
+    profiles = artifacts_root(repository) / "coverage" / architecture
+    suites: list[tuple[str, Path | None]] = [("unit", None)]
+    if corpus is not None:
+        suites.append(("corpus", Path(corpus).resolve(strict=True)))
+    raw: list[Path] = []
+    for scope, corpus_path in suites:
+        scope_dir = profiles / scope
+        scope_dir.mkdir(parents=True, exist_ok=True)
+        for stale in scope_dir.glob("*.profraw"):
+            stale.unlink()
+        env = {"LLVM_PROFILE_FILE": str(scope_dir / "coverage-%m-%p.profraw")}
+        if corpus_path is not None:
+            env["UNPACKRAT_TEST_CORPUS"] = str(corpus_path)
+        report = _report_path(repository, architecture, "Coverage", scope)
+        report.parent.mkdir(parents=True, exist_ok=True)
+        run(test_command(repository, architecture, "Coverage", report, corpus_path), cwd=stage, env=env)
+        produced = sorted(scope_dir.glob("*.profraw"))
+        if not produced:
+            raise BuildError("coverage suite produced no LLVM raw profiles")
+        raw.extend(produced)
+    profile = profiles / "coverage.profdata"
+    run([str(llvm.profdata), "merge", "-sparse", *(str(path) for path in raw), "-o", str(profile)])
+    document = json.loads(run(_coverage_export(repository, architecture, profile, llvm), capture=True).stdout)
+    coverage_complete(document)
+    summary = profiles / "coverage.json"
+    summary.write_text(json.dumps(document), encoding="utf-8")
+    return summary
+
+
+def _sanitizer(
+    repository: Path, sanitizer: str, architecture: str, msbuild: Path, vcpkg: Path, llvm: Llvm, *,
+    jobs: int | None = None,
+) -> Path:
+    configuration = "ASan" if sanitizer == "asan" else "UBSan"
+    _restore(repository, architecture, configuration, vcpkg)
+    props = None if sanitizer == "asan" else llvm
+    run(
+        _msbuild_command(repository, repository / TEST_PROJECT, architecture, configuration, jobs, msbuild, vcpkg, llvm=props),
+        cwd=repository,
+    )
+    stage = bin_directory(repository, architecture, configuration)
+    if sanitizer == "asan":
+        stage.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(_asan_runtime(architecture), stage / _ASAN_RUNTIMES[architecture])
+        env = {"ASAN_OPTIONS": _ASAN_OPTIONS}
+    else:
+        env = {"UBSAN_OPTIONS": _UBSAN_OPTIONS}
+    report = _report_path(repository, architecture, configuration, sanitizer)
+    report.parent.mkdir(parents=True, exist_ok=True)
+    run(test_command(repository, architecture, configuration, report, None), cwd=stage, env=env)
+    return report
+
+
+def _seed_corpus(repository: Path, target: str, directory: Path) -> tuple[Path, ...]:
+    source = repository / "src" / "fuzz" / "corpus" / target
+    if not source.is_dir():
+        raise FileNotFoundError(f"no checked-in fuzzer seeds for {target}")
+    shutil.rmtree(directory, ignore_errors=True)
+    directory.mkdir(parents=True, exist_ok=True)
+    seeded: list[Path] = []
+    for seed in sorted(source.iterdir()):
+        if not seed.is_file():
+            continue
+        if seed.suffix == ".hex":
+            destination = directory / seed.stem
+            destination.write_bytes(bytes.fromhex("".join(seed.read_text(encoding="ascii").split())))
+        else:
+            destination = directory / seed.name
+            shutil.copyfile(seed, destination)
+        seeded.append(destination)
+    if not seeded:
+        raise FileNotFoundError(f"no checked-in fuzzer seeds for {target}")
+    return tuple(seeded)
+
+
+def _fuzz(
+    repository: Path, architecture: str, msbuild: Path, vcpkg: Path, llvm: Llvm, *,
+    jobs: int | None = None, seconds: int = FUZZ_SECONDS,
+) -> Path:
+    _restore(repository, architecture, "Fuzz", vcpkg)
+    for target in FUZZ_TARGETS:
+        project = repository / "build" / "projects" / f"fuzz-{target}.vcxproj"
+        run(
+            _msbuild_command(repository, project, architecture, "Fuzz", jobs, msbuild, vcpkg, llvm=llvm),
+            cwd=repository,
+        )
+        executable = bin_directory(repository, architecture, "Fuzz") / f"fuzz-{target}.exe"
+        work = artifacts_root(repository) / "fuzz" / architecture / target
+        seeds = _seed_corpus(repository, target, work / "seeds")
+        length = FUZZ_MAX_LENGTH[target]
+        if architecture == "x64":
+            arguments = [str(executable), str(work / "seeds"), f"-max_total_time={seconds}", f"-max_len={length}"]
+        else:
+            arguments = [str(executable), *(str(path) for path in seeds), f"-max_len={length}"]
+        run([*arguments, "-rss_limit_mb=1024"], env={"ASAN_OPTIONS": _ASAN_OPTIONS})
+    return artifacts_root(repository) / "fuzz" / architecture
+
+
+def _leaks(repository: Path, msbuild: Path, vcpkg: Path, *, jobs: int | None = None) -> Path:
+    _restore(repository, "x64", "Release", vcpkg)
+    run(_msbuild_command(repository, repository / TEST_PROJECT, "x64", "Release", jobs, msbuild, vcpkg), cwd=repository)
+    run(
+        _msbuild_command(repository, repository / LEAK_PROBE_PROJECT, "x64", "Release", jobs, msbuild, vcpkg),
+        cwd=repository,
+    )
+    stage = bin_directory(repository, "x64", "Release")
+    output = artifacts_root(repository) / "leaks"
+    build_root = repository / "build"
+    umdh = str(_find_umdh())
+
+    def leak(arguments: Sequence[str], scope: str) -> None:
+        directory = output / scope
+        directory.mkdir(parents=True, exist_ok=True)
+        run([sys.executable, "-m", "leaks", *arguments], cwd=build_root, env={"UNPACKRAT_OUT_DIR": str(directory)})
+
+    leak(["setup", str(stage / LEAK_PROBE), *(str(stage / MODULE_BINARIES[module]) for module in MODULES)], "setup")
+    prepared = str(output / "setup")
+    for mode in LEAK_MODES:
+        for scenario in LEAK_SCENARIOS:
+            leak(["measure", prepared, umdh, mode, scenario, "8", "100", "3", "0"], f"{mode}/{scenario}")
+    return output
+
+
+def require_release_pe(architecture: str, headers: str, dependents: str, exports: str) -> None:
+    """Gate one shipped module DLL: right machine, no foreign DLL, exact two exports."""
+
+    try:
+        machine = _MACHINES[architecture]
+    except KeyError as error:
+        raise BuildError(f"unsupported machine architecture: {architecture}") from error
+    if re.search(machine, headers) is None:
+        raise BuildError(f"wrong PE machine for {architecture}")
+    dependencies = {
+        match.group(1)
+        for line in dependents.splitlines()
+        if (match := re.fullmatch(r"\s+([A-Za-z0-9._-]+\.dll)\s*", line))
+    }
+    unexpected = sorted(
+        dependency
+        for dependency in dependencies
+        if _FORBIDDEN_DLL.match(dependency)
+        or (
+            dependency.casefold() not in _ALLOWED_DLLS
+            and re.match(r"^(?:api|ext)-ms-win-.*\.dll$", dependency, re.IGNORECASE) is None
+        )
+    )
+    if unexpected:
+        raise BuildError("unexpected DLL dependencies: " + ", ".join(unexpected))
+    actual = {
+        match.group(1)
+        for line in exports.splitlines()
+        if (match := re.match(r"^\s+\d+\s+[0-9A-F]+\s+[0-9A-F]+\s+(\S+)", line))
+    }
+    if actual != {"LoadSubModule", "UnloadSubModule"}:
+        raise BuildError("unexpected exports: " + ", ".join(sorted(actual)))
+
+
+def _audit(repository: Path, architecture: str) -> None:
+    dumpbin = str(_find_dumpbin())
+    stage = bin_directory(repository, architecture, "Release")
+    for module in MODULES:
+        binary = stage / MODULE_BINARIES[module]
+        headers = run([dumpbin, "/headers", str(binary)], capture=True).stdout
+        dependents = run([dumpbin, "/dependents", str(binary)], capture=True).stdout
+        exports = run([dumpbin, "/exports", str(binary)], capture=True).stdout
+        require_release_pe(architecture, headers, dependents, exports)
+
+
+def require_clean_binskim(document: dict[str, Any]) -> None:
+    """Fail on any reported BinSkim error or warning but for the one documented BA2027 warning.
+
+    A result that omits its own ``level`` follows the rule's ``defaultConfiguration`` level, so a
+    rule declared ``note`` stays clean while one declared ``error`` still fails; only a BA2027
+    *warning* is exempt.
+    """
+
+    findings: list[str] = []
+    for run_ in document.get("runs") or []:
+        defaults = {
+            rule.get("id"): rule.get("defaultConfiguration", {}).get("level", "warning")
+            for rule in (run_.get("tool") or {}).get("driver", {}).get("rules") or []
+        }
+        for result in run_.get("results") or []:
+            rule = result.get("ruleId")
+            level = result.get("level", defaults.get(rule, "warning"))
+            if level in ("error", "warning") and not (level == "warning" and rule == "BA2027"):
+                findings.append(str(rule))
+    if findings:
+        raise BuildError("BinSkim reported unapproved findings: " + ", ".join(findings))
+
+
+def _binskim(repository: Path, architecture: str) -> None:
+    binskim = str(_find_binskimm())
+    stage = bin_directory(repository, architecture, "Release")
+    report = artifacts_root(repository) / "analysis" / f"binskim-{architecture}.sarif"
+    report.parent.mkdir(parents=True, exist_ok=True)
+    run(
+        [
+            binskim, "analyze",
+            *(str(stage / MODULE_BINARIES[module]) for module in MODULES),
+            "--output", str(report),
+        ],
+        cwd=repository,
+    )
+    require_clean_binskim(json.loads(report.read_text(encoding="utf-8")))
+
+
+def ci_arch(
+    architectures: Sequence[str], *, repository: Path | str = REPOSITORY,
+    corpus: Path | str | None = None, jobs: int | None = None,
+) -> Path:
+    """Run the real per-architecture CI: tests, coverage, sanitizers, fuzz, leaks and audit."""
+
+    repository = Path(repository).resolve()
+    msbuild, vcpkg = _native_tools()
+    llvm = {architecture: _llvm(architecture) for architecture in architectures}
+    for architecture in architectures:
+        test(architecture, "Debug", repository=repository, corpus=corpus, jobs=jobs)
+        test(architecture, "Release", repository=repository, corpus=corpus, jobs=jobs)
+    for architecture in architectures:
+        _coverage(repository, architecture, msbuild, vcpkg, llvm[architecture], corpus=corpus, jobs=jobs)
+    for architecture in architectures:
+        _sanitizer(repository, "asan", architecture, msbuild, vcpkg, llvm[architecture], jobs=jobs)
+    if "x64" in architectures:
+        _sanitizer(repository, "ubsan", "x64", msbuild, vcpkg, llvm["x64"], jobs=jobs)
+    for architecture in architectures:
+        _fuzz(repository, architecture, msbuild, vcpkg, llvm[architecture], jobs=jobs)
+    if "x64" in architectures:
+        _leaks(repository, msbuild, vcpkg, jobs=jobs)
+    for architecture in architectures:
+        _audit(repository, architecture)
+        _binskim(repository, architecture)
+    return repository
+
+
+def _selection(choices: tuple[str, ...]):
     lookup = {item.casefold(): item for item in choices}
 
     def parse(value: str) -> tuple[str, ...]:
         parts = tuple(item.strip() for item in value.split(","))
         if not all(parts):
-            raise argparse.ArgumentTypeError(
-                f"expected all or comma-separated: {','.join(choices)}"
-            )
+            raise argparse.ArgumentTypeError(f"expected all or comma-separated: {','.join(choices)}")
         if any(item.casefold() == "all" for item in parts):
             if len(parts) != 1:
                 raise argparse.ArgumentTypeError("'all' must be selected on its own")
@@ -123,756 +865,54 @@ def _selection(choices: tuple[str, ...]) -> Callable[[str], tuple[str, ...]]:
         try:
             return tuple(dict.fromkeys(lookup[item.casefold()] for item in parts))
         except KeyError as error:
-            raise argparse.ArgumentTypeError(
-                f"expected all or comma-separated: {','.join(choices)}"
-            ) from error
+            raise argparse.ArgumentTypeError(f"expected all or comma-separated: {','.join(choices)}") from error
 
     return parse
-
-
-def _integer(minimum: int, maximum: int | None = None) -> Callable[[str], int]:
-    def parse(value: str) -> int:
-        try:
-            number = int(value)
-        except ValueError as error:
-            raise argparse.ArgumentTypeError("expected an integer") from error
-        if number < minimum or maximum is not None and number > maximum:
-            limit = f"{minimum}..{maximum}" if maximum is not None else f">= {minimum}"
-            raise argparse.ArgumentTypeError(f"expected {limit}")
-        return number
-
-    return parse
-
-
-_OPTIONS: dict[str, tuple[tuple[str, ...], dict[str, object]]] = {
-    "arch": (("-Arch", "--arch"), {"type": _selection(_ARCHITECTURES), "default": ("x64",)}),
-    "config": (("-Config", "--config"), {"type": _selection(_CONFIGURATIONS), "default": ("Debug",)}),
-    "corpus": (("-Corpus", "--corpus"), {"type": Path}),
-    "restore": (("-RestoreFlavor", "--restore-flavor"), {
-        "type": _selection(("default", "asan")), "default": ("default",),
-    }),
-    "fuzz_seconds": (("-FuzzSeconds", "--fuzz-seconds"), {"type": _integer(1, 86400), "default": 60}),
-    "leak_warmup": (("-LeakWarmup", "--leak-warmup"), {"type": _integer(1, 1_000_000), "default": 8}),
-    "leak_iterations": (("-LeakIterations", "--leak-iterations"), {
-        "type": _integer(1, 1_000_000), "default": 100,
-    }),
-    "leak_windows": (("-LeakWindows", "--leak-windows"), {"type": _integer(3, 10), "default": 3}),
-    "leak_tolerance": (("-LeakToleranceBytes", "--leak-tolerance-bytes"), {
-        "type": _integer(0, 1_073_741_824), "default": 0,
-    }),
-    "export_dir": (("-ExportDir", "--export-dir"), {"type": Path}),
-    "module": (("-Module", "--module"), {"type": _selection(MODULES), "default": MODULES}),
-    "clean_mode": (("-CleanMode", "--clean-mode"), {"choices": ("all", "reports"), "default": "all"}),
-}
-
-_COMMAND_OPTIONS: dict[str, tuple[str, ...]] = {
-    "restore": ("arch", "restore"),
-    "build": ("arch", "config"),
-    "test": ("arch", "config", "corpus"),
-    "source-checks": ("arch",),
-    "compiler-analysis": ("arch",),
-    "test-coverage": ("arch", "corpus"),
-    "test-asan": ("arch",),
-    "test-ubsan": ("arch",),
-    "test-leaks": ("arch", "leak_warmup", "leak_iterations", "leak_windows", "leak_tolerance"),
-    "fuzz": ("arch", "fuzz_seconds", "fuzz_target"),
-    "audit-binaries": ("arch", "module"),
-    "package": ("arch", "module", "export_dir"),
-    "verify-source": ("export_dir",),
-    "verify-arch": (
-        "arch", "module", "corpus", "fuzz_seconds",
-        "leak_warmup", "leak_iterations", "leak_windows", "leak_tolerance", "export_dir",
-    ),
-    "verify": (
-        "arch", "module", "corpus", "fuzz_seconds",
-        "leak_warmup", "leak_iterations", "leak_windows", "leak_tolerance", "export_dir",
-    ),
-}
-
-_OPTIONS["fuzz_target"] = (
-    ("-FuzzTarget", "--fuzz-target"),
-    {"type": _selection(_FUZZ_TARGETS), "default": _FUZZ_TARGETS},
-)
 
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="unpackrat-build")
     commands = parser.add_subparsers(dest="command", required=True)
-    commands.add_parser("doctor")
-    for name, options in _COMMAND_OPTIONS.items():
-        command = commands.add_parser(name)
-        command.add_argument("-Repository", "--repository", type=Path, default=Path(__file__).parents[1])
-        command.add_argument("-Jobs", "--jobs", type=_integer(1))
-        command.add_argument("-Priority", "--priority", choices=tuple(_PRIORITIES), default="below-normal")
-        for option in options:
-            flags, settings = _OPTIONS[option]
-            command.add_argument(*flags, dest=option, **settings)
-    clean = commands.add_parser("clean")
-    clean.add_argument("-Repository", "--repository", type=Path, default=Path(__file__).parents[1])
-    flags, settings = _OPTIONS["clean_mode"]
-    clean.add_argument(*flags, dest="clean_mode", **settings)
+    build_parser = commands.add_parser("build")
+    test_parser = commands.add_parser("test")
+    source_parser = commands.add_parser("ci-source")
+    arch_parser = commands.add_parser("ci-arch")
+    package_parser = commands.add_parser("package")
+    for command in (build_parser, test_parser, source_parser, arch_parser, package_parser):
+        command.add_argument("-Repository", "--repository", type=Path, default=REPOSITORY)
+        command.add_argument("-Jobs", "--jobs", type=int, default=None)
+    for command in (build_parser, test_parser, arch_parser):
+        command.add_argument("-Arch", "--arch", dest="architecture", type=_selection(ARCHITECTURES), default=("x64",))
+    for command in (build_parser, test_parser):
+        command.add_argument("-Config", "--config", dest="configuration", type=_selection(CONFIGURATIONS), default=("Debug",))
+    for command in (test_parser, arch_parser):
+        command.add_argument("-Corpus", "--corpus", type=Path, default=None)
+    package_parser.add_argument("-Output", "--output", type=Path, default=OUT_PACKAGES)
+    package_parser.add_argument("-Module", "--module", dest="module", type=_selection(MODULES), default=MODULES)
     return parser
 
 
-def _concise(error: BaseException) -> str:
-    return " ".join(str(error).split()) or type(error).__name__
-
-
-def _jobs(value: int | None, default: int) -> int:
-    return default if value is None else value
-
-
-def _prioritize(priority_class: int | None) -> tuple[int, int] | None:
-    if priority_class is None:
-        return None
-    handle = win32api.GetCurrentProcess()
-    previous = win32process.GetPriorityClass(handle)
-    win32process.SetPriorityClass(handle, priority_class)
-    return handle, previous
-
-
-def _restore_priority(state: tuple[int, int] | None) -> None:
-    if state is not None:
-        handle, previous = state
-        win32process.SetPriorityClass(handle, previous)
-
-
-def _processes(priority_class: int | None) -> _Processes:
-    """Adapt one job-owned runner to the native, diagnostics and packaging contracts."""
-
-    runner = WindowsProcessRunner(priority_class=priority_class)
-
-    def echo(completed: subprocess.CompletedProcess[str]) -> None:
-        """Show a child's combined output, so direct commands are never silent."""
-
-        if completed.stdout:
-            print(completed.stdout, end="")
-
-    def native_runner(argv, cwd=None, env=None) -> None:
-        completed = runner.run(argv, cwd, env)
-        echo(completed)
-        if completed.returncode:
-            raise subprocess.CalledProcessError(
-                completed.returncode, [str(item) for item in argv], completed.stdout
-            )
-
-    def tool_runner(argv, cwd=None, env=None) -> diagnostics.ToolResult:
-        completed = runner.run(argv, cwd, env)
-        echo(completed)
-        return diagnostics.ToolResult(completed.returncode, completed.stdout or "")
-
-    def packaging_runner(argv, *, cwd=None, env=None, stdout=None) -> None:
-        completed = runner.run(argv, cwd, env, stdout=stdout)
-        if stdout is None:
-            echo(completed)
-        if completed.returncode:
-            raise subprocess.CalledProcessError(
-                completed.returncode, [str(item) for item in argv], completed.stdout
-            )
-
-    return _Processes(native_runner, tool_runner, packaging_runner)
-
-
-def _reports_root(repository: Path) -> Path:
-    return Path(repository).resolve(strict=True) / "out" / "reports"
-
-
-def _output_dir(repository: Path, name: str) -> Path:
-    output = _reports_root(repository) / name
-    output.mkdir(parents=True, exist_ok=True)
-    return output
-
-
-def _reset_output(repository: Path, name: str) -> Path:
-    root = Path(repository).resolve(strict=True)
-    return prepare_fresh(root / "out" / "reports" / name, root)
-
-
-def _diagnostics_tools(
-    architectures: Sequence[str], *, profile: bool = False, asan: bool = False, ubsan: bool = False,
-    fuzzer: bool = False, umdh: bool = False,
-) -> diagnostics.DiagnosticsTools:
-    """Resolve only the tools and runtimes the requested architectures actually consume."""
-
-    native_tools = native.locate_tools()
-    toolchain = discover_msvc_toolchain()
-    asan_runtimes: dict[str, Path] = {}
-    if asan:
-        asan_runtimes = {
-            architecture: tool.path
-            for architecture, tool in resolve_asan_runtimes(toolchain, tuple(architectures))
-        }
-    llvm_runtimes: dict[str, Path] = {}
-    if profile:
-        llvm_runtimes = {
-            architecture: resolve_profile_runtime(toolchain, architecture).path
-            for architecture in architectures
-        }
-    elif ubsan:
-        # UBSan ships one x64 archive pair; only an x64 request consumes it.
-        llvm_runtimes = (
-            {"x64": resolve_ubsan_runtime(toolchain).path} if "x64" in architectures else {}
-        )
-    elif fuzzer:
-        llvm_runtimes = {
-            architecture: resolve_fuzzer_runtime(toolchain, architecture).path
-            for architecture in architectures
-        }
-    return diagnostics.DiagnosticsTools(
-        msbuild=native_tools.msbuild,
-        vcpkg=native_tools.vcpkg,
-        llvm_install=toolchain.llvm_dir,
-        llvm_cov=resolve_llvm(toolchain, "llvm-cov").path if profile else Path(),
-        llvm_profdata=resolve_llvm(toolchain, "llvm-profdata").path if profile else Path(),
-        llvm_runtimes=llvm_runtimes,
-        asan_runtimes=asan_runtimes,
-        umdh=resolve_umdh().path if umdh else Path(),
-    )
-
-
-def _files_under(directory: Path) -> tuple[Path, ...]:
-    """Every real file below ``directory``, never descending through a reparse point or link."""
-
-    files: list[Path] = []
-    pending = [Path(directory)]
-    while pending:
-        current = pending.pop()
-        if _is_reparse(current):
-            continue
-        try:
-            entries = list(os.scandir(current))
-        except OSError:
-            continue
-        for entry in entries:
-            child = Path(entry.path)
-            if _is_reparse(child):
-                continue
-            if entry.is_dir(follow_symlinks=False):
-                pending.append(child)
-            else:
-                files.append(child)
-    return tuple(sorted(files, key=str))
-
-
-def _evidence_reports(paths: Sequence[Path]) -> tuple[Path, ...]:
-    """Expand any declared directory report into the real files it currently holds.
-
-    A diagnostic operation such as :func:`diagnostics.fuzz` returns its per-target evidence
-    directory, which the exporter can only publish file by file.  A plain file path is left
-    untouched, so the exporter still validates it (and still rejects a missing claim).
-    """
-
-    reports: list[Path] = []
-    for path in paths:
-        candidate = Path(path)
-        if candidate.is_dir():
-            reports.extend(_files_under(candidate))
-        else:
-            reports.append(candidate)
-    return tuple(reports)
-
-
-def _owned_reports(
-    declared: Sequence[Path], evidence: Path | None, exclude: Path | None,
-) -> tuple[Path, ...]:
-    """Every current evidence file of one operation, deduplicated in declaration order.
-
-    ``declared`` is what the operation returned; ``evidence`` is its operation-specific output
-    root.  A gate may write artifacts it does not name -- a nested JUnit tree, a SARIF, sanitizer
-    logs, a coverage data file -- so the declared reports are combined with a scan of the current
-    evidence root and the two are deduplicated.  ``exclude`` drops one owned sub-tree (the release
-    ``packages`` directory) from both the success and failure paths, so a release payload is never
-    mistaken for a report.
-    """
-
-    candidates = list(declared)
-    if evidence is not None:
-        candidates.extend(_files_under(evidence))
-    unique: list[Path] = []
-    seen: set[str] = set()
-    for path in candidates:
-        if exclude is not None and exclude in path.parents:
-            continue
-        key = str(path)
-        if key in seen:
-            continue
-        seen.add(key)
-        unique.append(path)
-    return tuple(unique)
-
-
-def _export(destination: Path, command: str, operations: Sequence[result_export.Operation],
-            *, packages: Sequence[Path] = ()) -> Path:
-    return result_export.export_results(Path(destination), command, operations, packages=packages)
-
-
-def _attempt(
-    records: list[result_export.Operation],
-    name: str,
-    action: Callable[[], Sequence[Path]],
-    *,
-    evidence: Path | None = None,
-    exclude: Path | None = None,
-) -> bool:
-    """Run one gate, record its verdict and captured output, and keep going on any failure."""
-
-    captured = StringIO()
-    try:
-        with redirect_stdout(_Tee(sys.stdout, captured)):
-            declared = _evidence_reports(tuple(action()))
-    except Exception as error:
-        records.append(result_export.Operation(
-            name, result_export.FAILED, detail=_concise(error),
-            reports=_owned_reports((), evidence, exclude),
-            log=captured.getvalue() + traceback.format_exc(),
-        ))
-        return False
-    records.append(result_export.Operation(
-        name, result_export.PASSED, reports=_owned_reports(declared, evidence, exclude),
-        log=captured.getvalue(),
-    ))
-    return True
-
-
-def _blocked(records: list[result_export.Operation], name: str, reason: str) -> None:
-    records.append(result_export.Operation(name, result_export.DEFERRED, detail=reason))
-
-
-def _finish(
-    command: str,
-    args: argparse.Namespace,
-    records: Sequence[result_export.Operation],
-    *,
-    packages: Sequence[Path],
-) -> tuple[Path, ...]:
-    failed = any(item.status == result_export.FAILED for item in records)
-    if args.export_dir is not None:
-        _export(args.export_dir, command, records, packages=packages)
-    for item in records:
-        if item.status == result_export.DEFERRED:
-            print(f"[DEFERRED] {item.name}: {item.detail}")
-    outputs = tuple(report for item in records for report in item.reports)
-    if failed:
-        raise VerificationFailed(
-            outputs, tuple(item.name for item in records if item.status == result_export.FAILED)
-        )
-    return outputs
-
-
-def _restore_asan(
-    repository: Path, architectures: tuple[str, ...], tools: native.NativeTools,
-    processes: _Processes,
-) -> tuple[Path, ...]:
-    roots: list[Path] = []
-    for architecture in architectures:
-        root = native.artifacts_root(repository) / "vcpkg_installed" / f"{architecture}-asan"
-        scratch = native.artifacts_root(repository) / "vcpkg_scratch" / f"{architecture}-asan"
-        processes.native(
-            (
-                str(tools.vcpkg),
-                "install",
-                f"--x-install-root={root}",
-                f"--x-buildtrees-root={scratch / 'buildtrees'}",
-                f"--x-packages-root={scratch / 'packages'}",
-                "--triplet",
-                f"{native.triplet(architecture)}-asan",
-                f"--x-manifest-root={repository}",
-                f"--overlay-triplets={repository / 'build' / 'vcpkg' / 'triplets'}",
-            ),
-            repository,
-            None,
-        )
-        roots.append(root)
-    return tuple(roots)
-
-
-def _restore(repository: Path, args: argparse.Namespace, processes: _Processes) -> tuple[Path, ...]:
-    tools = native.locate_tools()
-    outputs: tuple[Path, ...] = ()
-    if "default" in args.restore:
-        outputs += native.restore(repository, args.arch, tools=tools, runner=processes.native)
-    if "asan" in args.restore:
-        outputs += _restore_asan(repository, args.arch, tools, processes)
-    return outputs
-
-
-def _build(repository: Path, args: argparse.Namespace, processes: _Processes) -> tuple[Path, ...]:
-    return native.build(
-        repository, args.arch, args.config, jobs=args.jobs,
-        tools=native.locate_tools(), runner=processes.native,
-    )
-
-
-def _test(repository: Path, args: argparse.Namespace, processes: _Processes) -> tuple[Path, ...]:
-    return native.test(
-        repository, args.arch, args.config, corpus=args.corpus, jobs=args.jobs,
-        tools=native.locate_tools(), runner=processes.native,
-    )
-
-
-def _source_checks(repository: Path, args: argparse.Namespace, processes: _Processes) -> tuple[Path, ...]:
-    output = _output_dir(repository, "source-checks")
-    return source_checks.source_checks(
-        repository, args.arch, output, jobs=_jobs(args.jobs, 4),
-        tools=source_checks.locate_tools(), runner=processes.native,
-    )
-
-
-def _compiler_analysis(repository: Path, args: argparse.Namespace, processes: _Processes) -> tuple[Path, ...]:
-    output = _output_dir(repository, "compiler-analysis")
-    return source_checks.compiler_analysis(
-        repository, args.arch, output, jobs=_jobs(args.jobs, 2),
-        tools=source_checks.locate_analysis_tools(), runner=processes.native,
-    )
-
-
-def _test_coverage(repository: Path, args: argparse.Namespace, processes: _Processes) -> tuple[Path, ...]:
-    output = _output_dir(repository, "test-coverage")
-    return diagnostics.test_coverage(
-        repository, args.arch, output, tools=_diagnostics_tools(args.arch, profile=True),
-        runner=processes.tools, jobs=args.jobs, corpus=args.corpus,
-    )
-
-
-def _sanitizer(sanitizer: str) -> Callable[[Path, argparse.Namespace, _Processes], tuple[Path, ...]]:
-    def handler(repository: Path, args: argparse.Namespace, processes: _Processes) -> tuple[Path, ...]:
-        output = _output_dir(repository, f"test-{sanitizer}")
-        return diagnostics.test_sanitizer(
-            repository, sanitizer, args.arch, output,
-            tools=_diagnostics_tools(args.arch, **{sanitizer: True}),
-            runner=processes.tools, jobs=args.jobs,
-        )
-
-    return handler
-
-
-def _test_leaks(repository: Path, args: argparse.Namespace, processes: _Processes) -> tuple[Path, ...]:
-    output = _output_dir(repository, "test-leaks")
-    return diagnostics.test_leaks(
-        repository, output, args.leak_warmup, args.leak_iterations, args.leak_windows,
-        args.leak_tolerance, tools=_diagnostics_tools(("x64",), umdh=True),
-        runner=processes.tools, jobs=args.jobs,
-    )
-
-
-def _fuzz(repository: Path, args: argparse.Namespace, processes: _Processes) -> tuple[Path, ...]:
-    output = _output_dir(repository, "fuzz")
-    return diagnostics.fuzz(
-        repository, args.arch, args.fuzz_target, args.fuzz_seconds, output,
-        tools=_diagnostics_tools(args.arch, fuzzer=True), runner=processes.tools, jobs=args.jobs,
-    )
-
-
-def _audit(repository: Path, args: argparse.Namespace, processes: _Processes) -> tuple[Path, ...]:
-    output = _output_dir(repository, "audit-binaries")
-    # The public audit gates the stable Release binaries, so it builds Release first (MSBuild is
-    # incremental on a warm tree) exactly as the retired driver's audited-release did.
-    native.build(
-        repository, args.arch, ("Release",), jobs=args.jobs,
-        tools=native.locate_tools(), runner=processes.native,
-    )
-    return packaging_ops.audit_binaries(
-        repository, args.arch, output, modules=args.module,
-        tools=packaging_ops.locate_packaging_tools(), runner=processes.packaging,
-    )
-
-
-def _package_command(repository: Path, args: argparse.Namespace, processes: _Processes) -> tuple[Path, ...]:
-    host = detect_host_architecture()
-    route = verify_route(args.arch, host)
-    # A direct package run owns a fresh operation output root instead of the shared ``out`` tree,
-    # so a rerun can never republish the stale archives left under ``out/packages`` and a failure
-    # keeps only the audit evidence this run actually produced.
-    output = _reset_output(repository, "package")
-    packages_root = output / "packages"
-    captured = StringIO()
-    try:
-        # Packaging freezes and audits the stable Release binaries, so build Release first.
-        with redirect_stdout(_Tee(sys.stdout, captured)):
-            native.build(
-                repository, args.arch, ("Release",), jobs=args.jobs,
-                tools=native.locate_tools(), runner=processes.native,
-            )
-            result = packaging_ops.package(
-                repository, args.arch, output, modules=args.module,
-                smoke_architectures=route.runnable,
-                tools=packaging_ops.locate_packaging_tools(), runner=processes.packaging, host=host,
-            )
-    except Exception as error:
-        if args.export_dir is not None:
-            _export(args.export_dir, "package", (
-                result_export.Operation(
-                    "package", result_export.FAILED, detail=_concise(error),
-                    reports=_owned_reports((), output, packages_root),
-                    log=captured.getvalue() + traceback.format_exc(),
-                ),
-            ))
-        raise
-    if args.export_dir is not None:
-        _export(
-            args.export_dir, "package",
-            (result_export.Operation(
-                "package", result_export.PASSED,
-                # The just-produced audit and smoke evidence is the operation's report; the
-                # release payload below the ``packages`` root is exported only as packages.
-                reports=_owned_reports((), output, packages_root),
-                log=captured.getvalue(),
-            ),),
-            packages=(*result.archives, packages_root / "packages.json"),
-        )
-    return result.archives
-
-
-def _tests_action(
-    repository: Path, args: argparse.Namespace, architecture: str,
-    runnable: tuple[str, ...], processes: _Processes, host: str,
-) -> Callable[[], tuple[Path, ...]]:
-    def action() -> tuple[Path, ...]:
-        # MSBuild keeps its JUnit reports in a persistent per-architecture tree, so a fresh run
-        # must clear the selected architecture first; otherwise an early build failure would
-        # publish a stale previous success from this same architecture.
-        root = Path(repository).resolve(strict=True)
-        prepare_fresh(native.artifacts_root(root) / "reports" / "tests" / architecture, root)
-        tools = native.locate_tools()
-        if architecture in runnable:
-            return native.test(
-                repository, (architecture,), ("Debug", "Release"), corpus=args.corpus,
-                jobs=args.jobs, tools=tools, runner=processes.native, host=host,
-            )
-        return native.build(
-            repository, (architecture,), ("Debug", "Release"), jobs=args.jobs,
-            tools=tools, runner=processes.native,
-        )
-
-    return action
-
-
-def _python_coverage(repository: Path, output: Path, processes: _Processes) -> tuple[Path, ...]:
-    build_root = Path(repository).resolve(strict=True) / "build"
-    output.mkdir(parents=True, exist_ok=True)
-    # The retained gate stores its raw ``.coverage`` data file in the build directory and then
-    # copies it into the output directory, so the two must be different directories or its
-    # ``shutil.copyfile`` raises SameFileError before publishing any evidence.
-    data = output / "work"
-    data.mkdir(parents=True, exist_ok=True)
-    processes.native(
-        (sys.executable, "-m", "core.python_coverage", sys.executable, str(build_root)),
-        build_root,
-        {"UNPACKRAT_OUT_DIR": str(output), "UNPACKRAT_BUILD_DIR": str(data)},
-    )
-    # The retained gate copies its raw data file into the output directory, so the published
-    # evidence is the five native reports it writes; the ``work`` copy is scratch, not a report.
-    return (
-        output / ".coverage",
-        output / "coverage.json",
-        output / "coverage.xml",
-        output / "coverage.toml",
-        output / "coverage.txt",
-    )
-
-
-def _verify_source(repository: Path, args: argparse.Namespace, processes: _Processes) -> tuple[Path, ...]:
-    work = _reset_output(repository, "verify-source")
-    records: list[result_export.Operation] = []
-    _attempt(records, "source", lambda: source_checks.source_checks(
-        repository, ("x64",), work / "source", jobs=_jobs(args.jobs, 4),
-        tools=source_checks.locate_tools(), runner=processes.native,
-    ), evidence=work / "source")
-    _attempt(records, "python-coverage", lambda: _python_coverage(
-        repository, work / "python-coverage", processes,
-    ), evidence=work / "python-coverage")
-    return _finish("verify-source", args, records, packages=())
-
-
-def _verification(
-    command: str, repository: Path, args: argparse.Namespace, processes: _Processes,
-) -> tuple[Path, ...]:
-    host = detect_host_architecture()
-    route = verify_route(args.arch, host)
-    work = _reset_output(repository, command)
-    records: list[result_export.Operation] = []
-
-    _attempt(records, "source", lambda: source_checks.source_checks(
-        repository, args.arch, work / "source", jobs=_jobs(args.jobs, 4),
-        tools=source_checks.locate_tools(), runner=processes.native,
-    ), evidence=work / "source")
-    _attempt(records, "compiler-analysis", lambda: source_checks.compiler_analysis(
-        repository, args.arch, work / "compiler-analysis", jobs=_jobs(args.jobs, 2),
-        tools=source_checks.locate_analysis_tools(), runner=processes.native,
-    ), evidence=work / "compiler-analysis")
-    if command == "verify":
-        _attempt(records, "python-coverage", lambda: _python_coverage(
-            repository, work / "python-coverage", processes,
-        ), evidence=work / "python-coverage")
-
-    tests_root = native.artifacts_root(Path(repository).resolve(strict=True)) / "reports" / "tests"
-    for architecture in args.arch:
-        # A non-runnable target is only cross-built here, so its record is a ``build-<arch>``
-        # gate; the deferred ``tests-<arch>`` verdict is added separately below.  Naming the
-        # cross-build ``tests-<arch>`` would collide with that deferral and the exporter would
-        # reject the duplicate operation.
-        name = (
-            f"tests-{architecture}" if architecture in route.runnable
-            else f"build-{architecture}"
-        )
-        _attempt(
-            records, name,
-            _tests_action(repository, args, architecture, route.runnable, processes, host),
-            evidence=tests_root / architecture,
-        )
-
-    if route.coverage:
-        _attempt(records, "coverage", lambda: diagnostics.test_coverage(
-            repository, route.coverage, work / "coverage",
-            tools=_diagnostics_tools(route.coverage, profile=True), runner=processes.tools,
-            jobs=args.jobs, host=host, corpus=args.corpus,
-        ), evidence=work / "coverage")
-    if route.asan:
-        _attempt(records, "asan", lambda: diagnostics.test_sanitizer(
-            repository, "asan", route.asan, work / "asan",
-            tools=_diagnostics_tools(route.asan, asan=True),
-            runner=processes.tools, jobs=args.jobs, host=host,
-        ), evidence=work / "asan")
-    if route.ubsan:
-        _attempt(records, "ubsan", lambda: diagnostics.test_sanitizer(
-            repository, "ubsan", route.ubsan, work / "ubsan",
-            tools=_diagnostics_tools(route.ubsan, ubsan=True),
-            runner=processes.tools, jobs=args.jobs, host=host,
-        ), evidence=work / "ubsan")
-    if route.fuzz:
-        _attempt(records, "fuzz", lambda: diagnostics.fuzz(
-            repository, route.fuzz, _FUZZ_TARGETS, args.fuzz_seconds, work / "fuzz",
-            tools=_diagnostics_tools(route.fuzz, fuzzer=True), runner=processes.tools,
-            jobs=args.jobs, host=host,
-        ), evidence=work / "fuzz")
-    if route.run_x64_specialists:
-        _attempt(records, "leaks", lambda: diagnostics.test_leaks(
-            repository, work / "leaks", args.leak_warmup, args.leak_iterations,
-            args.leak_windows, args.leak_tolerance,
-            tools=_diagnostics_tools(("x64",), umdh=True), runner=processes.tools,
-            jobs=args.jobs, host=host,
-        ), evidence=work / "leaks")
-
-    # The shared ``work`` tree is reset fresh per run and ``audit_binaries`` fails closed unless
-    # its output root already exists, so the gate creates its root; keeping the mkdir inside the
-    # action records a creation failure as failed audit evidence and suppresses packaging.
-    audit_root = work / "audit"
-
-    def audit_gate() -> tuple[Path, ...]:
-        audit_root.mkdir(parents=True, exist_ok=True)
-        return packaging_ops.audit_binaries(
-            repository, args.arch, audit_root, modules=args.module,
-            include_leak_probe=route.run_x64_specialists,
-            tools=packaging_ops.locate_packaging_tools(), runner=processes.packaging,
-        )
-
-    _attempt(records, "audit", audit_gate, evidence=audit_root)
-
-    packages: tuple[Path, ...] = ()
-    # Packaging is the only dependent operation: it publishes release payloads, so it stays
-    # blocked until every independent gate above has passed.  Any failure (source, coverage,
-    # sanitizer, fuzz, audit or a suite) suppresses the archives instead of exporting them.
-    if any(item.status == result_export.FAILED for item in records):
-        _blocked(records, "package", "blocked by failed gates")
-    else:
-        # Packaging owns a dedicated operation root, so a failure keeps the audit evidence it
-        # has already produced instead of scanning only the never-published ``packages`` tree.
-        package_root = work / "package"
-        package_root.mkdir(parents=True, exist_ok=True)
-
-        def package_gate() -> tuple[Path, ...]:
-            return packaging_ops.package(
-                repository, args.arch, package_root, modules=args.module,
-                smoke_architectures=route.runnable,
-                tools=packaging_ops.locate_packaging_tools(), runner=processes.packaging, host=host,
-            ).archives
-
-        if _attempt(
-            records, "package", package_gate,
-            evidence=package_root, exclude=package_root / "packages",
-        ):
-            packages = _files_under(package_root / "packages")
-
-    for item in route.deferred:
-        _blocked(records, f"{item.gate}-{item.architecture}", item.reason)
-
-    return _finish(command, args, records, packages=packages)
-
-
-def _verify_arch(repository: Path, args: argparse.Namespace, processes: _Processes) -> tuple[Path, ...]:
-    return _verification("verify-arch", repository, args, processes)
-
-
-def _verify(repository: Path, args: argparse.Namespace, processes: _Processes) -> tuple[Path, ...]:
-    return _verification("verify", repository, args, processes)
-
-
-_HANDLERS: dict[str, Callable[[Path, argparse.Namespace, _Processes], tuple[Path, ...]]] = {
-    "restore": _restore,
-    "build": _build,
-    "test": _test,
-    "source-checks": _source_checks,
-    "compiler-analysis": _compiler_analysis,
-    "test-coverage": _test_coverage,
-    "test-asan": _sanitizer("asan"),
-    "test-ubsan": _sanitizer("ubsan"),
-    "test-leaks": _test_leaks,
-    "fuzz": _fuzz,
-    "audit-binaries": _audit,
-    "package": _package_command,
-    "verify-source": _verify_source,
-    "verify-arch": _verify_arch,
-    "verify": _verify,
-}
-
-
-def _validate_architecture_rules(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
-    if args.command == "test-leaks" and args.arch != ("x64",):
-        parser.error("test-leaks requires -Arch x64")
-    if args.command == "verify-arch" and len(args.arch) != 1:
-        parser.error("verify-arch requires exactly one architecture")
-
-
 def main(argv: Sequence[str] | None = None) -> int:
-    parser = _parser()
-    arguments = list(sys.argv[1:] if argv is None else argv)
-    if not arguments or len(arguments) == 1 and arguments[0].casefold() == "help":
-        parser.print_help()
-        return 0
-    args = parser.parse_args(arguments)
-    if args.command == "doctor":
-        return doctor_main(())
-    if args.command != "clean":
-        _validate_architecture_rules(parser, args)
-    priority = _PRIORITIES[getattr(args, "priority", "below-normal")]
-    previous = _prioritize(priority)
-    try:
-        if args.command == "clean":
-            outputs = clean_output(args.repository, args.clean_mode)
-        else:
-            outputs = _HANDLERS[args.command](args.repository, args, _processes(priority))
-    except VerificationFailed as error:
-        outputs, failures = error.outputs, error.failures
-    except subprocess.CalledProcessError as error:
-        print(
-            f"unpackrat-build: command failed with exit code {error.returncode}: {error.cmd}",
-            file=sys.stderr,
-        )
-        return error.returncode or 1
-    except _OPERATION_ERRORS as error:
-        print(f"unpackrat-build: {_concise(error)}", file=sys.stderr)
-        return 2
+    args = _parser().parse_args(list(sys.argv[1:] if argv is None else argv))
+    if args.command == "build":
+        for architecture in args.architecture:
+            for configuration in args.configuration:
+                build(architecture, configuration, repository=args.repository, jobs=args.jobs)
+    elif args.command == "test":
+        for architecture in args.architecture:
+            for configuration in args.configuration:
+                test(
+                    architecture, configuration,
+                    repository=args.repository, corpus=args.corpus, jobs=args.jobs,
+                )
+    elif args.command == "ci-source":
+        ci_source(repository=args.repository, jobs=args.jobs)
+    elif args.command == "ci-arch":
+        ci_arch(args.architecture, repository=args.repository, corpus=args.corpus, jobs=args.jobs)
     else:
-        failures = ()
-    finally:
-        _restore_priority(previous)
-    for output in outputs:
-        print(output)
-    if failures:
-        print(f"unpackrat-build: failed gates: {', '.join(failures)}", file=sys.stderr)
-        return 1
+        package(repository=args.repository, output=args.output, modules=args.module)
     return 0
 
 
-if __name__ == "__main__":  # pragma: no cover
+if __name__ == "__main__":
     raise SystemExit(main())

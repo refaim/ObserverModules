@@ -399,8 +399,14 @@ namespace test
                 expect_prepare_failure("RPA-3.0 0000000000000020 0000000000000001\n");
 
                 const support::temporary_sparse_renpy_archive sparse_archive;
-                REQUIRE((GetFileAttributesW(sparse_archive.path().c_str()) & FILE_ATTRIBUTE_SPARSE_FILE) != 0);
-                REQUIRE(std::filesystem::file_size(sparse_archive.path()) > 64ULL * 1024 * 1024);
+                WIN32_FILE_ATTRIBUTE_DATA sparse_attributes{};
+                REQUIRE(GetFileAttributesExW(sparse_archive.path().c_str(), GetFileExInfoStandard,
+                                             &sparse_attributes) != 0);
+                REQUIRE((sparse_attributes.dwFileAttributes & FILE_ATTRIBUTE_SPARSE_FILE) != 0);
+                const std::uint64_t sparse_logical_size =
+                    (static_cast<std::uint64_t>(sparse_attributes.nFileSizeHigh) << 32) |
+                    sparse_attributes.nFileSizeLow;
+                REQUIRE(sparse_logical_size > 64ULL * 1024 * 1024);
                 StorageOpenParams sparse_params{
                     .StructSize = sizeof(StorageOpenParams),
                     .FilePath = sparse_archive.path().c_str(),

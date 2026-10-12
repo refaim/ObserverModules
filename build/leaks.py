@@ -1,19 +1,27 @@
-"""Small process-safe worker for fine-grained UMDH leak nodes."""
+"""Live UMDH leak probe worker.
+
+``setup`` stages the built x64 Release binaries into the operation output and ``measure`` runs
+one scenario under UMDH, compares consecutive windows and raises on repeated growth.  Only the
+irreducible live-measurement logic lives here: the capture-and-judge run must share the session
+that captured the snapshots, so it cannot be split into separate tool invocations.  The
+surrounding CI orchestration is in :mod:`main`.
+"""
 
 from __future__ import annotations
 
 from collections.abc import Sequence
-import hashlib
 import json
 import os
 from pathlib import Path
+import queue
 import re
 import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 
-from filelock import FileLock
+from filelock import FileLock, Timeout as FileLockTimeout
 import psutil
 
 
@@ -23,10 +31,16 @@ SCENARIOS = (
     "large-metadata", "sparse-metadata",
 )
 BINARIES = ("leak-probe.exe", "renpy.so", "rpgmaker.so", "zanzarah.so")
+# Every probe marker wait and every UMDH invocation is bounded so a stalled child cannot wedge CI.
+_MARKER_TIMEOUT = 300.0
+_UMDH_TIMEOUT = 300.0
+# The GFlags query/change and the GFlags registry lock are equally bounded.
+_GFLAGS_TIMEOUT = 60.0
+_GFLAGS_LOCK_TIMEOUT = 60.0
 
 
 class LeakError(RuntimeError):
-    pass
+    """A leak operation could not complete its contract, or found sustained growth."""
 
 
 def _output() -> Path:
@@ -34,17 +48,6 @@ def _output() -> Path:
     if not value or not (output := Path(value)).is_dir():
         raise LeakError("UNPACKRAT_OUT_DIR must be an existing directory")
     return output
-
-
-def _write_json(path: Path, value: object) -> None:
-    path.write_text(
-        json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
-
-
-def _json(name: str, value: object) -> None:
-    _write_json(_output() / name, value)
 
 
 def _exact(action: str, args: Sequence[str], count: int) -> tuple[str, ...]:
@@ -75,16 +78,11 @@ def _count(value: str, name: str, *, minimum: int = 1) -> int:
     return result
 
 
-def _marker(lines: Sequence[str], marker: str) -> str:
-    prefix = f"UNPACKRAT_LEAK_PROBE|{marker}|"
-    found = [line for line in lines if line.startswith(prefix)]
-    if len(found) != 1:
-        raise LeakError(f"leak probe emitted {len(found)} {marker} markers")
-    return found[0]
-
-
 def _ready(line: str, mode: str, scenario: str, pid: int | None = None) -> None:
-    expected = rf"^UNPACKRAT_LEAK_PROBE\|READY\|pid=([0-9]+)\|mode={re.escape(mode)}\|configuration=Release\|scenarios={re.escape(scenario)}$"
+    expected = (
+        rf"^UNPACKRAT_LEAK_PROBE\|READY\|pid=([0-9]+)\|mode={re.escape(mode)}"
+        rf"\|configuration=Release\|scenarios={re.escape(scenario)}$"
+    )
     match = re.fullmatch(expected, line)
     if match is None or (pid is not None and int(match.group(1)) != pid):
         raise LeakError("leak READY marker does not match the requested process/selection")
@@ -92,42 +90,44 @@ def _ready(line: str, mode: str, scenario: str, pid: int | None = None) -> None:
 
 def _setup(args: Sequence[str]) -> None:
     sources = tuple(Path(value) for value in _exact("setup", args, len(BINARIES)))
-    output, evidence = _output(), []
+    output = _output()
     for name, source in zip(BINARIES, sources, strict=True):
         if not source.is_file():
             raise LeakError(f"leak binary was not found: {source}")
-        destination = output / name
-        shutil.copyfile(source, destination)
+        shutil.copyfile(source, output / name)
         for symbol in source.parent.glob("*.pdb"):
             shutil.copyfile(symbol, output / symbol.name)
-        with destination.open("rb") as stream:
-            digest = hashlib.file_digest(stream, "sha256").hexdigest()
-        evidence.append({"name": name, "path": str(destination), "sha256": digest})
-    _json("release-binaries.json", {"architecture": "x64", "configuration": "Release", "runtimeLibrary": "MT_StaticRelease", "binaries": evidence})
 
 
-def _preflight(args: Sequence[str]) -> None:
-    directory, mode, scenario = _exact("preflight", args, 3)
-    _selection(mode, scenario)
-    probe = _file(str(Path(directory) / BINARIES[0]), "leak probe")
-    command = [str(probe), "--automatic", "--mode", mode, "--scenario", scenario, "--warmup", "1", "--iterations", "1", "--windows", "3"]
-    result = subprocess.run(command, cwd=directory, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, encoding="utf-8", errors="replace")
-    if result.returncode:
-        raise LeakError(f"leak preflight failed ({result.returncode}): {result.stdout}")
-    lines = result.stdout.splitlines()
-    ready = _marker(lines, "READY")
-    _ready(ready, mode, scenario)
-    _marker(lines, "DONE")
-    _json("preflight.json", {"mode": mode, "scenario": scenario, "ready": ready})
+def _read(
+    process: psutil.Popen[str], marker: str, label: str = "", timeout: float = _MARKER_TIMEOUT
+) -> str:
+    """Return one probe marker line, read on a helper thread under a finite timeout."""
 
-
-def _read(process: psutil.Popen[str], marker: str, label: str = "") -> str:
-    assert process.stdout is not None
+    stream = process.stdout
+    assert stream is not None
     prefix = f"UNPACKRAT_LEAK_PROBE|{marker}|{label + '|' if label else ''}"
-    while line := process.stdout.readline():
-        if line.rstrip("\r\n").startswith(prefix):
-            return line.rstrip("\r\n")
-    raise LeakError(f"leak probe ended before {marker} marker")
+    found: queue.Queue[str | None] = queue.Queue()
+
+    def pump() -> None:
+        while True:
+            line = stream.readline()
+            if not line:
+                found.put(None)
+                return
+            text = line.rstrip("\r\n")
+            if text.startswith(prefix):
+                found.put(text)
+                return
+
+    threading.Thread(target=pump, daemon=True).start()
+    try:
+        result = found.get(timeout=timeout)
+    except queue.Empty:
+        raise LeakError(f"leak probe never reported the {marker} marker") from None
+    if result is None:
+        raise LeakError(f"leak probe ended before {marker} marker")
+    return result
 
 
 def _kill_tree(process: psutil.Popen[str]) -> None:
@@ -144,10 +144,13 @@ def _run_gflags(gflags: Path, image: str, flag: str | None = None) -> subprocess
     command = [str(gflags), "/i", image]
     if flag is not None:
         command.append(flag)
-    return subprocess.run(
-        command, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-        encoding="utf-8", errors="replace",
-    )
+    try:
+        return subprocess.run(
+            command, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            encoding="utf-8", errors="replace", timeout=_GFLAGS_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired as error:
+        raise LeakError(f"GFlags timed out after {_GFLAGS_TIMEOUT}s: {image}") from error
 
 
 def _change_stack_traces(gflags: Path, image: str, enabled: bool) -> None:
@@ -158,7 +161,7 @@ def _change_stack_traces(gflags: Path, image: str, enabled: bool) -> None:
 
 
 def _enable_stack_traces(gflags: Path, image: str) -> tuple[bool, bool]:
-    """Report whether this call set `+ust`, and whether traces are live from process start."""
+    """Report whether this call set ``+ust``, and whether traces are live from process start."""
 
     if not gflags.is_file():
         return False, False
@@ -170,10 +173,7 @@ def _enable_stack_traces(gflags: Path, image: str) -> tuple[bool, bool]:
         return False, False
     if current.returncode:
         raise LeakError(f"GFlags query failed ({current.returncode}): {current.stdout}")
-    match = re.search(
-        r"are:\s*([0-9A-Fa-f]{8}(?:\s*:\s*[0-9A-Fa-f]{8})*)\s*$",
-        current.stdout,
-    )
+    match = re.search(r"are:\s*([0-9A-Fa-f]{8}(?:\s*:\s*[0-9A-Fa-f]{8})*)\s*$", current.stdout)
     if current.stdout.startswith("No Registry Settings for "):
         flags = 0
     elif match is not None:
@@ -193,23 +193,35 @@ def _enable_stack_traces(gflags: Path, image: str) -> tuple[bool, bool]:
     return True, True
 
 
+def _umdh_run(
+    argv: Sequence[str], environment: dict[str, str], destination: Path
+) -> subprocess.CompletedProcess[str]:
+    """Run one UMDH invocation under a finite timeout, surfacing a stall as ``LeakError``."""
+
+    try:
+        return subprocess.run(
+            argv, env=environment, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            encoding="utf-8", errors="replace", timeout=_UMDH_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired as error:
+        raise LeakError(f"UMDH timed out after {_UMDH_TIMEOUT}s: {destination}") from error
+
+
 def _snapshot(
     umdh: Path, pid: int, destination: Path, baseline: bool, environment: dict[str, str]
 ) -> None:
-    result = subprocess.run(
-        [str(umdh), f"-p:{pid}", f"-f:{destination}"],
-        env=environment,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        encoding="utf-8",
-        errors="replace",
-    )
+    result = _umdh_run([str(umdh), f"-p:{pid}", f"-f:{destination}"], environment, destination)
     text = destination.read_text(encoding="utf-8", errors="replace") if destination.is_file() else ""
     if baseline:
-        if result.returncode not in (0, 1) or (result.returncode == 1 and "enabled allocation stack collection" not in text):
+        if result.returncode not in (0, 1) or (
+            result.returncode == 1 and "enabled allocation stack collection" not in text
+        ):
             raise LeakError(f"UMDH could not prime stack collection ({result.returncode}): {result.stdout}")
-    elif result.returncode or re.search(r"didn't find any allocations|database is full|stack trace database.*full", text, re.I) or "BackTrace" not in text:
+    elif (
+        result.returncode
+        or re.search(r"didn't find any allocations|database is full|stack trace database.*full", text, re.I)
+        or "BackTrace" not in text
+    ):
         raise LeakError(f"UMDH snapshot is unusable: {destination}")
 
 
@@ -222,34 +234,41 @@ def _capture(
     probe, umdh = _file(str(Path(directory) / BINARIES[0]), "leak probe"), _file(umdh_value, "UMDH")
     gflags = umdh.with_name("gflags.exe")
     output, snapshot_dir = _output(), _output() / "snapshots"
-    snapshot_dir.mkdir()
+    snapshot_dir.mkdir(exist_ok=True)
     environment = os.environ | {"_NT_SYMBOL_PATH": directory, "OANOCACHE": "1"}
-    command = [str(probe), "--mode", mode, "--scenario", scenario, "--warmup", str(warmup), "--iterations", str(iterations), "--windows", str(windows)]
+    command = [
+        str(probe), "--mode", mode, "--scenario", scenario,
+        "--warmup", str(warmup), "--iterations", str(iterations), "--windows", str(windows),
+    ]
     error_path = output / "probe.stderr.log"
     process: psutil.Popen[str] | None = None
     with error_path.open("w+", encoding="utf-8") as errors:
         try:
-            lock = FileLock(Path(tempfile.gettempdir()) / "unpackrat-gflags.lock")
-            with lock:
-                changed, traced = _enable_stack_traces(gflags, probe.name)
-                try:
-                    process = psutil.Popen(command, cwd=directory, env=environment, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=errors, text=True, encoding="utf-8", errors="replace")
-                finally:
-                    if changed:
-                        _change_stack_traces(gflags, probe.name, False)
+            lock = FileLock(
+                Path(tempfile.gettempdir()) / "unpackrat-gflags.lock", timeout=_GFLAGS_LOCK_TIMEOUT
+            )
+            try:
+                with lock:
+                    changed, _ = _enable_stack_traces(gflags, probe.name)
+                    try:
+                        process = psutil.Popen(
+                            command, cwd=directory, env=environment, stdin=subprocess.PIPE,
+                            stdout=subprocess.PIPE, stderr=errors, text=True, encoding="utf-8", errors="replace",
+                        )
+                    finally:
+                        if changed:
+                            _change_stack_traces(gflags, probe.name, False)
+            except FileLockTimeout as error:
+                raise LeakError(
+                    f"could not acquire the GFlags lock within {_GFLAGS_LOCK_TIMEOUT}s"
+                ) from error
             assert process is not None
             _ready(_read(process, "READY"), mode, scenario, process.pid)
             for label in ("baseline", *(f"window-{index}" for index in range(1, windows + 1))):
                 line = _read(process, "SNAPSHOT", label)
                 if not re.search(rf"\|pid={process.pid}\|", line):
                     raise LeakError("leak SNAPSHOT marker has the wrong PID")
-                _snapshot(
-                    umdh,
-                    process.pid,
-                    snapshot_dir / f"{label}.txt",
-                    label == "baseline",
-                    environment,
-                )
+                _snapshot(umdh, process.pid, snapshot_dir / f"{label}.txt", label == "baseline", environment)
                 assert process.stdin is not None
                 process.stdin.write(f"continue|{label}\n")
                 process.stdin.flush()
@@ -259,7 +278,8 @@ def _capture(
             except psutil.TimeoutExpired as error:
                 raise LeakError("leak probe did not exit after its final snapshot") from error
             if result:
-                errors.flush(); errors.seek(0)
+                errors.flush()
+                errors.seek(0)
                 raise LeakError(f"leak probe failed ({result}): {errors.read()}")
         finally:
             if process is not None:
@@ -268,19 +288,15 @@ def _capture(
                 assert process.stdin is not None and process.stdout is not None
                 process.stdin.close()
                 process.stdout.close()
-    assert process is not None
-    _json("capture.json", {"mode": mode, "scenario": scenario, "processId": process.pid, "windows": windows, "stackTracesFromProcessStart": traced})
     return snapshot_dir
 
 
-def _diff(
-    umdh_value: str, directory: str, label: str, before: Path, after: Path, destination: Path
-) -> dict[str, object]:
+def _diff(umdh_value: str, directory: str, label: str, before: Path, after: Path, destination: Path) -> dict[str, object]:
     """Compare one snapshot pair and record its report beside the parsed growth."""
 
     report = destination / f"{label}.txt"
     environment = os.environ | {"_NT_SYMBOL_PATH": directory, "OANOCACHE": "1"}
-    result = subprocess.run([umdh_value, "-d", str(before), str(after), f"-f:{report}"], env=environment, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, encoding="utf-8", errors="replace")
+    result = _umdh_run([umdh_value, "-d", str(before), str(after), f"-f:{report}"], environment, report)
     if result.returncode or not report.is_file():
         raise LeakError(f"UMDH comparison failed ({result.returncode}): {result.stdout}")
     text = report.read_text(encoding="utf-8", errors="replace")
@@ -288,24 +304,45 @@ def _diff(
     if not totals:
         raise LeakError("UMDH comparison contains no total allocation delta")
     total = int(totals[-1].group(2)) * (-1 if totals[-1].group(1) == "decrease" else 1)
-    stacks = {match.group(2): int(match.group(1)) for match in re.finditer(r"^\+\s+([0-9]+)\s+\([^)]*\)\s+[0-9]+\s+allocs\s+BackTrace\s*([0-9A-Fa-f]+)", text, re.M)}
-    document = {"label": label, "totalIncrease": total, "positiveStacks": stacks, "report": report.name}
-    _write_json(destination / f"{label}.json", document)
-    return document
+    stacks = {
+        match.group(2): int(match.group(1))
+        for match in re.finditer(r"^\+\s+([0-9]+)\s+\([^)]*\)\s+[0-9]+\s+allocs\s+BackTrace\s*([0-9A-Fa-f]+)", text, re.M)
+    }
+    return {"label": label, "totalIncrease": total, "positiveStacks": stacks, "report": report.name}
 
 
 def _summary(
     mode: str, scenario: str, warmup: int, iterations: int, windows: int,
     tolerance: int, records: Sequence[dict[str, object]],
-) -> None:
+) -> bool:
     previous, last, overall = records[-3], records[-2], records[-1]
-    repeated = sorted(key for key, value in last["positiveStacks"].items() if value > tolerance and previous["positiveStacks"].get(key, 0) > tolerance)
-    sustained = last["totalIncrease"] > tolerance and previous["totalIncrease"] > tolerance and overall["totalIncrease"] > 2 * tolerance
-    _json("summary.json", {"mode": mode, "scenario": scenario, "warmupRounds": warmup, "iterationsPerWindow": iterations, "windows": windows, "toleranceBytes": tolerance, "totalGrowthByWindow": [record["totalIncrease"] for record in records[:-1]], "overallGrowthBytes": overall["totalIncrease"], "repeatedGrowingStacks": repeated, "passed": not sustained and not repeated})
+    repeated = sorted(
+        key for key, value in last["positiveStacks"].items()
+        if value > tolerance and previous["positiveStacks"].get(key, 0) > tolerance
+    )
+    sustained = (
+        last["totalIncrease"] > tolerance and previous["totalIncrease"] > tolerance
+        and overall["totalIncrease"] > 2 * tolerance
+    )
+    passed = not sustained and not repeated
+    (_output() / "summary.json").write_text(
+        json.dumps(
+            {
+                "mode": mode, "scenario": scenario, "warmupRounds": warmup,
+                "iterationsPerWindow": iterations, "windows": windows, "toleranceBytes": tolerance,
+                "totalGrowthByWindow": [record["totalIncrease"] for record in records[:-1]],
+                "overallGrowthBytes": overall["totalIncrease"], "repeatedGrowingStacks": repeated,
+                "passed": passed,
+            },
+            ensure_ascii=False, separators=(",", ":"), sort_keys=True,
+        ) + "\n",
+        encoding="utf-8",
+    )
+    return passed
 
 
 def _measure(args: Sequence[str]) -> None:
-    """Capture one scenario, diff every window pair, and judge the slope in one process."""
+    """Capture one scenario, diff every window pair and fail on sustained growth."""
 
     directory, umdh_value, mode, scenario, *values = _exact("measure", args, 8)
     _selection(mode, scenario)
@@ -313,41 +350,27 @@ def _measure(args: Sequence[str]) -> None:
     windows, tolerance = _count(values[2], "windows", minimum=3), _count(values[3], "tolerance", minimum=0)
     snapshots = _capture(directory, umdh_value, mode, scenario, warmup, iterations, windows)
     destination = _output() / "diffs"
-    destination.mkdir()
-    specs = [(f"window-{index}", snapshots / f"window-{index}.txt", snapshots / f"window-{index + 1}.txt")
-             for index in range(1, windows)]
-    specs.append(("overall", snapshots / "window-1.txt", snapshots / f"window-{windows}.txt"))
-    records = [
-        _diff(umdh_value, directory, label, before, after, destination)
-        for label, before, after in specs
+    destination.mkdir(exist_ok=True)
+    specs = [
+        (f"window-{index}", snapshots / f"window-{index}.txt", snapshots / f"window-{index + 1}.txt")
+        for index in range(1, windows)
     ]
-    _summary(mode, scenario, warmup, iterations, windows, tolerance, records)
-
-
-def _gate(args: Sequence[str]) -> None:
-    (path,) = _exact("gate", args, 1)
-    try:
-        passed = json.loads(Path(path).read_text(encoding="utf-8"))["passed"]
-    except (OSError, json.JSONDecodeError, KeyError, TypeError) as error:
-        raise LeakError("leak summary is invalid") from error
-    if not isinstance(passed, bool):
-        raise LeakError("leak summary is invalid")
-    if not passed:
+    specs.append(("overall", snapshots / "window-1.txt", snapshots / f"window-{windows}.txt"))
+    records = [_diff(umdh_value, directory, label, before, after, destination) for label, before, after in specs]
+    if not _summary(mode, scenario, warmup, iterations, windows, tolerance, records):
         raise LeakError("UMDH found sustained heap growth")
 
 
-_ACTIONS = {
-    "setup": _setup, "preflight": _preflight, "measure": _measure, "gate": _gate,
-}
+_ACTIONS = {"setup": _setup, "measure": _measure}
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
     if not arguments or arguments[0] not in _ACTIONS:
-        raise LeakError("expected leak action: setup, preflight, measure, or gate")
+        raise LeakError("expected leak action: setup or measure")
     _ACTIONS[arguments[0]](arguments[1:])
     return 0
 
 
-if __name__ == "__main__":  # pragma: no cover
+if __name__ == "__main__":
     raise SystemExit(main())

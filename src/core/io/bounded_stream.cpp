@@ -60,8 +60,17 @@ namespace unpackrat::io
 
     void bounded_stream::read_exact(char *destination, const std::size_t byte_count)
     {
-        if (byte_count > static_cast<std::size_t>(std::numeric_limits<std::streamsize>::max()) ||
-            byte_count > static_cast<std::uint64_t>(remaining())) {
+        // A ``std::size_t`` byte count can never exceed a wider ``std::streamsize`` maximum, so
+        // this guard only carries meaning where ``std::size_t`` is the wider type.  ``if constexpr``
+        // compiles the impossible check out on the narrower build instead of leaving a branch that
+        // cannot be exercised.
+        if constexpr (std::numeric_limits<std::size_t>::max() >
+                      static_cast<std::uintmax_t>(std::numeric_limits<std::streamsize>::max())) {
+            if (byte_count > static_cast<std::size_t>(std::numeric_limits<std::streamsize>::max())) {
+                throw read_error();
+            }
+        }
+        if (byte_count > static_cast<std::uint64_t>(remaining())) {
             throw read_error();
         }
         const auto stream_size = static_cast<std::streamsize>(byte_count);

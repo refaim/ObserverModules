@@ -5,20 +5,20 @@
 This project has a console-first Windows build based directly on MSBuild and pinned manifest-mode vcpkg dependencies.
 Repository CMake is not part of the build; CMake use inside a vcpkg port is acceptable.
 
-The build tooling is plain Python: `build/main.py` is the command contract, `build/native.py` drives vcpkg and MSBuild,
-and the remaining operations are direct functions over the retained `core` validators. There is no dependency graph,
-content-addressed store, scheduler or template renderer to keep in sync; MSBuild owns project evaluation, dependencies
-and incremental state under the stable `out/native` tree.
+The build tooling is a single plain Python driver: `build/main.py` owns the command contract, the vcpkg restore,
+the MSBuild calls and the packaging, and `build/leaks.py` is the standalone UMDH worker. There is no dependency graph,
+content-addressed store, scheduler, report normaliser or template renderer to keep in sync; MSBuild owns project
+evaluation, dependencies and incremental state under the stable `out/native` tree, and each CI operation runs one real
+tool whose exit code is the verdict.
 
 Use the root entry point from an ordinary PowerShell or `cmd.exe` console:
 
 ```powershell
-.\build.ps1 doctor
-.\build.ps1 build -Arch all -Config Release
+.\build.ps1 build -Arch x86,x64 -Config Release
 .\build.ps1 test -Arch x86,x64 -Config Debug
-.\build.ps1 verify-source -ExportDir C:\path\to\evidence
-.\build.ps1 verify-arch -Arch x64 -ExportDir C:\path\to\evidence
-.\build.ps1 verify -Arch x64
+.\build.ps1 ci-source
+.\build.ps1 ci-arch -Arch x64
+.\build.ps1 package
 ```
 
 Run the relevant build, tests, and checks after changing code. Do not install or update developer tools automatically;
