@@ -4,7 +4,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $repositoryRoot = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
-$projectPropertiesPath = Join-Path $repositoryRoot 'build\ObserverProject.props'
+$projectPropertiesPath = Join-Path $repositoryRoot 'build\unpackrat-project.props'
 [xml]$projectProperties = Get-Content -LiteralPath $projectPropertiesPath -Raw
 $namespace = [System.Xml.XmlNamespaceManager]::new($projectProperties.NameTable)
 $namespace.AddNamespace('msb', 'http://schemas.microsoft.com/developer/msbuild/2003')

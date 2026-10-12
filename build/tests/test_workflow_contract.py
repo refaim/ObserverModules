@@ -252,7 +252,7 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn("$arguments = @('/a', $msi, '/qn', '/norestart',", workflow)
         self.assertIn("'10.0.19041.'", workflow)
         self.assertIn("$gflags = Join-Path $debuggers 'gflags.exe'", workflow)
-        self.assertIn('"OBSERVER_UMDH=$umdh" | Add-Content -Path $env:GITHUB_ENV', workflow)
+        self.assertIn('"UNPACKRAT_UMDH=$umdh" | Add-Content -Path $env:GITHUB_ENV', workflow)
 
         self.assertNotIn("upload-sarif", workflow)
         self.assertNotIn("codeql-action", workflow)
@@ -556,7 +556,9 @@ class WorkflowPreviousStepFixtureTests(unittest.TestCase):
         )
 
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("readable packages.json", result.stderr)
+        # Real PowerShell wraps and decorates the message between the two words, so the phrase
+        # match is whitespace- and pipe-tolerant while the nonzero and lineage checks stay exact.
+        self.assertRegex(result.stderr, r"readable\s+(?:\|\s*)?packages\.json")
         self.assertEqual(self.downloads(), ["renpy/v3.0.0"])
 
     def test_an_unknown_probe_failure_is_fatal(self) -> None:
@@ -582,17 +584,157 @@ class RepositoryMetadataTests(unittest.TestCase):
     """The repository's own manifests, readme and human ChangeLogs stay consistent."""
 
     MODULES = ("renpy", "rpgmaker", "zanzarah")
+    UPSTREAM_PROJECT_URLS = (
+        "https://github.com/nlohmann/json",
+        "https://github.com/catchorg/Catch2",
+        "https://github.com/lazyhamster/Observer",
+        "https://github.com/Cyan4973/xxHash",
+        "https://zlib.net",
+        "https://github.com/luxrck/rgssad",
+        "https://github.com/birkenfeld/serde-pickle",
+        "https://github.com/Shizmob/rpatool",
+        "https://github.com/pg83/ix",
+        "https://aluigi.altervista.org/papers.htm#others-file",
+    )
 
-    def test_manifest_license_matches_the_gpl_project_and_readme(self) -> None:
-        manifest = json.loads((REPOSITORY / "vcpkg.json").read_text(encoding="utf-8"))
-        readme = (REPOSITORY / "README.md").read_text(encoding="utf-8")
+    def setUp(self) -> None:
+        self.manifest = json.loads((REPOSITORY / "vcpkg.json").read_text(encoding="utf-8"))
+        self.readme = (REPOSITORY / "README.md").read_text(encoding="utf-8")
 
-        # The manifest declares the project's own GPLv3 grant, not the Observer dependency's LGPL.
-        self.assertEqual(manifest["license"], "GPL-3.0-only")
-        self.assertIn("License-GPLv3", readme)
-        # The zanzapak notice is GPL-2.0-or-later; the readme must not call it GPL-3.0.
+    def test_manifest_uses_the_lowercase_unpackrat_name_and_mit_license(self) -> None:
+        # The manifest declares the project's own MIT grant under its lowercase product name.
+        self.assertEqual(self.manifest["name"], "unpackrat")
+        self.assertEqual(self.manifest["license"], "MIT")
+
+    def test_readme_declares_mit_and_the_observer_lgpl_api_header_exception(self) -> None:
+        readme = self.readme
+        self.assertTrue(readme.startswith("# unpackrat"), readme.splitlines()[0])
+        self.assertIn("[![License: MIT](", readme)
+        self.assertIn("(https://opensource.org/licenses/MIT)", readme)
+        # The Observer API header stays a documented LGPLv3 exception to the project's MIT grant.
+        self.assertIn("src/api.h", readme)
+        self.assertIn("LGPL-3.0", readme)
+        self.assertIn("licenses/Observer.txt", readme)
+        self.assertIn("licenses/GPL-3.0.txt", readme)
+
+    def test_readme_labels_zanzapak_as_a_format_reference_not_a_dependency(self) -> None:
+        readme = self.readme
         self.assertIn("[GPL-2.0-or-later](licenses/zanzapak.txt)", readme)
         self.assertNotIn("[GPL-3.0](licenses/zanzapak.txt)", readme)
+        # zanzapak is a format reference, not a shipped-code dependency of the project.
+        self.assertIn("format reference", readme.lower())
+
+    def test_root_license_is_mit_and_the_gpl_is_the_companion_of_the_lgpl_header(self) -> None:
+        license_text = (REPOSITORY / "LICENSE.txt").read_text(encoding="utf-8")
+        self.assertTrue(license_text.startswith("MIT License"), license_text[:40])
+        self.assertIn("Copyright (c) 2019-2026 Roman Kharitonov", license_text)
+        self.assertIn("Permission is hereby granted, free of charge", license_text)
+        # The full GPLv3 stays alongside as the text the LGPL API header incorporates.
+        gpl = (REPOSITORY / "licenses" / "GPL-3.0.txt").read_text(encoding="utf-8")
+        self.assertIn("GNU GENERAL PUBLIC LICENSE", gpl)
+        self.assertIn("Version 3, 29 June 2007", gpl)
+        self.assertGreater(len(gpl.splitlines()), 500)
+        observer = (REPOSITORY / "licenses" / "Observer.txt").read_text(encoding="utf-8")
+        self.assertIn("GNU LESSER GENERAL PUBLIC LICENSE", observer)
+
+    def test_readme_does_not_promise_a_7z_adapter_that_does_not_exist(self) -> None:
+        self.assertNotIn("7z", self.readme)
+
+    def test_readme_opens_with_a_lowercase_name_and_a_short_practical_intro(self) -> None:
+        lines = self.readme.splitlines()
+        self.assertEqual(lines[0], "# unpackrat", lines[0])
+        # The intro before the first section is a few lines that state the plugin purpose and the
+        # self-contained module binary, with the license/CI badges excluded from the prose count.
+        first_heading = next(i for i, line in enumerate(lines) if line.startswith("## "))
+        intro = [
+            line
+            for line in lines[1:first_heading]
+            if line.strip() and not line.lstrip().startswith("[![")
+        ]
+        self.assertGreaterEqual(len(intro), 1)
+        self.assertLessEqual(len(intro), 4)
+        text = " ".join(intro).lower()
+        self.assertIn("far manager", text)
+        self.assertIn("self-contained", text)
+
+    def test_readme_leads_with_download_before_license(self) -> None:
+        readme = self.readme
+        self.assertIn("## Download", readme)
+        # A reader sees how to get the plugin before the license and build sections.
+        self.assertLess(readme.index("## Download"), readme.index("## License"))
+
+    def test_readme_download_table_names_declared_versions_and_release_lines(self) -> None:
+        readme = self.readme
+        for module, version in (("renpy", "3.1.0"), ("rpgmaker", "1.1.0"), ("zanzarah", "2.1.0")):
+            with self.subTest(module=module):
+                self.assertIn(version, readme)
+                self.assertIn(
+                    f"https://github.com/refaim/ObserverModules/releases?q={module}%2Fv",
+                    readme,
+                )
+
+    def test_readme_documents_architecture_matched_install_and_browse_flow(self) -> None:
+        readme = self.readme
+        self.assertIn("%FARHOME%\\Plugins\\Observer\\modules", readme)
+        self.assertIn("observer_user.ini", readme)
+        self.assertIn("restart", readme.lower())
+        for architecture in ("x86", "x64", "ARM64"):
+            with self.subTest(architecture=architecture):
+                self.assertIn(architecture, readme)
+
+    def test_readme_keeps_every_upstream_notice_under_its_classification(self) -> None:
+        readme = self.readme
+        for project in self.UPSTREAM_PROJECT_URLS:
+            with self.subTest(project=project):
+                self.assertIn(project, readme)
+        for heading in ("Third-party components", "Sources of inspiration", "Format references"):
+            with self.subTest(heading=heading):
+                self.assertIn(heading, readme)
+
+    def test_readme_states_the_install_prerequisites_and_needs_no_external_runtime_dlls(self) -> None:
+        readme = self.readme
+        # The reader is pointed at the host to install first: FAR Manager and the Observer plugin host.
+        self.assertIn("https://farmanager.com/download.php?l=en", readme)
+        self.assertIn("https://github.com/lazyhamster/Observer/releases", readme)
+        # The self-contained modules need no external runtime redistributable DLLs (wrap-tolerant).
+        self.assertRegex(readme.lower(), r"no\s+external runtime dlls")
+
+    def test_readme_scopes_the_zip_contents_to_each_module_zip(self) -> None:
+        readme = self.readme
+        # Only a module binary ZIP is described here; the sibling PDB bundles are not module archives.
+        self.assertIn("Each module ZIP", readme)
+        self.assertNotIn("Every published archive", readme)
+
+    def test_readme_matches_the_zip_architecture_to_the_far_observer_build(self) -> None:
+        readme = self.readme
+        download = " ".join(
+            readme[readme.index("## Download"):readme.index("## Install")].split()
+        )
+        # The download guidance ties the ZIP architecture to FAR Manager and Observer, not the host OS.
+        self.assertIn("matches your FAR Manager and Observer build", download)
+        self.assertNotIn("host architecture", readme)
+
+    def test_build_documentation_states_the_toolchain_prerequisites(self) -> None:
+        docs = (REPOSITORY / "docs" / "build-system.md").read_text(encoding="utf-8")
+        requirements = (
+            "Build Tools 2022",
+            "v143",
+            "ARM64",
+            "Spectre",
+            "Windows 11 SDK",
+            "PowerShell 7.4",
+            "uv",
+            "vcpkg",
+            "VCPKG_ROOT",
+        )
+        for requirement in requirements:
+            with self.subTest(requirement=requirement):
+                self.assertIn(requirement, docs)
+
+    def test_readme_links_self_contained_outputs_to_the_build_documentation(self) -> None:
+        readme = self.readme
+        self.assertIn("docs/build-system.md", readme)
+        self.assertIn("self-contained", readme.lower())
 
     def test_every_module_owns_bilingual_change_logs_matching_its_declared_version(self) -> None:
         readme = (REPOSITORY / "README.md").read_text(encoding="utf-8")

@@ -41,9 +41,15 @@ from packaging_ops import (  # noqa: E402
 MODULES = ("renpy", "rpgmaker", "zanzarah")
 VERSIONS = {"renpy": "3.1.0", "rpgmaker": "1.1.0", "zanzarah": "2.1.0"}
 LICENSES = {
-    "renpy": ("Observer.txt", "rpatool.txt", "serde-pickle.txt", "zlib.txt"),
-    "rpgmaker": ("Observer.txt", "rgssad.txt"),
-    "zanzarah": ("Observer.txt", "zanzapak.txt"),
+    "renpy": ("Observer.txt", "GPL-3.0.txt", "rpatool.txt", "serde-pickle.txt", "zlib.txt"),
+    "rpgmaker": ("Observer.txt", "GPL-3.0.txt", "rgssad.txt"),
+    "zanzarah": ("Observer.txt", "GPL-3.0.txt"),
+}
+# Format references ship in a separate labeled section and are never code-license dependencies.
+REFERENCE_LICENSES = {
+    "renpy": (),
+    "rpgmaker": (),
+    "zanzarah": ("zanzapak.txt",),
 }
 CHANGELOGS = ("ChangeLog.en.txt", "ChangeLog.ru.txt")
 
@@ -216,22 +222,24 @@ class Fixture:
             write(self.repository, f"build/projects/{module}.vcxproj", "<Project />\n")
             for name in licenses:
                 write(self.repository, f"licenses/{name}", f"license:{name}\n")
+            for name in REFERENCE_LICENSES[module]:
+                write(self.repository, f"licenses/{name}", f"reference:{name}\n")
         write(self.repository, "src/api.h", "#pragma once\n")
         write(self.repository, "src/common/shared.h", "#pragma once\n")
         write(self.repository, "src/core/bounded.h", "#pragma once\n")
         write(self.repository, "src/modules/extractor.h", "#pragma once\n")
         write(self.repository, "src/modules/version.rc", "VS_VERSION_INFO VERSIONINFO\n")
         for name in (
-            "build/ObserverProjectConfigurations.props",
-            "build/ObserverConfiguration.props",
-            "build/ObserverProject.props",
-            "build/ObserverModuleVersion.props",
+            "build/unpackrat-project-configurations.props",
+            "build/unpackrat-configuration.props",
+            "build/unpackrat-project.props",
+            "build/unpackrat-module-version.props",
         ):
             write(self.repository, name, "<Project />\n")
         write(self.repository, "vcpkg.json", '{"dependencies":["zlib"]}\n')
         write(
             self.repository,
-            "build/vcpkg/triplets/observer-x64-windows-static.cmake",
+            "build/vcpkg/triplets/unpackrat-x64-windows-static.cmake",
             "static\n",
         )
         write(self.repository, "LICENSE.txt", "project license\n")
@@ -640,10 +648,10 @@ class ContentInputTests(unittest.TestCase):
             )
         self.assertIn("build/projects/renpy.vcxproj", inputs)
         for name in (
-            "build/ObserverProjectConfigurations.props",
-            "build/ObserverConfiguration.props",
-            "build/ObserverProject.props",
-            "build/ObserverModuleVersion.props",
+            "build/unpackrat-project-configurations.props",
+            "build/unpackrat-configuration.props",
+            "build/unpackrat-project.props",
+            "build/unpackrat-module-version.props",
         ):
             with self.subTest(name=name):
                 self.assertIn(name, inputs)
@@ -661,7 +669,7 @@ class ContentInputTests(unittest.TestCase):
                 }
 
             baseline = identities()
-            (fixture.repository / "build/ObserverProject.props").write_text(
+            (fixture.repository / "build/unpackrat-project.props").write_text(
                 "changed\n", encoding="utf-8"
             )
             shared_props = identities()
@@ -699,6 +707,65 @@ class ContentInputTests(unittest.TestCase):
         self.assertEqual(version["rpgmaker"], changelog_moved["rpgmaker"])
         self.assertEqual(version["zanzarah"], changelog_moved["zanzarah"])
 
+    def test_a_format_reference_notice_moves_only_its_own_module_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = Fixture(Path(temporary))
+
+            def identities() -> dict[str, str]:
+                return {
+                    module: packaging_ops.content_identity(
+                        fixture.repository, module_content_inputs(fixture.repository, module, ())
+                    )
+                    for module in MODULES
+                }
+
+            baseline = identities()
+            # The reference-only notice is a shipped byte of the module whose LICENSES.txt
+            # reproduces it, so editing it must move that module's content identity.
+            self.assertIn(
+                "licenses/zanzapak.txt",
+                module_content_inputs(fixture.repository, "zanzarah", ()),
+            )
+            (fixture.repository / "licenses" / "zanzapak.txt").write_text(
+                "reference:zanzapak.txt\n// revised format reference\n", encoding="utf-8"
+            )
+            revised = identities()
+
+        self.assertNotEqual(baseline["zanzarah"], revised["zanzarah"])
+        self.assertEqual(baseline["renpy"], revised["renpy"])
+        self.assertEqual(baseline["rpgmaker"], revised["rpgmaker"])
+
+    def test_a_reference_notice_is_a_content_input_but_not_a_code_license(self) -> None:
+        # The reference map is the single source of the classification: zanzapak.txt ships in a
+        # labeled reference section and never counts as a compiled-code dependency.
+        self.assertIn("zanzapak.txt", core_package.REFERENCE_LICENSES["zanzarah"])
+        self.assertNotIn("zanzapak.txt", core_package.LICENSES["zanzarah"])
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = Fixture(Path(temporary))
+            self.assertIn(
+                "licenses/zanzapak.txt",
+                module_content_inputs(fixture.repository, "zanzarah", ()),
+            )
+            self.assertNotIn(
+                "licenses/zanzapak.txt",
+                module_content_inputs(fixture.repository, "renpy", ()),
+            )
+
+    def test_a_missing_reference_notice_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = Fixture(Path(temporary))
+            (fixture.repository / "licenses" / "zanzapak.txt").unlink()
+
+            with self.assertRaises(FileNotFoundError):
+                packaging_ops.content_identity(
+                    fixture.repository,
+                    module_content_inputs(fixture.repository, "zanzarah", ()),
+                )
+            # Another module never references the missing notice, so its identity still resolves.
+            packaging_ops.content_identity(
+                fixture.repository, module_content_inputs(fixture.repository, "renpy", ())
+            )
+
 
 class AuditTests(unittest.TestCase):
     def test_audit_runs_every_release_gate_in_order(self) -> None:
@@ -734,7 +801,7 @@ class AuditTests(unittest.TestCase):
             )
             self.assertTrue(runner.calls[0].captured)
             self.assertEqual(runner.calls[3].env, None)
-            self.assertEqual(runner.calls[4].env, {"OBSERVER_OUT_DIR": str(directory)})
+            self.assertEqual(runner.calls[4].env, {"UNPACKRAT_OUT_DIR": str(directory)})
             self.assertEqual(runner.calls[4].cwd, packaging_ops.BUILD_ROOT)
             self.assertEqual(headers.read_text(encoding="utf-8"), " 8664 machine (x64)\n")
 

@@ -158,18 +158,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     add_command("gate", "input")
     args = parser.parse_args(argv)
 
-    raw_root = os.environ.get("OBSERVER_OUT_DIR")
+    raw_root = os.environ.get("UNPACKRAT_OUT_DIR")
     if not raw_root:
-        parser.error("OBSERVER_OUT_DIR is required")
+        parser.error("UNPACKRAT_OUT_DIR is required")
     root = Path(raw_root).resolve()
     if not root.is_dir():
-        parser.error("OBSERVER_OUT_DIR must be an existing directory")
+        parser.error("UNPACKRAT_OUT_DIR must be an existing directory")
     if args.command == "gate":
         require_clean((Path(args.input),))
         return 0
     output = (root / args.output_name).resolve()
     if output == root or not output.is_relative_to(root):
-        parser.error("output name must be confined to OBSERVER_OUT_DIR")
+        parser.error("output name must be confined to UNPACKRAT_OUT_DIR")
     if args.command == "normalize-msvc":
         normalize_msvc(Path(args.input), output, args.automation_id)
     elif args.command == "convert-tidy":

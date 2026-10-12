@@ -5,7 +5,7 @@
 #include <algorithm>
 #include <fstream>
 
-// build/ObserverModuleVersion.props injects the version macros from src/modules/zanzarah/VERSION,
+// build/unpackrat-module-version.props injects the version macros from src/modules/zanzarah/VERSION,
 // the single source of truth. A project that does not import that file fails to compile here.
 
 namespace extractor
@@ -14,8 +14,8 @@ namespace extractor
     {
         return {
             {0x86e7e4c3, 0xbc44, 0x4e8e, {0x90, 0xaf, 0xbd, 0xbd, 0x1c, 0xb6, 0x1a, 0x83}},
-            OBSERVER_MODULE_VERSION_MAJOR,
-            OBSERVER_MODULE_VERSION_MINOR,
+            UNPACKRAT_MODULE_VERSION_MAJOR,
+            UNPACKRAT_MODULE_VERSION_MINOR,
         };
     }
 
@@ -31,7 +31,7 @@ namespace extractor
         return archive_info{L"Zanzarah", L"", L""};
     }
 
-    int32_t read_positive_or_zero_int32(observer::io::bounded_stream &stream)
+    int32_t read_positive_or_zero_int32(unpackrat::io::bounded_stream &stream)
     {
         const auto value = stream.read_trivial<std::int32_t>();
 
@@ -42,7 +42,7 @@ namespace extractor
         return value;
     }
 
-    int32_t read_positive_int32(observer::io::bounded_stream &stream)
+    int32_t read_positive_int32(unpackrat::io::bounded_stream &stream)
     {
         const int32_t value = read_positive_or_zero_int32(stream);
         if (value == 0) {
@@ -54,13 +54,13 @@ namespace extractor
     std::vector<std::unique_ptr<file>> extractor::list_files(
         std::istream &stream) // NOLINT(*-convert-member-functions-to-static)
     {
-        observer::io::bounded_stream input(stream);
+        unpackrat::io::bounded_stream input(stream);
         input.seek_absolute(static_cast<std::streamoff>(get_signature().size()));
         const auto archive_size = input.size();
         const auto file_count = static_cast<std::size_t>(read_positive_int32(input));
         constexpr std::size_t minimum_entry_metadata_bytes = sizeof(std::int32_t) * 3 + 1;
         const auto remaining_bytes = static_cast<std::uint64_t>(input.remaining());
-        if (file_count > observer::archive_limits::max_entry_count ||
+        if (file_count > unpackrat::archive_limits::max_entry_count ||
             file_count > remaining_bytes / minimum_entry_metadata_bytes) {
             throw read_error();
         }
@@ -71,7 +71,7 @@ namespace extractor
         std::string path;
         for (std::size_t i = 0; i < file_count; ++i) {
             const auto path_len = static_cast<std::size_t>(read_positive_int32(input));
-            if (path_len > observer::archive_limits::max_path_bytes ||
+            if (path_len > unpackrat::archive_limits::max_path_bytes ||
                 path_len > static_cast<std::uint64_t>(input.remaining())) {
                 throw read_error();
             }

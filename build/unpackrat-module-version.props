@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <!--
+    Per-module release version plumbing.
+
+    src\modules\<module>\VERSION is the single source of truth. Every project that compiles a
+    module translation unit imports this file, so the version reported to the Observer host and
+    the version recorded in the Windows VERSIONINFO resource always come from the same bytes.
+    A project that imports this file must declare unpackratModuleName.
+  -->
+  <PropertyGroup>
+    <unpackratModuleVersionFile>$(RepositoryRoot)src\modules\$(unpackratModuleName)\VERSION</unpackratModuleVersionFile>
+    <unpackratModuleVersionRaw Condition="'$(unpackratModuleName)' != '' And Exists('$(unpackratModuleVersionFile)')">$([System.IO.File]::ReadAllText('$(unpackratModuleVersionFile)'))</unpackratModuleVersionRaw>
+    <unpackratModuleVersion>$(unpackratModuleVersionRaw.Trim())</unpackratModuleVersion>
+    <!-- This pattern must stay identical to core.module_version.parse_version. -->
+    <unpackratModuleVersionValid Condition="'$(unpackratModuleVersion)' != ''">$([System.Text.RegularExpressions.Regex]::IsMatch('$(unpackratModuleVersion)', '^(0|[1-9][0-9]{0,4})\.(0|[1-9][0-9]{0,4})\.(0|[1-9][0-9]{0,4})$'))</unpackratModuleVersionValid>
+    <unpackratModuleVersionMajor Condition="'$(unpackratModuleVersionValid)' == 'true'">$([System.Version]::Parse('$(unpackratModuleVersion)').Major)</unpackratModuleVersionMajor>
+    <unpackratModuleVersionMinor Condition="'$(unpackratModuleVersionValid)' == 'true'">$([System.Version]::Parse('$(unpackratModuleVersion)').Minor)</unpackratModuleVersionMinor>
+    <unpackratModuleVersionPatch Condition="'$(unpackratModuleVersionValid)' == 'true'">$([System.Version]::Parse('$(unpackratModuleVersion)').Build)</unpackratModuleVersionPatch>
+  </PropertyGroup>
+
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <PreprocessorDefinitions>UNPACKRAT_MODULE_VERSION_MAJOR=$(unpackratModuleVersionMajor);UNPACKRAT_MODULE_VERSION_MINOR=$(unpackratModuleVersionMinor);UNPACKRAT_MODULE_VERSION_PATCH=$(unpackratModuleVersionPatch);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+    <ResourceCompile>
+      <PreprocessorDefinitions>UNPACKRAT_MODULE_NAME=$(unpackratModuleName);UNPACKRAT_MODULE_FILE=$(unpackratModuleName).so;UNPACKRAT_MODULE_VERSION=$(unpackratModuleVersion);UNPACKRAT_MODULE_VERSION_MAJOR=$(unpackratModuleVersionMajor);UNPACKRAT_MODULE_VERSION_MINOR=$(unpackratModuleVersionMinor);UNPACKRAT_MODULE_VERSION_PATCH=$(unpackratModuleVersionPatch);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ResourceCompile>
+  </ItemDefinitionGroup>
+
+  <!-- Only the shipped module DLLs carry the resource; fuzz targets reuse the same sources. -->
+  <ItemGroup Condition="'$(unpackratConfigurationType)' == 'DynamicLibrary'">
+    <ResourceCompile Include="$(RepositoryRoot)src\modules\version.rc" />
+  </ItemGroup>
+
+  <Target Name="ValidateunpackratModuleVersion" BeforeTargets="PrepareForBuild">
+    <Error Condition="'$(unpackratModuleName)' == ''"
+           Text="A project that imports unpackrat-module-version.props must declare unpackratModuleName." />
+    <Error Condition="'$(unpackratModuleVersionValid)' != 'true'"
+           Text="$(unpackratModuleVersionFile) must contain exactly one X.Y.Z module version." />
+    <!-- A VERSIONINFO component is a 16-bit field; a larger one would be silently truncated. -->
+    <Error Condition="'$(unpackratModuleVersionValid)' == 'true' And ($(unpackratModuleVersionMajor) &gt; 65535 Or $(unpackratModuleVersionMinor) &gt; 65535 Or $(unpackratModuleVersionPatch) &gt; 65535)"
+           Text="$(unpackratModuleVersionFile) declares a version component above 65535: $(unpackratModuleVersion)." />
+  </Target>
+</Project>

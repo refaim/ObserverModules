@@ -2,7 +2,7 @@
 
 #include <limits>
 
-namespace observer::io
+namespace unpackrat::io
 {
     bounded_stream::bounded_stream(std::istream &stream) : stream_(stream)
     {
@@ -74,4 +74,4 @@ namespace observer::io
             throw read_error();
         }
     }
-} // namespace observer::io
+} // namespace unpackrat::io

@@ -19,14 +19,14 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ObserverProject Include="$(MSBuildThisFileDirectory)projects\renpy.vcxproj" />
-    <ObserverProject Include="$(MSBuildThisFileDirectory)projects\rpgmaker.vcxproj" />
-    <ObserverProject Include="$(MSBuildThisFileDirectory)projects\zanzarah.vcxproj" />
-    <ObserverProject Include="$(MSBuildThisFileDirectory)projects\tests.vcxproj" />
+    <unpackratProject Include="$(MSBuildThisFileDirectory)projects\renpy.vcxproj" />
+    <unpackratProject Include="$(MSBuildThisFileDirectory)projects\rpgmaker.vcxproj" />
+    <unpackratProject Include="$(MSBuildThisFileDirectory)projects\zanzarah.vcxproj" />
+    <unpackratProject Include="$(MSBuildThisFileDirectory)projects\tests.vcxproj" />
   </ItemGroup>
 
   <Target Name="Build">
-    <MSBuild Projects="@(ObserverProject)"
+    <MSBuild Projects="@(unpackratProject)"
              Targets="Build"
              BuildInParallel="$(BuildInParallel)"
              Properties="Configuration=$(Configuration);Platform=$(Platform);ArtifactsRoot=$(ArtifactsRoot);VcpkgRoot=$(VcpkgRoot);VcpkgManifestInstall=false" />

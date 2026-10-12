@@ -7,7 +7,7 @@
 #include <functional>
 #include <limits>
 
-// build/ObserverModuleVersion.props injects the version macros from src/modules/renpy/VERSION,
+// build/unpackrat-module-version.props injects the version macros from src/modules/renpy/VERSION,
 // the single source of truth. A project that does not import that file fails to compile here.
 
 namespace extractor
@@ -16,8 +16,8 @@ namespace extractor
     {
         return {
             {0x9486718f, 0x8f0a, 0x4de7, {0x98, 0x80, 0x01, 0x14, 0x6b, 0x33, 0x6d, 0x6b}},
-            OBSERVER_MODULE_VERSION_MAJOR,
-            OBSERVER_MODULE_VERSION_MINOR,
+            UNPACKRAT_MODULE_VERSION_MAJOR,
+            UNPACKRAT_MODULE_VERSION_MINOR,
         };
     }
 
@@ -36,7 +36,7 @@ namespace extractor
         return archive_info{L"RenPy", L"", L""};
     }
 
-    int64_t read_int64(observer::io::bounded_stream &stream)
+    int64_t read_int64(unpackrat::io::bounded_stream &stream)
     {
         std::string buffer(sizeof(int64_t) * 2, '\0');
         stream.read_exact(buffer.data(), buffer.size());
@@ -52,7 +52,7 @@ namespace extractor
     }
 
     std::pair<int64_t, std::function<std::pair<int64_t, int64_t>(int64_t, int64_t)>> parse_header(
-        observer::io::bounded_stream &stream)
+        unpackrat::io::bounded_stream &stream)
     {
         std::string version_check(3, '\0');
         stream.seek_absolute(static_cast<std::streamoff>(extractor::get_signature().size()));
@@ -79,7 +79,7 @@ namespace extractor
     std::vector<std::unique_ptr<file>> extractor::list_files(
         std::istream &stream) // NOLINT(*-convert-member-functions-to-static)
     {
-        observer::io::bounded_stream input(stream);
+        unpackrat::io::bounded_stream input(stream);
         const auto [index_offset, decoder] = parse_header(input);
         const auto archive_size = input.size();
         if (index_offset >= archive_size) {
@@ -97,7 +97,7 @@ namespace extractor
         std::vector<std::byte> compressed_data(static_cast<std::size_t>(compressed_size));
         input.read_exact(reinterpret_cast<char *>(compressed_data.data()), compressed_data.size());
         const auto decompressed_data =
-            observer::compression::decompress_zlib(compressed_data, max_decompressed_index_size);
+            unpackrat::compression::decompress_zlib(compressed_data, max_decompressed_index_size);
 
         auto root = pickle::loads(decompressed_data);
         const auto &dict = root->as_dict();

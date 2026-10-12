@@ -94,7 +94,7 @@ namespace
 TEST_CASE("bounded stream: reads and rejects out-of-range operations")
 {
     std::istringstream source("abcd");
-    observer::io::bounded_stream input(source);
+    unpackrat::io::bounded_stream input(source);
     REQUIRE(input.size() == 4);
     REQUIRE(input.position() == 0);
 
@@ -105,15 +105,15 @@ TEST_CASE("bounded stream: reads and rejects out-of-range operations")
     REQUIRE(value == std::array{'b', 'c'});
     REQUIRE(input.remaining() == 1);
 
-    REQUIRE_THROWS_AS(input.read_exact(value.data(), value.size()), observer::io::read_error);
-    REQUIRE_THROWS_AS(input.seek_absolute(-1), observer::io::read_error);
-    REQUIRE_THROWS_AS(input.seek_absolute(5), observer::io::read_error);
+    REQUIRE_THROWS_AS(input.read_exact(value.data(), value.size()), unpackrat::io::read_error);
+    REQUIRE_THROWS_AS(input.seek_absolute(-1), unpackrat::io::read_error);
+    REQUIRE_THROWS_AS(input.seek_absolute(5), unpackrat::io::read_error);
 }
 
 TEST_CASE("bounded stream: reads trivial values")
 {
     std::istringstream source(std::string{"\x78\x56\x34\x12", 4});
-    observer::io::bounded_stream input(source);
+    unpackrat::io::bounded_stream input(source);
     REQUIRE(input.read_trivial<std::uint32_t>() == 0x12345678);
 }
 
@@ -123,14 +123,14 @@ TEST_CASE("bounded stream: normalizes stream positioning failures")
     {
         controlled_stream_buffer buffer("abc", -1);
         std::istream source(&buffer);
-        REQUIRE_THROWS_AS(observer::io::bounded_stream(source), observer::io::read_error);
+        REQUIRE_THROWS_AS(unpackrat::io::bounded_stream(source), unpackrat::io::read_error);
     }
 
     SECTION("end precedes initial position")
     {
         controlled_stream_buffer buffer("", 1);
         std::istream source(&buffer);
-        REQUIRE_THROWS_AS(observer::io::bounded_stream(source), observer::io::read_error);
+        REQUIRE_THROWS_AS(unpackrat::io::bounded_stream(source), unpackrat::io::read_error);
     }
 
     SECTION("constructor receives an exception")
@@ -139,33 +139,33 @@ TEST_CASE("bounded stream: normalizes stream positioning failures")
         buffer.fail_seeks(true);
         std::istream source(&buffer);
         source.exceptions(std::ios_base::failbit);
-        REQUIRE_THROWS_AS(observer::io::bounded_stream(source), observer::io::read_error);
+        REQUIRE_THROWS_AS(unpackrat::io::bounded_stream(source), unpackrat::io::read_error);
     }
 
     SECTION("position is negative")
     {
         std::istringstream source("abc");
-        observer::io::bounded_stream input(source);
+        unpackrat::io::bounded_stream input(source);
         source.setstate(std::ios_base::failbit);
-        REQUIRE_THROWS_AS(input.position(), observer::io::read_error);
+        REQUIRE_THROWS_AS(input.position(), unpackrat::io::read_error);
     }
 
     SECTION("position exceeds the captured size")
     {
         controlled_stream_buffer buffer("abc");
         std::istream source(&buffer);
-        observer::io::bounded_stream input(source);
+        unpackrat::io::bounded_stream input(source);
         buffer.set_position(4);
-        REQUIRE_THROWS_AS(input.position(), observer::io::read_error);
+        REQUIRE_THROWS_AS(input.position(), unpackrat::io::read_error);
     }
 
     SECTION("position receives an exception")
     {
         std::istringstream source("abc");
-        observer::io::bounded_stream input(source);
+        unpackrat::io::bounded_stream input(source);
         source.exceptions(std::ios_base::failbit);
         REQUIRE_THROWS_AS(source.setstate(std::ios_base::failbit), std::ios_base::failure);
-        REQUIRE_THROWS_AS(input.position(), observer::io::read_error);
+        REQUIRE_THROWS_AS(input.position(), unpackrat::io::read_error);
     }
 }
 
@@ -175,50 +175,50 @@ TEST_CASE("bounded stream: normalizes seek and read failures")
     {
         controlled_stream_buffer buffer("abc");
         std::istream source(&buffer);
-        observer::io::bounded_stream input(source);
+        unpackrat::io::bounded_stream input(source);
         buffer.fail_seeks(true);
-        REQUIRE_THROWS_AS(input.seek_absolute(0), observer::io::read_error);
+        REQUIRE_THROWS_AS(input.seek_absolute(0), unpackrat::io::read_error);
     }
 
     SECTION("seek throws")
     {
         controlled_stream_buffer buffer("abc");
         std::istream source(&buffer);
-        observer::io::bounded_stream input(source);
+        unpackrat::io::bounded_stream input(source);
         buffer.fail_seeks(true);
         source.exceptions(std::ios_base::failbit);
-        REQUIRE_THROWS_AS(input.seek_absolute(0), observer::io::read_error);
+        REQUIRE_THROWS_AS(input.seek_absolute(0), unpackrat::io::read_error);
     }
 
     SECTION("read is shorter than the captured extent")
     {
         controlled_stream_buffer buffer("abc");
         std::istream source(&buffer);
-        observer::io::bounded_stream input(source);
+        unpackrat::io::bounded_stream input(source);
         buffer.limit_reads(true);
         std::array<char, 2> output{};
-        REQUIRE_THROWS_AS(input.read_exact(output.data(), output.size()), observer::io::read_error);
+        REQUIRE_THROWS_AS(input.read_exact(output.data(), output.size()), unpackrat::io::read_error);
     }
 
     SECTION("read throws")
     {
         controlled_stream_buffer buffer("abc");
         std::istream source(&buffer);
-        observer::io::bounded_stream input(source);
+        unpackrat::io::bounded_stream input(source);
         buffer.limit_reads(true);
         source.exceptions(std::ios_base::failbit);
         std::array<char, 2> output{};
-        REQUIRE_THROWS_AS(input.read_exact(output.data(), output.size()), observer::io::read_error);
+        REQUIRE_THROWS_AS(input.read_exact(output.data(), output.size()), unpackrat::io::read_error);
     }
 
     SECTION("requested size cannot be represented by the stream API")
     {
         std::istringstream source("abc");
-        observer::io::bounded_stream input(source);
+        unpackrat::io::bounded_stream input(source);
         if constexpr (std::numeric_limits<std::size_t>::max() >
                       static_cast<std::uintmax_t>(std::numeric_limits<std::streamsize>::max())) {
             constexpr auto impossible_size = static_cast<std::size_t>(std::numeric_limits<std::streamsize>::max()) + 1;
-            REQUIRE_THROWS_AS(input.read_exact(nullptr, impossible_size), observer::io::read_error);
+            REQUIRE_THROWS_AS(input.read_exact(nullptr, impossible_size), unpackrat::io::read_error);
         } else {
             SUCCEED("size_t cannot represent a request larger than streamsize on this ABI");
         }

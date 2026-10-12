@@ -20,10 +20,10 @@ if str(SUPPORT_ROOT) not in sys.path:
     sys.path.insert(0, str(SUPPORT_ROOT))
 
 # Load exactly the module under test from an explicit path.  A RED harness can pin a frozen copy
-# through OBSERVER_SOURCE_MODULE; the default is this tree's sibling, and the assertion fails
+# through UNPACKRAT_SOURCE_MODULE; the default is this tree's sibling, and the assertion fails
 # loudly if anything else (for example a stale repository copy) would be imported instead.
 MODULE_UNDER_TEST = Path(
-    os.environ.get("OBSERVER_SOURCE_MODULE", SUPPORT_ROOT / "source_checks.py")
+    os.environ.get("UNPACKRAT_SOURCE_MODULE", SUPPORT_ROOT / "source_checks.py")
 ).resolve()
 PSSA_SETTINGS = SUPPORT_ROOT / "PSScriptAnalyzerSettings.psd1"
 
@@ -105,8 +105,8 @@ class StubRunner:
             for argument in argv:
                 if argument.startswith("--output-file="):
                     self.write(Path(argument.split("=", 1)[1]), json.dumps(_SARIF))
-        if self.msvc and "ObserverAnalysisReportPath" in options:
-            self.write(Path(options["ObserverAnalysisReportPath"]), json.dumps(_SARIF))
+        if self.msvc and "unpackratAnalysisReportPath" in options:
+            self.write(Path(options["unpackratAnalysisReportPath"]), json.dumps(_SARIF))
         if self.tidy and "ClangTidyLogFile" in options:
             self.write(Path(options["IntDir"]) / options["ClangTidyLogFile"], "")
 
@@ -333,7 +333,7 @@ class SourceChecksTests(ToolsMixin, unittest.TestCase):
             )
             self.assertEqual(merge.argv[-2:], ("--output-name", "analysis.sarif"))
             self.assertEqual(merge.cwd, repository / "build")
-            self.assertEqual(merge.env["OBSERVER_OUT_DIR"], str(resolved))
+            self.assertEqual(merge.env["UNPACKRAT_OUT_DIR"], str(resolved))
             gate = next(call for call in runner.calls if call.argv[3] == "gate")
             self.assertEqual(
                 gate.argv,
@@ -432,6 +432,32 @@ class SourceChecksTests(ToolsMixin, unittest.TestCase):
             )
             self.assertTrue(observed.get("exists", False))
 
+    def test_an_ordinary_script_under_build_templates_reaches_the_analyzer(self) -> None:
+        # ``build/templates`` held retired Jinja templates, but any ordinary ``.ps1`` dropped
+        # there is still owned PowerShell and must be analyzed like every other script.
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repository = self.repository(root / "repo").resolve()
+            template = repository / "build" / "templates" / "render.ps1"
+            template.parent.mkdir(parents=True, exist_ok=True)
+            template.write_text("Set-StrictMode -Version Latest\n", encoding="utf-8")
+            tools = self.tools(root)
+            runner = StubRunner()
+
+            source_checks.source_checks(
+                repository, ("x64",), root / "out", runner=runner, tools=tools,
+            )
+
+            pssa = next(
+                call
+                for call in runner.calls
+                if call.argv[0] == str(tools.pwsh)
+                and "-File" in call.argv
+                and call.argv[call.argv.index("-File") + 1].endswith("psscriptanalyzer.ps1")
+            )
+            scanned = pssa.argv[pssa.argv.index("-Output") + 2:]
+            self.assertIn(str(template), scanned)
+
 
 class CompilerAnalysisTests(ToolsMixin, unittest.TestCase):
     def repository(self, root: Path) -> Path:
@@ -496,15 +522,15 @@ class CompilerAnalysisTests(ToolsMixin, unittest.TestCase):
                     "/p:Platform=x64",
                     f"/p:OutDir={variant}{os.sep}",
                     f"/p:IntDir={variant / 'obj'}{os.sep}",
-                    "/p:ObserverCompileAnalysis=true",
+                    "/p:unpackratCompileAnalysis=true",
                     f"/p:VcpkgRoot={tools.native.vcpkg_root}",
                     f"/p:VcpkgInstalledDir={native.restore_root(repository, 'x64')}{os.sep}",
-                    "/p:ObserverRunCodeAnalysis=true",
+                    "/p:unpackratRunCodeAnalysis=true",
                     "/p:RunCodeAnalysis=true",
                     "/p:EnableMicrosoftCodeAnalysis=true",
-                    "/p:ObserverEnableClangTidy=false",
-                    f"/p:ObserverAnalysisReportName={name}",
-                    f"/p:ObserverAnalysisReportPath={variant / f'{name}.sarif'}",
+                    "/p:unpackratEnableClangTidy=false",
+                    f"/p:unpackratAnalysisReportName={name}",
+                    f"/p:unpackratAnalysisReportPath={variant / f'{name}.sarif'}",
                 )
 
             def expected_tidy(name: str, configuration: str):
@@ -521,13 +547,13 @@ class CompilerAnalysisTests(ToolsMixin, unittest.TestCase):
                     "/p:Platform=x64",
                     f"/p:OutDir={variant}{os.sep}",
                     f"/p:IntDir={variant / 'obj'}{os.sep}",
-                    "/p:ObserverCompileAnalysis=true",
+                    "/p:unpackratCompileAnalysis=true",
                     f"/p:VcpkgRoot={tools.native.vcpkg_root}",
                     f"/p:VcpkgInstalledDir={native.restore_root(repository, 'x64')}{os.sep}",
-                    "/p:ObserverRunCodeAnalysis=true",
+                    "/p:unpackratRunCodeAnalysis=true",
                     "/p:RunCodeAnalysis=true",
                     "/p:EnableMicrosoftCodeAnalysis=false",
-                    "/p:ObserverEnableClangTidy=true",
+                    "/p:unpackratEnableClangTidy=true",
                     f"/p:LLVMInstallDir={tools.llvm_dir}",
                     f"/p:ClangTidyLogFile={name}.ClangTidy.log",
                 )
@@ -579,7 +605,7 @@ class CompilerAnalysisTests(ToolsMixin, unittest.TestCase):
                 ),
             )
             self.assertEqual(merge.argv[-2:], ("--output-name", "x64/analysis.sarif"))
-            self.assertEqual(merge.env["OBSERVER_OUT_DIR"], str(resolved))
+            self.assertEqual(merge.env["UNPACKRAT_OUT_DIR"], str(resolved))
             gate = next(call for call in runner.calls if call.argv[3] == "gate")
             self.assertEqual(
                 gate.argv,
@@ -645,7 +671,7 @@ class CompilerAnalysisTests(ToolsMixin, unittest.TestCase):
             fuzz = repository / "build" / "projects" / "fuzz-renpy.vcxproj"
             fuzz.write_text(
                 "<Project>\n"
-                "  <Import Project=\"..\\ObserverFuzz.props\" />\n"
+                "  <Import Project=\"..\\unpackrat-fuzz.props\" />\n"
                 "  <ItemGroup>\n"
                 "    <ClCompile Include=\"$(RepositoryRoot)src\\fuzz\\archive.cpp\" />\n"
                 "  </ItemGroup>\n"
@@ -863,7 +889,7 @@ _BRANCH_COUNT_QUERY = """
 $tokens = $null
 $errors = $null
 $ast = [System.Management.Automation.Language.Parser]::ParseFile(
-    $env:OBSERVER_COLLECTOR, [ref]$tokens, [ref]$errors)
+    $env:UNPACKRAT_COLLECTOR, [ref]$tokens, [ref]$errors)
 $branches = $ast.FindAll({
     param($node)
     $node -is [System.Management.Automation.Language.IfStatementAst] -or
@@ -988,7 +1014,7 @@ class CollectorTests(unittest.TestCase):
                 "-Command", _BRANCH_COUNT_QUERY,
             ],
             capture_output=True, text=True,
-            env={**os.environ, "OBSERVER_COLLECTOR": str(self.collector)},
+            env={**os.environ, "UNPACKRAT_COLLECTOR": str(self.collector)},
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("BRANCHES=0", result.stdout)

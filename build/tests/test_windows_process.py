@@ -161,10 +161,10 @@ class RunnerTests(unittest.TestCase):
 class RealProcessTests(unittest.TestCase):
     def test_the_runner_executes_a_real_child(self) -> None:
         result = WindowsProcessRunner().run(
-            [sys.executable, "-c", "print('observer-probe')"],
+            [sys.executable, "-c", "print('unpackrat-probe')"],
         )
         self.assertEqual(result.returncode, 0)
-        self.assertIn("observer-probe", result.stdout)
+        self.assertIn("unpackrat-probe", result.stdout)
 
 
 if __name__ == "__main__":

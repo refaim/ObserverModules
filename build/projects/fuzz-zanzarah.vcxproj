@@ -1,21 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" ToolsVersion="Current" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
-  <Import Project="..\ObserverProjectConfigurations.props" />
+  <Import Project="..\unpackrat-project-configurations.props" />
   <PropertyGroup Label="Globals">
     <VCProjectVersion>17.0</VCProjectVersion>
     <ProjectGuid>{F56AF8F0-E552-41DB-85E9-8131548828E6}</ProjectGuid>
     <Keyword>Win32Proj</Keyword>
     <RootNamespace>fuzz_zanzarah</RootNamespace>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
-    <ObserverConfigurationType>Application</ObserverConfigurationType>
-    <ObserverModuleName>zanzarah</ObserverModuleName>
+    <unpackratConfigurationType>Application</unpackratConfigurationType>
+    <unpackratModuleName>zanzarah</unpackratModuleName>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
-  <Import Project="..\ObserverConfiguration.props" />
+  <Import Project="..\unpackrat-configuration.props" />
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
-  <Import Project="..\ObserverProject.props" />
-  <Import Project="..\ObserverModuleVersion.props" />
-  <Import Project="..\ObserverFuzz.props" />
+  <Import Project="..\unpackrat-project.props" />
+  <Import Project="..\unpackrat-module-version.props" />
+  <Import Project="..\unpackrat-fuzz.props" />
   <Import Project="$(VcpkgRoot)\scripts\buildsystems\msbuild\vcpkg.props" />
 
   <PropertyGroup>

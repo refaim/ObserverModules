@@ -60,8 +60,9 @@ This project uses C++23 and follows the high-assurance engineering policy in
 
 ## Architecture overview
 
-This project implements Observer plugin modules for FAR Manager that handle exotic archive formats. Each module
-implements the Observer API for one format family.
+unpackrat is a collection of archive format implementations for exotic archives. Each implementation covers one
+format family and is exposed through an adapter; the current adapter is an Observer plugin module for FAR Manager that
+implements the Observer API.
 
 ### Core components
 

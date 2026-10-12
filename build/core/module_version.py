@@ -16,7 +16,7 @@ MODULES = ("renpy", "rpgmaker", "zanzarah")
 VERSION_FILE = "VERSION"
 # The props file injects the version macros into every module translation unit, so it belongs to
 # the inputs every project signs; the resource script is compiled only into the shipped DLLs.
-VERSION_PROPS = "build/ObserverModuleVersion.props"
+VERSION_PROPS = "build/unpackrat-module-version.props"
 VERSION_RESOURCE = "src/modules/version.rc"
 _FUZZ_PREFIX = "fuzz-"
 # Dependency bytes are chosen by the manifest and the repository-owned overlay tree; a bump there

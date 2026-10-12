@@ -196,7 +196,7 @@ _OPTIONS["fuzz_target"] = (
 
 
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="observer-build")
+    parser = argparse.ArgumentParser(prog="unpackrat-build")
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("doctor")
     for name, options in _COMMAND_OPTIONS.items():
@@ -660,7 +660,7 @@ def _python_coverage(repository: Path, output: Path, processes: _Processes) -> t
     processes.native(
         (sys.executable, "-m", "core.python_coverage", sys.executable, str(build_root)),
         build_root,
-        {"OBSERVER_OUT_DIR": str(output), "OBSERVER_BUILD_DIR": str(data)},
+        {"UNPACKRAT_OUT_DIR": str(output), "UNPACKRAT_BUILD_DIR": str(data)},
     )
     # The retained gate copies its raw data file into the output directory, so the published
     # evidence is the five native reports it writes; the ``work`` copy is scratch, not a report.
@@ -859,12 +859,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         outputs, failures = error.outputs, error.failures
     except subprocess.CalledProcessError as error:
         print(
-            f"observer-build: command failed with exit code {error.returncode}: {error.cmd}",
+            f"unpackrat-build: command failed with exit code {error.returncode}: {error.cmd}",
             file=sys.stderr,
         )
         return error.returncode or 1
     except _OPERATION_ERRORS as error:
-        print(f"observer-build: {_concise(error)}", file=sys.stderr)
+        print(f"unpackrat-build: {_concise(error)}", file=sys.stderr)
         return 2
     else:
         failures = ()
@@ -873,7 +873,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     for output in outputs:
         print(output)
     if failures:
-        print(f"observer-build: failed gates: {', '.join(failures)}", file=sys.stderr)
+        print(f"unpackrat-build: failed gates: {', '.join(failures)}", file=sys.stderr)
         return 1
     return 0
 

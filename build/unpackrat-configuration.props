@@ -3,7 +3,7 @@
   <PropertyGroup Label="Configuration">
     <!-- The repository imports vcpkg explicitly; never depend on per-user global integration. -->
     <VCPkgLocalAppDataDisabled>true</VCPkgLocalAppDataDisabled>
-    <ConfigurationType>$(ObserverConfigurationType)</ConfigurationType>
+    <ConfigurationType>$(unpackratConfigurationType)</ConfigurationType>
     <UseDebugLibraries Condition="'$(Configuration)' != 'Release' And '$(Configuration)' != 'ASan' And '$(Configuration)' != 'Fuzz' And '$(Configuration)' != 'UBSan'">true</UseDebugLibraries>
     <UseDebugLibraries Condition="'$(Configuration)' == 'Release' Or '$(Configuration)' == 'ASan' Or '$(Configuration)' == 'Fuzz' Or '$(Configuration)' == 'UBSan'">false</UseDebugLibraries>
     <PlatformToolset Condition="'$(Configuration)' != 'Coverage' And '$(Configuration)' != 'Fuzz' And '$(Configuration)' != 'UBSan'">v143</PlatformToolset>

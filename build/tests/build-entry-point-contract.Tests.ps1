@@ -23,13 +23,13 @@ function Get-ForwardedArgv {
         [Parameter(Mandatory)][string] $Description
     )
 
-    $previous = $env:OBSERVER_BUILD_PRINT_ARGV
+    $previous = $env:UNPACKRAT_BUILD_PRINT_ARGV
     try {
-        $env:OBSERVER_BUILD_PRINT_ARGV = '1'
+        $env:UNPACKRAT_BUILD_PRINT_ARGV = '1'
         $output = & $powershell -NoLogo -NoProfile -NonInteractive @ProcessArgument
     }
     finally {
-        $env:OBSERVER_BUILD_PRINT_ARGV = $previous
+        $env:UNPACKRAT_BUILD_PRINT_ARGV = $previous
     }
 
     if ($LASTEXITCODE -ne $argvSeamExitCode) {
@@ -38,7 +38,7 @@ function Get-ForwardedArgv {
     }
     $reported = (@($output) -join "`n").Trim()
     if (-not $reported.StartsWith('[', [StringComparison]::Ordinal)) {
-        throw ("build.ps1 must report the driver argv as JSON when OBSERVER_BUILD_PRINT_ARGV is '1' " +
+        throw ("build.ps1 must report the driver argv as JSON when UNPACKRAT_BUILD_PRINT_ARGV is '1' " +
             "for '$Description'; reported: $reported")
     }
     $argv = @($reported | ConvertFrom-Json)
@@ -111,15 +111,15 @@ Assert-CommandLine -CommandLine 'fuzz -Arch x64 -FuzzTarget pickle,renpy,rpgmake
 Assert-CommandLine -CommandLine 'fuzz -Arch x86,x64 -FuzzTarget all -FuzzSeconds 60' `
     -Expected @('fuzz', '-Arch', 'x86,x64', '-FuzzTarget', 'all', '-FuzzSeconds', '60')
 
-Assert-CommandLine -CommandLine 'clean -CleanMode stale-work' -Expected @('clean', '-CleanMode', 'stale-work')
+Assert-CommandLine -CommandLine 'clean -CleanMode reports' -Expected @('clean', '-CleanMode', 'reports')
 
-# The complete CI command line, including a switch, integers, and a quoted path.
+# The complete CI command line, including options, integers, and a quoted path.
 Assert-CommandLine -CommandLine ("verify-arch -Arch x64 -ExportDir 'C:\evidence dir\x64' " +
     '-FuzzSeconds 5 -LeakWarmup 1 -LeakIterations 1 -LeakWindows 3 -LeakToleranceBytes 0 ' +
-    '-PruneCas -Priority normal -Jobs 8 -Corpus C:\corpus') `
+    '-Priority normal -Jobs 8 -Corpus C:\corpus') `
     -Expected @('verify-arch', '-Arch', 'x64', '-ExportDir', 'C:\evidence dir\x64',
         '-FuzzSeconds', '5', '-LeakWarmup', '1', '-LeakIterations', '1', '-LeakWindows', '3',
-        '-LeakToleranceBytes', '0', '-PruneCas', '-Priority', 'normal', '-Jobs', '8',
+        '-LeakToleranceBytes', '0', '-Priority', 'normal', '-Jobs', '8',
         '-Corpus', 'C:\corpus')
 
 # build.cmd routes through `pwsh -File`, where every argument already arrives as one string.

@@ -5,7 +5,7 @@
 #include <stdexcept>
 #include <vector>
 
-namespace observer::compression
+namespace unpackrat::compression
 {
     class error final : public std::runtime_error
     {
@@ -15,4 +15,4 @@ namespace observer::compression
 
     [[nodiscard]] std::vector<std::byte> decompress_zlib(std::span<const std::byte> input,
                                                          std::size_t max_output_bytes);
-} // namespace observer::compression
+} // namespace unpackrat::compression

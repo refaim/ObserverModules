@@ -59,7 +59,7 @@ class FakeProbe:
 
 class LeakWorkerTests(unittest.TestCase):
     def output(self, root: Path):
-        return mock.patch.dict(os.environ, {"OBSERVER_OUT_DIR": str(root)}, clear=False)
+        return mock.patch.dict(os.environ, {"UNPACKRAT_OUT_DIR": str(root)}, clear=False)
 
     def test_setup_stages_exact_binaries_symbols_and_hash_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -90,8 +90,8 @@ class LeakWorkerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             (root / "leak-probe.exe").touch()
-            ready = "OBSERVER_LEAK_PROBE|READY|pid=12|mode=operations|configuration=Release|scenarios=malformed"
-            complete = subprocess.CompletedProcess([], 0, ready + "\nOBSERVER_LEAK_PROBE|DONE|pid=12\n")
+            ready = "UNPACKRAT_LEAK_PROBE|READY|pid=12|mode=operations|configuration=Release|scenarios=malformed"
+            complete = subprocess.CompletedProcess([], 0, ready + "\nUNPACKRAT_LEAK_PROBE|DONE|pid=12\n")
             with self.output(root), mock.patch("core.leak.subprocess.run", return_value=complete) as invoked:
                 leak_main(("preflight", str(root), "operations", "malformed"))
             self.assertIs(invoked.call_args.kwargs["stderr"], subprocess.STDOUT)
@@ -100,7 +100,7 @@ class LeakWorkerTests(unittest.TestCase):
             failures = (
                 subprocess.CompletedProcess([], 2, "broken"),
                 subprocess.CompletedProcess([], 0, ready),
-                subprocess.CompletedProcess([], 0, ready.replace("malformed", "read-failure") + "\nOBSERVER_LEAK_PROBE|DONE|pid=12"),
+                subprocess.CompletedProcess([], 0, ready.replace("malformed", "read-failure") + "\nUNPACKRAT_LEAK_PROBE|DONE|pid=12"),
             )
             for result in failures:
                 with self.subTest(result=result), self.output(root), mock.patch(
@@ -112,9 +112,9 @@ class LeakWorkerTests(unittest.TestCase):
     def probe_lines(windows: int = 3) -> list[str]:
         labels = ("baseline", *(f"window-{index}" for index in range(1, windows + 1)))
         return [
-            "OBSERVER_LEAK_PROBE|READY|pid=77|mode=operations|configuration=Release|scenarios=malformed",
-            *(f"OBSERVER_LEAK_PROBE|SNAPSHOT|{label}|pid=77|" for label in labels),
-            "OBSERVER_LEAK_PROBE|DONE|pid=77|",
+            "UNPACKRAT_LEAK_PROBE|READY|pid=77|mode=operations|configuration=Release|scenarios=malformed",
+            *(f"UNPACKRAT_LEAK_PROBE|SNAPSHOT|{label}|pid=77|" for label in labels),
+            "UNPACKRAT_LEAK_PROBE|DONE|pid=77|",
         ]
 
     def test_measure_captures_diffs_and_judges_in_one_worker_invocation(self) -> None:
@@ -129,9 +129,9 @@ class LeakWorkerTests(unittest.TestCase):
             output.mkdir()
             lines = [
                 "probe startup noise",
-                "OBSERVER_LEAK_PROBE|READY|pid=77|mode=operations|configuration=Release|scenarios=malformed",
-                *(f"OBSERVER_LEAK_PROBE|SNAPSHOT|{label}|pid=77|completed_operations=1" for label in ("baseline", "window-1", "window-2", "window-3")),
-                "OBSERVER_LEAK_PROBE|DONE|pid=77|completed_operations=4",
+                "UNPACKRAT_LEAK_PROBE|READY|pid=77|mode=operations|configuration=Release|scenarios=malformed",
+                *(f"UNPACKRAT_LEAK_PROBE|SNAPSHOT|{label}|pid=77|completed_operations=1" for label in ("baseline", "window-1", "window-2", "window-3")),
+                "UNPACKRAT_LEAK_PROBE|DONE|pid=77|completed_operations=4",
             ]
             process = FakeProbe(lines)
 
@@ -206,20 +206,20 @@ class LeakWorkerTests(unittest.TestCase):
             gflags = root / "gflags.exe"
             gflags.touch()
             cases = (
-                FakeProbe(["OBSERVER_LEAK_PROBE|READY|pid=77|mode=operations|configuration=Release|scenarios=malformed"]),
+                FakeProbe(["UNPACKRAT_LEAK_PROBE|READY|pid=77|mode=operations|configuration=Release|scenarios=malformed"]),
                 FakeProbe([
-                    "OBSERVER_LEAK_PROBE|READY|pid=77|mode=operations|configuration=Release|scenarios=malformed",
-                    "OBSERVER_LEAK_PROBE|SNAPSHOT|baseline|pid=12|",
+                    "UNPACKRAT_LEAK_PROBE|READY|pid=77|mode=operations|configuration=Release|scenarios=malformed",
+                    "UNPACKRAT_LEAK_PROBE|SNAPSHOT|baseline|pid=12|",
                 ]),
                 FakeProbe([
-                    "OBSERVER_LEAK_PROBE|READY|pid=77|mode=operations|configuration=Release|scenarios=malformed",
-                    *(f"OBSERVER_LEAK_PROBE|SNAPSHOT|{label}|pid=77|" for label in ("baseline", "window-1", "window-2", "window-3")),
-                    "OBSERVER_LEAK_PROBE|DONE|pid=77|",
+                    "UNPACKRAT_LEAK_PROBE|READY|pid=77|mode=operations|configuration=Release|scenarios=malformed",
+                    *(f"UNPACKRAT_LEAK_PROBE|SNAPSHOT|{label}|pid=77|" for label in ("baseline", "window-1", "window-2", "window-3")),
+                    "UNPACKRAT_LEAK_PROBE|DONE|pid=77|",
                 ], timeout=True),
                 FakeProbe([
-                    "OBSERVER_LEAK_PROBE|READY|pid=77|mode=operations|configuration=Release|scenarios=malformed",
-                    *(f"OBSERVER_LEAK_PROBE|SNAPSHOT|{label}|pid=77|" for label in ("baseline", "window-1", "window-2", "window-3")),
-                    "OBSERVER_LEAK_PROBE|DONE|pid=77|",
+                    "UNPACKRAT_LEAK_PROBE|READY|pid=77|mode=operations|configuration=Release|scenarios=malformed",
+                    *(f"UNPACKRAT_LEAK_PROBE|SNAPSHOT|{label}|pid=77|" for label in ("baseline", "window-1", "window-2", "window-3")),
+                    "UNPACKRAT_LEAK_PROBE|DONE|pid=77|",
                 ], result=5),
             )
 
@@ -298,9 +298,9 @@ class LeakWorkerTests(unittest.TestCase):
                 return subprocess.CompletedProcess(argv, 0, "")
 
             process = FakeProbe([
-                "OBSERVER_LEAK_PROBE|READY|pid=77|mode=operations|configuration=Release|scenarios=malformed",
-                *(f"OBSERVER_LEAK_PROBE|SNAPSHOT|{label}|pid=77|" for label in ("baseline", "window-1", "window-2", "window-3")),
-                "OBSERVER_LEAK_PROBE|DONE|pid=77|",
+                "UNPACKRAT_LEAK_PROBE|READY|pid=77|mode=operations|configuration=Release|scenarios=malformed",
+                *(f"UNPACKRAT_LEAK_PROBE|SNAPSHOT|{label}|pid=77|" for label in ("baseline", "window-1", "window-2", "window-3")),
+                "UNPACKRAT_LEAK_PROBE|DONE|pid=77|",
             ])
             with self.output(elevation), mock.patch(
                 "core.leak.subprocess.run", side_effect=unavailable
@@ -315,9 +315,9 @@ class LeakWorkerTests(unittest.TestCase):
             preset = root / "gflags-preset"
             preset.mkdir()
             process = FakeProbe([
-                "OBSERVER_LEAK_PROBE|READY|pid=77|mode=operations|configuration=Release|scenarios=malformed",
-                *(f"OBSERVER_LEAK_PROBE|SNAPSHOT|{label}|pid=77|" for label in ("baseline", "window-1", "window-2", "window-3")),
-                "OBSERVER_LEAK_PROBE|DONE|pid=77|",
+                "UNPACKRAT_LEAK_PROBE|READY|pid=77|mode=operations|configuration=Release|scenarios=malformed",
+                *(f"UNPACKRAT_LEAK_PROBE|SNAPSHOT|{label}|pid=77|" for label in ("baseline", "window-1", "window-2", "window-3")),
+                "UNPACKRAT_LEAK_PROBE|DONE|pid=77|",
             ])
 
             def already_enabled(argv: list[str], **_options: object) -> subprocess.CompletedProcess[str]:
@@ -463,7 +463,7 @@ class LeakWorkerTests(unittest.TestCase):
                     leak_main(("measure", str(root), str(umdh), "operations", "malformed", "1", "2", "3", "0"))
 
     def test_worker_rejects_invalid_arguments_protocol_and_umdh_evidence(self) -> None:
-        with mock.patch.dict(os.environ, {}, clear=True), self.assertRaisesRegex(LeakError, "OBSERVER_OUT_DIR"):
+        with mock.patch.dict(os.environ, {}, clear=True), self.assertRaisesRegex(LeakError, "UNPACKRAT_OUT_DIR"):
             leak._output()
         with self.assertRaisesRegex(LeakError, "setup expects"):
             leak_main(("setup",))
@@ -477,7 +477,7 @@ class LeakWorkerTests(unittest.TestCase):
                 leak._count(value, "rounds")
         with self.assertRaisesRegex(LeakError, "requested process"):
             leak._ready(
-                "OBSERVER_LEAK_PROBE|READY|pid=2|mode=operations|configuration=Release|scenarios=malformed",
+                "UNPACKRAT_LEAK_PROBE|READY|pid=2|mode=operations|configuration=Release|scenarios=malformed",
                 "operations", "malformed", 1,
             )
         with self.assertRaisesRegex(LeakError, "expected leak action"):

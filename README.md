@@ -1,124 +1,94 @@
-# Refaim's Observer Modules for FAR Manager
+# unpackrat
 
-[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![CI](https://github.com/refaim/ObserverModules/actions/workflows/main.yml/badge.svg)](https://github.com/refaim/ObserverModules/actions/workflows/main.yml)
 
-## About the Project
+unpackrat brings support for exotic game archives to FAR Manager. It ships as a set of Observer plugin
+modules, one per archive format, that present an archive as an ordinary folder you can browse and
+extract from. Each module is a single self-contained DLL with its dependencies built in and no
+external runtime DLLs to install.
 
-This is a collection of my extension modules for the Observer plugin for FAR Manager file manager. These modules allow
-you to browse and extract various exotic archive formats directly from FAR Manager without the need for separate
-extraction tools. The archives open as regular folders, letting you navigate through their contents and extract only
-specific files as needed without having to unpack the entire archive.
+## Download
 
-## Supported Formats
+Install [FAR Manager](https://farmanager.com/download.php?l=en) and the
+[Observer](https://github.com/lazyhamster/Observer/releases) plugin host first; unpackrat adds archive
+support on top of them. Take the module ZIP whose architecture matches your FAR Manager and Observer
+build (x86, x64 or ARM64), not the architecture of your operating system. Each module owns its own
+version and its own release listing; the versions below are what the current sources build, and each
+listing shows the versions that are actually published.
 
-### Ren'Py Visual Novel Engine
+| Module | Version | Formats | Release | ChangeLog |
+|--------|---------|---------|---------|-----------|
+| Ren'Py | 3.1.0 | `.rpa` (RPA-2.0, RPA-3.0) | [renpy releases](https://github.com/refaim/ObserverModules/releases?q=renpy%2Fv) | [RU](src/modules/renpy/ChangeLog.ru.txt) [EN](src/modules/renpy/ChangeLog.en.txt) |
+| RPG Maker | 1.1.0 | `.rgss3a` (VX Ace, RGSS3) | [rpgmaker releases](https://github.com/refaim/ObserverModules/releases?q=rpgmaker%2Fv) | [RU](src/modules/rpgmaker/ChangeLog.ru.txt) [EN](src/modules/rpgmaker/ChangeLog.en.txt) |
+| Zanzarah | 2.1.0 | `.pak` (original, Steam) | [zanzarah releases](https://github.com/refaim/ObserverModules/releases?q=zanzarah%2Fv) | [RU](src/modules/zanzarah/ChangeLog.ru.txt) [EN](src/modules/zanzarah/ChangeLog.en.txt) |
 
-- Supported extensions: `.rpa`
-- Compatibility: RPA-2.0, RPA-3.0
-- Description: Archives used in Ren'Py visual novels to store game resources (graphics, sound, scripts)
+Each module ZIP carries the module DLL for one architecture, its `observer_user.ini`, both
+human-written change logs and a generated `LICENSES.txt` at the archive root.
 
-### RPG Maker
+## Install
 
-- Supported extensions: `.rgss3a`
-- Compatibility: RPG Maker VX Ace (RGSS3)
-- Description: Encrypted archives containing game assets like graphics, audio, and data files
+Unpack the ZIP for the architecture that matches your FAR Manager and Observer build into
+`%FARHOME%\Plugins\Observer\modules\`, where `%FARHOME%` is your FAR Manager installation folder. If
+you already have modules there, merge the archive's `observer_user.ini` with the existing file so
+every module stays registered, then restart FAR Manager. After that, open a supported archive in FAR
+and press Enter or Ctrl+PgDn: Observer shows its contents as a regular folder you can browse and
+extract from with the usual FAR commands.
 
-### Zanzarah: The Hidden Portal
+## License
 
-- Supported extensions: `.pak`
-- Compatibility: Supports archives from both the original game version and the Steam version
-- Description: Archive used to store all game resources
+unpackrat's own source is released under the [MIT License](LICENSE.txt).
 
-## Installation and Usage
+One upstream file is an explicit exception: the Observer API header [`src/api.h`](src/api.h) stays
+under LGPL-3.0-only. Its notice is reproduced as [`licenses/Observer.txt`](licenses/Observer.txt), and
+because LGPLv3 incorporates the GNU GPLv3, the corresponding full GPLv3 text travels beside it as
+[`licenses/GPL-3.0.txt`](licenses/GPL-3.0.txt). Those two texts are always retained in every packaged
+module.
 
-### Prerequisites
+### Third-party components
 
-- [FAR Manager](https://farmanager.com/download.php?l=en) (x86 or x64)
-- [Observer](https://github.com/lazyhamster/Observer/releases) plugin (x86 or x64)
+| Project | License |
+|---------|---------|
+| [nlohmann/json](https://github.com/nlohmann/json) | [MIT](licenses/json.txt) |
+| [catchorg/Catch2](https://github.com/catchorg/Catch2) | [BSL-1.0](licenses/Catch2.txt) |
+| [lazyhamster/Observer](https://github.com/lazyhamster/Observer) | [LGPL-3.0](licenses/Observer.txt) plus [GPL-3.0](licenses/GPL-3.0.txt) |
+| [Cyan4973/xxHash](https://github.com/Cyan4973/xxHash) | [BSD-2-Clause](licenses/xxHash.txt) |
+| [zlib](https://zlib.net) | [zlib](licenses/zlib.txt) |
 
-### Module Installation
+### Sources of inspiration
 
-1. Open the release listing for the module you want (see [Module downloads](#module-downloads)) and unpack the
-   published archive for your architecture
-2. Note that the archive contains an observer_user.ini file. If you're installing multiple modules or already have this
-   file in your Observer modules folder, you'll need to manually merge these ini files to ensure all modules work
-   correctly
-3. Extract the contents of the archive to the `%FARHOME%\Plugins\Observer\modules\` directory (where `%FARHOME%` is the
-   folder with your FAR Manager installation)
-4. Restart FAR Manager for the changes to take effect
+| Project | License |
+|---------|---------|
+| [luxrck/rgssad](https://github.com/luxrck/rgssad) | [MIT](licenses/rgssad.txt) |
+| [birkenfeld/serde-pickle](https://github.com/birkenfeld/serde-pickle) | [MIT](licenses/serde-pickle.txt) |
+| [Shizmob/rpatool](https://github.com/Shizmob/rpatool) | [WTFPL](licenses/rpatool.txt) |
+| [pg83/ix](https://github.com/pg83/ix/tree/66726a904152246fbef8b27e26e878840f6d7fb7) | [MIT](licenses/IX.txt) |
 
-### Module downloads
+### Format references
 
-Each module owns its version in `src/modules/<module>/VERSION`, its own `renpy/vX.Y.Z`, `rpgmaker/vX.Y.Z` or
-`zanzarah/vX.Y.Z` release lineage, and its own release listing. The declared versions below are what the current
-sources build; each module's listing shows the releases that are actually published, and every published archive names
-the module, its version and the target architecture:
+The project below describes or decodes a file format. It is a format reference that informed an
+independent implementation, not a shipped-code dependency: no code from it is compiled into any
+unpackrat module, so its license does not apply to this project and is not reproduced in the packaged
+`LICENSES.txt` as a shipped notice.
 
-| Module | Declared version | Release listing | ChangeLog |
-|--------|------------------|-----------------|-----------|
-| Ren'Py | 3.1.0 | [renpy releases](https://github.com/refaim/ObserverModules/releases?q=renpy%2Fv) | [RU](src/modules/renpy/ChangeLog.ru.txt) [EN](src/modules/renpy/ChangeLog.en.txt) |
-| RPG Maker | 1.1.0 | [rpgmaker releases](https://github.com/refaim/ObserverModules/releases?q=rpgmaker%2Fv) | [RU](src/modules/rpgmaker/ChangeLog.ru.txt) [EN](src/modules/rpgmaker/ChangeLog.en.txt) |
-| Zanzarah | 2.1.0 | [zanzarah releases](https://github.com/refaim/ObserverModules/releases?q=zanzarah%2Fv) | [RU](src/modules/zanzarah/ChangeLog.ru.txt) [EN](src/modules/zanzarah/ChangeLog.en.txt) |
+| Project | License |
+|---------|---------|
+| [zanzapak](https://aluigi.altervista.org/papers.htm#others-file) | [GPL-2.0-or-later](licenses/zanzapak.txt) |
 
-Each module keeps two complete human-written histories, `ChangeLog.ru.txt` and `ChangeLog.en.txt`; the release body
-carries both languages' top entry for the released version, so the notes describe real behavior instead of a generated
-commit list. Every module archive carries the module DLL, its `observer_user.ini`, the two change logs and a generated
-`LICENSES.txt` (the project license plus only that module's dependency notices) at the archive root.
+## Building
 
-### Working with Archives
+The build produces self-contained `/MT` MSVC modules for x86, x64 and ARM64 with no external runtime
+DLLs to ship. The full command contract, prerequisites and quality gates live in
+[`docs/build-system.md`](docs/build-system.md); the common entry points are:
 
-1. Find an archive of the supported format in FAR Manager
-2. Press Enter or Ctrl+PgDn on this file
-3. FAR Manager will use Observer to automatically detect the format and display the archive contents as a regular
-   directory
-4. You can browse the contents and extract files using standard FAR commands (F5 key for copying)
+```powershell
+.\build.ps1 doctor
+.\build.ps1 build -Arch all -Config Release
+.\build.ps1 test -Arch x86,x64 -Config Debug
+```
+
+Each module also publishes an optional `-pdb.zip` symbol bundle beside its module archives.
 
 ## Links
 
 [Support Forum (in Russian)](https://forum.farmanager.com/viewtopic.php?t=12729)
-
-## Third-party components
-
-| Project                                                         | License                             |
-|-----------------------------------------------------------------|-------------------------------------|
-| [nlohmann/json](https://github.com/nlohmann/json)               | [MIT](licenses/json.txt)            |
-| [catchorg/Catch2](https://github.com/catchorg/Catch2)           | [BSL-1.0](licenses/Catch2.txt)      |
-| [lazyhamster/Observer](https://github.com/lazyhamster/Observer) | [LGPL-3.0](licenses/Observer.txt)   |
-| [Cyan4973/xxHash](https://github.com/Cyan4973/xxHash)           | [BSD-2-Clause](licenses/xxHash.txt) |
-| [zlib](https://zlib.net)                                        | [zlib](licenses/zlib.txt)           |
-
-## Sources of inspiration
-
-| Project                                                               | License                          |
-|-----------------------------------------------------------------------|----------------------------------|
-| [luxrck/rgssad](https://github.com/luxrck/rgssad)                     | [MIT](licenses/rgssad.txt)       |
-| [birkenfeld/serde-pickle](https://github.com/birkenfeld/serde-pickle) | [MIT](licenses/serde-pickle.txt) |
-| [Shizmob/rpatool](https://github.com/Shizmob/rpatool)                 | [WTFPL](licenses/rpatool.txt)    |
-| [zanzapak](https://aluigi.altervista.org/papers.htm#others-file)      | [GPL-2.0-or-later](licenses/zanzapak.txt) |
-| [pg83/ix](https://github.com/pg83/ix/tree/66726a904152246fbef8b27e26e878840f6d7fb7) | [MIT](licenses/IX.txt) |
-
-## Building from Source
-
-### Prerequisites
-
-- Visual Studio Build Tools 2022 with the v143 MSVC tools for x86/x64 and ARM64, Spectre-mitigated libraries, and a
-  Windows 11 SDK
-- PowerShell 7.4 or newer
-- [uv](https://docs.astral.sh/uv/) for the exact-pinned Python build-driver environment
-- vcpkg available on `PATH` or through `VCPKG_ROOT`
-
-No IDE, Visual Studio developer prompt, global vcpkg integration, or repository-level CMake generation is required.
-From a normal Windows console:
-
-```powershell
-uv sync --project build --frozen
-.\build.ps1 doctor
-.\build.ps1 build -Arch all -Config Release
-.\build.ps1 test -Arch x86,x64 -Config Debug
-.\build.ps1 package -Arch all
-```
-
-The build restores pinned static dependencies and produces self-contained `/MT` modules for x86, x64, and ARM64.
-See [the build-system documentation](docs/build-system.md) for analysis, coverage, sanitizer, fuzzing, binary-audit, and
-packaging commands.

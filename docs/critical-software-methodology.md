@@ -2,7 +2,7 @@
 
 Status: proposed repository policy, accepted principles with several owner decisions still open.
 
-ObserverModules parses untrusted, sometimes very large archives inside another application's process. A malformed
+unpackrat parses untrusted, sometimes very large archives inside another application's process. A malformed
 input, memory leak, ABI violation, or unbounded operation can therefore corrupt or exhaust the host. The project adopts
 a **critical-software-inspired** engineering method to reduce that risk. This is not a claim of formal MISRA,
 DO-178C, IEC 61508, or other safety certification: the project does not currently have an independent verification

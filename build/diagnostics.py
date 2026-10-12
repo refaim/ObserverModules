@@ -1,4 +1,4 @@
-"""Direct coverage, sanitizer, fuzz and leak operations for ObserverModules.
+"""Direct coverage, sanitizer, fuzz and leak operations for unpackrat.
 
 The content-addressed graph rendered one PowerShell command per node.  This
 module is the smaller successor for the diagnostic family: it drives MSBuild,
@@ -202,7 +202,7 @@ def _validator(
         runner,
         (os.fspath(_PYTHON), "-m", module, *arguments),
         _BUILD_ROOT,
-        {"OBSERVER_OUT_DIR": directory, "OBSERVER_BUILD_DIR": directory},
+        {"UNPACKRAT_OUT_DIR": directory, "UNPACKRAT_BUILD_DIR": directory},
     )
 
 
@@ -214,7 +214,7 @@ def _llvm_properties(
         command.append(f"/p:LLVMRuntimeDir={os.fspath(runtime)}")
 
 
-def _observer_command(
+def _unpackrat_command(
     repository: Path,
     architecture: str,
     configuration: str,
@@ -548,7 +548,7 @@ def test_coverage(
 
     The ordinary suite always runs.  When ``corpus`` names an existing
     directory the compatibility suite runs as a separate pass with
-    ``OBSERVER_TEST_CORPUS`` scoped to it, and both suites' raw profiles are
+    ``UNPACKRAT_TEST_CORPUS`` scoped to it, and both suites' raw profiles are
     merged before the single immutable 100% line/branch gate.  Each architecture
     yields the summary JSON that gate consumes and the full LCOV detail that is
     written next to it under ``coverage/<arch>``.
@@ -570,7 +570,7 @@ def test_coverage(
     for architecture in architectures:
         _checked(
             runner,
-            _observer_command(
+            _unpackrat_command(
                 repository, architecture, "Coverage", count, tools,
                 runtime=tools.llvm_runtimes[architecture],
             ),
@@ -583,7 +583,7 @@ def test_coverage(
         suites: list[tuple[str, Path | None, Mapping[str, str]]] = [("unit", None, {})]
         if corpus_path is not None:
             suites.append(
-                ("corpus", corpus_path, {"OBSERVER_TEST_CORPUS": os.fspath(corpus_path)})
+                ("corpus", corpus_path, {"UNPACKRAT_TEST_CORPUS": os.fspath(corpus_path)})
             )
         raw: list[Path] = []
         for scope, suite_corpus, extra in suites:
@@ -671,7 +671,7 @@ def test_sanitizer(
             runtime = tools.llvm_runtimes[architecture]
         _checked(
             runner,
-            _observer_command(repository, architecture, configuration, count, tools,
+            _unpackrat_command(repository, architecture, configuration, count, tools,
                               runtime=runtime),
             repository,
             None,
@@ -834,7 +834,7 @@ def test_leaks(
     count = _job_count(jobs)
     native.restore(repository, ("x64",), tools=tools, runner=_checked_runner(runner))
     _checked(
-        runner, _observer_command(repository, "x64", "Release", count, tools), repository, None
+        runner, _unpackrat_command(repository, "x64", "Release", count, tools), repository, None
     )
     _checked(
         runner,

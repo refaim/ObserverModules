@@ -193,7 +193,7 @@ class QualityToolsTests(unittest.TestCase):
             umdh = Path(temporary) / "sdk-19041/Debuggers/x64/umdh.exe"
             umdh.parent.mkdir(parents=True)
             umdh.write_bytes(b"umdh-19041")
-            with mock.patch.dict(os.environ, {"OBSERVER_UMDH": str(umdh)}, clear=False):
+            with mock.patch.dict(os.environ, {"UNPACKRAT_UMDH": str(umdh)}, clear=False):
                 self.assertEqual(umdh.resolve(), resolve_umdh().path)
                 umdh.unlink()
                 with self.assertRaisesRegex(FileNotFoundError, "missing UMDH override"):

@@ -6,8 +6,8 @@
     <PlatformMoniker Condition="'$(Platform)' == 'Win32'">x86</PlatformMoniker>
     <PlatformMoniker Condition="'$(Platform)' == 'x64'">x64</PlatformMoniker>
     <PlatformMoniker Condition="'$(Platform)' == 'ARM64'">arm64</PlatformMoniker>
-    <VcpkgTriplet Condition="'$(Configuration)' != 'ASan' And '$(Configuration)' != 'Fuzz'">observer-$(PlatformMoniker)-windows-static</VcpkgTriplet>
-    <VcpkgTriplet Condition="'$(Configuration)' == 'ASan' Or '$(Configuration)' == 'Fuzz'">observer-$(PlatformMoniker)-windows-static-asan</VcpkgTriplet>
+    <VcpkgTriplet Condition="'$(Configuration)' != 'ASan' And '$(Configuration)' != 'Fuzz'">unpackrat-$(PlatformMoniker)-windows-static</VcpkgTriplet>
+    <VcpkgTriplet Condition="'$(Configuration)' == 'ASan' Or '$(Configuration)' == 'Fuzz'">unpackrat-$(PlatformMoniker)-windows-static-asan</VcpkgTriplet>
     <VcpkgEnableManifest>true</VcpkgEnableManifest>
     <!-- build.ps1 restore owns dependency installation; ordinary builds only consume the restored tree. -->
     <VcpkgManifestInstall>false</VcpkgManifestInstall>
@@ -25,36 +25,36 @@
     <TargetName>$(ProjectName)</TargetName>
     <GenerateManifest>true</GenerateManifest>
     <LinkIncremental Condition="'$(Configuration)' == 'ASan' Or '$(Configuration)' == 'Fuzz'">false</LinkIncremental>
-    <RunCodeAnalysis Condition="'$(ObserverRunCodeAnalysis)' == 'true'">true</RunCodeAnalysis>
+    <RunCodeAnalysis Condition="'$(unpackratRunCodeAnalysis)' == 'true'">true</RunCodeAnalysis>
     <EnableMicrosoftCodeAnalysis>true</EnableMicrosoftCodeAnalysis>
-    <CodeAnalysisRuleSet Condition="'$(ObserverRunCodeAnalysis)' == 'true'">$(RepositoryRoot)build\ObserverNativeAnalysis.ruleset</CodeAnalysisRuleSet>
-    <ObserverAnalysisReportName Condition="'$(ObserverAnalysisReportName)' == ''">$(ProjectName)</ObserverAnalysisReportName>
-    <EnableClangTidyCodeAnalysis Condition="'$(ObserverEnableClangTidy)' == 'true'">true</EnableClangTidyCodeAnalysis>
+    <CodeAnalysisRuleSet Condition="'$(unpackratRunCodeAnalysis)' == 'true'">$(RepositoryRoot)build\unpackrat-native-analysis.ruleset</CodeAnalysisRuleSet>
+    <unpackratAnalysisReportName Condition="'$(unpackratAnalysisReportName)' == ''">$(ProjectName)</unpackratAnalysisReportName>
+    <EnableClangTidyCodeAnalysis Condition="'$(unpackratEnableClangTidy)' == 'true'">true</EnableClangTidyCodeAnalysis>
     <!-- clang-cl resolves compiler-rt relative to its own binary, so an x64 clang-cl targeting
          i686 emits an unsuffixed /DEFAULTLIB:clang_rt.profile.lib that exists in no toolset.
          The caller supplies LLVMRuntimeDir per architecture; the link below names the archive
          explicitly and drops the unresolvable default library. -->
-    <ObserverProfileRuntime Condition="'$(Configuration)' == 'Coverage' And '$(Platform)' == 'Win32'">clang_rt.profile-i386.lib</ObserverProfileRuntime>
-    <ObserverProfileRuntime Condition="'$(Configuration)' == 'Coverage' And '$(Platform)' == 'x64'">clang_rt.profile-x86_64.lib</ObserverProfileRuntime>
+    <unpackratProfileRuntime Condition="'$(Configuration)' == 'Coverage' And '$(Platform)' == 'Win32'">clang_rt.profile-i386.lib</unpackratProfileRuntime>
+    <unpackratProfileRuntime Condition="'$(Configuration)' == 'Coverage' And '$(Platform)' == 'x64'">clang_rt.profile-x86_64.lib</unpackratProfileRuntime>
   </PropertyGroup>
 
   <ItemDefinitionGroup>
     <ClCompile>
-      <LanguageStandard Condition="'$(Configuration)' != 'Coverage' And '$(Configuration)' != 'Fuzz' And '$(Configuration)' != 'UBSan' And '$(ObserverEnableClangTidy)' != 'true'">stdcpp23</LanguageStandard>
-      <LanguageStandard Condition="'$(Configuration)' == 'Coverage' Or '$(Configuration)' == 'Fuzz' Or '$(Configuration)' == 'UBSan' Or '$(ObserverEnableClangTidy)' == 'true'">stdcpplatest</LanguageStandard>
+      <LanguageStandard Condition="'$(Configuration)' != 'Coverage' And '$(Configuration)' != 'Fuzz' And '$(Configuration)' != 'UBSan' And '$(unpackratEnableClangTidy)' != 'true'">stdcpp23</LanguageStandard>
+      <LanguageStandard Condition="'$(Configuration)' == 'Coverage' Or '$(Configuration)' == 'Fuzz' Or '$(Configuration)' == 'UBSan' Or '$(unpackratEnableClangTidy)' == 'true'">stdcpplatest</LanguageStandard>
       <WarningLevel>Level4</WarningLevel>
       <TreatWarningAsError>true</TreatWarningAsError>
       <ConformanceMode>true</ConformanceMode>
       <UseStandardPreprocessor Condition="'$(Configuration)' != 'Coverage' And '$(Configuration)' != 'Fuzz' And '$(Configuration)' != 'UBSan'">true</UseStandardPreprocessor>
       <ExternalWarningLevel>TurnOffAllWarnings</ExternalWarningLevel>
       <TreatAngleIncludeAsExternal>true</TreatAngleIncludeAsExternal>
-      <MultiProcessorCompilation Condition="'$(ObserverRunCodeAnalysis)' != 'true'">true</MultiProcessorCompilation>
-      <MultiProcessorCompilation Condition="'$(ObserverRunCodeAnalysis)' == 'true'">false</MultiProcessorCompilation>
+      <MultiProcessorCompilation Condition="'$(unpackratRunCodeAnalysis)' != 'true'">true</MultiProcessorCompilation>
+      <MultiProcessorCompilation Condition="'$(unpackratRunCodeAnalysis)' == 'true'">false</MultiProcessorCompilation>
       <SDLCheck>true</SDLCheck>
       <ControlFlowGuard Condition="'$(Configuration)' == 'Release'">Guard</ControlFlowGuard>
-      <DisableAnalyzeExternal Condition="'$(ObserverRunCodeAnalysis)' == 'true'">true</DisableAnalyzeExternal>
-      <PREfastLog Condition="'$(ObserverRunCodeAnalysis)' == 'true' And '$(ObserverAnalysisReportDirectory)' != ''">$(ObserverAnalysisReportDirectory)\$(PlatformMoniker)\$(ObserverAnalysisReportName).sarif</PREfastLog>
-      <PREfastLog Condition="'$(ObserverRunCodeAnalysis)' == 'true' And '$(ObserverAnalysisReportPath)' != ''">$(ObserverAnalysisReportPath)</PREfastLog>
+      <DisableAnalyzeExternal Condition="'$(unpackratRunCodeAnalysis)' == 'true'">true</DisableAnalyzeExternal>
+      <PREfastLog Condition="'$(unpackratRunCodeAnalysis)' == 'true' And '$(unpackratAnalysisReportDirectory)' != ''">$(unpackratAnalysisReportDirectory)\$(PlatformMoniker)\$(unpackratAnalysisReportName).sarif</PREfastLog>
+      <PREfastLog Condition="'$(unpackratRunCodeAnalysis)' == 'true' And '$(unpackratAnalysisReportPath)' != ''">$(unpackratAnalysisReportPath)</PREfastLog>
       <ExceptionHandling>Sync</ExceptionHandling>
       <RuntimeLibrary Condition="'$(Configuration)' == 'Release' Or '$(Configuration)' == 'ASan' Or '$(Configuration)' == 'Fuzz' Or '$(Configuration)' == 'UBSan'">MultiThreaded</RuntimeLibrary>
       <RuntimeLibrary Condition="'$(Configuration)' != 'Release' And '$(Configuration)' != 'ASan' And '$(Configuration)' != 'Fuzz' And '$(Configuration)' != 'UBSan'">MultiThreadedDebug</RuntimeLibrary>
@@ -86,15 +86,15 @@
       <OptimizeReferences Condition="'$(Configuration)' == 'Release'">true</OptimizeReferences>
       <LinkTimeCodeGeneration Condition="'$(Configuration)' == 'Release'">UseLinkTimeCodeGeneration</LinkTimeCodeGeneration>
       <AdditionalDependencies Condition="'$(Configuration)' == 'UBSan'">$(LLVMRuntimeDir)\clang_rt.ubsan_standalone-x86_64.lib;$(LLVMRuntimeDir)\clang_rt.ubsan_standalone_cxx-x86_64.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <AdditionalDependencies Condition="'$(ObserverProfileRuntime)' != ''">$(LLVMRuntimeDir)\$(ObserverProfileRuntime);%(AdditionalDependencies)</AdditionalDependencies>
-      <AdditionalOptions Condition="'$(ObserverProfileRuntime)' != ''">/NODEFAULTLIB:clang_rt.profile.lib %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalDependencies Condition="'$(unpackratProfileRuntime)' != ''">$(LLVMRuntimeDir)\$(unpackratProfileRuntime);%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalOptions Condition="'$(unpackratProfileRuntime)' != ''">/NODEFAULTLIB:clang_rt.profile.lib %(AdditionalOptions)</AdditionalOptions>
     </Link>
   </ItemDefinitionGroup>
 
-  <Target Name="ValidateObserverProfileRuntime" BeforeTargets="PrepareForBuild">
-    <Error Condition="'$(ObserverCompileAnalysis)' != 'true' And '$(ObserverProfileRuntime)' != '' And '$(LLVMRuntimeDir)' == ''"
+  <Target Name="ValidateunpackratProfileRuntime" BeforeTargets="PrepareForBuild">
+    <Error Condition="'$(unpackratCompileAnalysis)' != 'true' And '$(unpackratProfileRuntime)' != '' And '$(LLVMRuntimeDir)' == ''"
            Text="Coverage links the LLVM profile runtime and requires LLVMRuntimeDir; build through build.ps1 test-coverage." />
-    <Error Condition="'$(ObserverCompileAnalysis)' != 'true' And '$(Configuration)' == 'Coverage' And '$(ObserverProfileRuntime)' == ''"
+    <Error Condition="'$(unpackratCompileAnalysis)' != 'true' And '$(Configuration)' == 'Coverage' And '$(unpackratProfileRuntime)' == ''"
            Text="Coverage is supported on Win32 and x64 only; ARM64 ships no usable profile runtime." />
   </Target>
 </Project>

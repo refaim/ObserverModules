@@ -25,7 +25,7 @@
 
 namespace
 {
-    constexpr std::string_view marker_prefix = "OBSERVER_LEAK_PROBE";
+    constexpr std::string_view marker_prefix = "UNPACKRAT_LEAK_PROBE";
     enum class probe_mode : std::uint8_t
     {
         operations,
@@ -227,7 +227,7 @@ namespace
                     api_.CloseStorage == nullptr || api_.GetItem == nullptr || api_.ExtractItem == nullptr ||
                     api_.PrepareFiles == nullptr) {
                     throw std::runtime_error(
-                        std::format("Invalid Observer API table from {}", path.filename().string()));
+                        std::format("Invalid unpackrat API table from {}", path.filename().string()));
                 }
             } catch (...) {
                 release();
@@ -327,7 +327,7 @@ namespace
         void expect_entry_count(const std::filesystem::path &archive_path, const std::size_t expected_count) const
         {
             if (expected_count > static_cast<std::size_t>(std::numeric_limits<int>::max())) {
-                throw std::runtime_error("Expected entry count is outside the Observer ABI range");
+                throw std::runtime_error("Expected entry count is outside the unpackrat ABI range");
             }
 
             auto storage = open_archive(archive_path);
@@ -431,15 +431,15 @@ namespace
         probe_fixtures()
             : temporary_directory(std::filesystem::temp_directory_path()),
               renpy_output(temporary_directory /
-                           std::format("observer-leak-probe-renpy-{}.tmp", GetCurrentProcessId())),
+                           std::format("unpackrat-leak-probe-renpy-{}.tmp", GetCurrentProcessId())),
               rpgmaker_output(temporary_directory /
-                              std::format("observer-leak-probe-rpgmaker-{}.tmp", GetCurrentProcessId())),
+                              std::format("unpackrat-leak-probe-rpgmaker-{}.tmp", GetCurrentProcessId())),
               zanzarah_output(temporary_directory /
-                              std::format("observer-leak-probe-zanzarah-{}.tmp", GetCurrentProcessId())),
+                              std::format("unpackrat-leak-probe-zanzarah-{}.tmp", GetCurrentProcessId())),
               cancellation_output(temporary_directory /
-                                  std::format("observer-leak-probe-cancellation-{}.tmp", GetCurrentProcessId())),
+                                  std::format("unpackrat-leak-probe-cancellation-{}.tmp", GetCurrentProcessId())),
               read_failure_output(temporary_directory /
-                                  std::format("observer-leak-probe-read-failure-{}.tmp", GetCurrentProcessId())),
+                                  std::format("unpackrat-leak-probe-read-failure-{}.tmp", GetCurrentProcessId())),
               renpy_archive("renpy", test::support::make_renpy_archive("dir/hello.txt", "renpy payload")),
               rpgmaker_archive("rpgmaker", test::support::make_rpgmaker_archive("Data\\hello.txt", "rpgmaker payload")),
               zanzarah_archive("zanzarah",

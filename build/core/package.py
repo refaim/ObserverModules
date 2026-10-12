@@ -18,10 +18,19 @@ from core.changelog import CHANGELOG_FILES, ChangelogError, latest_notes
 
 
 ARCHITECTURES = ("x86", "x64", "arm64")
+# Each module ships its own MIT grant, the Observer API header's LGPLv3 notice plus the full
+# GPLv3 text the LGPL incorporates, and then only that module's own third-party notices.
 LICENSES = {
-    "renpy": ("Observer.txt", "rpatool.txt", "serde-pickle.txt", "zlib.txt"),
-    "rpgmaker": ("Observer.txt", "rgssad.txt"),
-    "zanzarah": ("Observer.txt", "zanzapak.txt"),
+    "renpy": ("Observer.txt", "GPL-3.0.txt", "rpatool.txt", "serde-pickle.txt", "zlib.txt"),
+    "rpgmaker": ("Observer.txt", "GPL-3.0.txt", "rgssad.txt"),
+    "zanzarah": ("Observer.txt", "GPL-3.0.txt"),
+}
+# Format descriptions that informed independent implementations. They are reproduced only under
+# an explicitly labeled reference section and are never shipped-code dependencies.
+REFERENCE_LICENSES = {
+    "renpy": (),
+    "rpgmaker": (),
+    "zanzarah": ("zanzapak.txt",),
 }
 MODULES = tuple(LICENSES)
 _ZIP_TIME = (1980, 1, 1, 0, 0, 0)
@@ -29,17 +38,31 @@ _IDENTITY = re.compile(r"[0-9a-f]{64}")
 # A release module ships one deterministic LICENSES.txt whose sections are titled by a stable
 # rule so the same source bytes always concatenate to the same archive entry.
 _LICENSE_SEPARATOR = "=" * 72
-_LICENSE_TITLE = "Observer Modules"
+_LICENSE_TITLE = "unpackrat"
+_REFERENCE_TITLE = "Format reference"
 # A short English intro opens the document so a reader knows which artifact the file belongs to
 # and what the following sections reproduce before the first titled license section.
 _LICENSE_PREAMBLE = (
-    "This file accompanies the Observer Modules plugin {module}.so and describes the\n"
-    "licenses that apply to it. Observer Modules is published at\n"
-    "https://github.com/refaim/ObserverModules.\n"
+    "This file accompanies the unpackrat plugin {module}.so and describes the\n"
+    "licenses that apply to it. unpackrat is a collection of archive format\n"
+    "implementations exposed through the Observer plugin; its own source is\n"
+    "published at https://github.com/refaim/ObserverModules.\n"
     "\n"
-    "The sections below contain the project license and the notices for third-party\n"
-    "code and format references relevant to this module; each original license text is\n"
-    "reproduced in full.\n"
+    "The first section is unpackrat's own MIT license. The section titled for the\n"
+    "Observer API header reproduces that upstream dependency's LGPLv3 notice, and the\n"
+    "accompanying GNU GPLv3 text the LGPL incorporates follows in full. The remaining\n"
+    "sections are the third-party code notices relevant to this module. Any format references\n"
+    "appear last in a separate labeled section; every original license text is reproduced in full.\n"
+)
+# The reference block is opened by its own unambiguous preamble so no reader mistakes a format
+# description for code compiled into the module.
+_REFERENCE_PREAMBLE = (
+    "\n"
+    "The following section reproduces the license of a format description that informed\n"
+    "an independent implementation. It is a format reference, not a shipped-code\n"
+    "dependency: no code from that project is compiled into {module}.so, so its terms do\n"
+    "not apply to the module and do not propagate to unpackrat's own MIT grant.\n"
+    "\n"
 )
 
 
@@ -62,9 +85,9 @@ def _require_version(version: str) -> str:
 
 
 def _output() -> Path:
-    value = os.environ.get("OBSERVER_OUT_DIR")
+    value = os.environ.get("UNPACKRAT_OUT_DIR")
     if not value or not (output := Path(value)).is_dir():
-        raise PackageError("OBSERVER_OUT_DIR must be an existing directory")
+        raise PackageError("UNPACKRAT_OUT_DIR must be an existing directory")
     return output
 
 
@@ -73,28 +96,42 @@ def _sha256(path: Path) -> str:
         return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
+def _section(title: str, text: bytes) -> bytes:
+    heading = f"{_LICENSE_SEPARATOR}\n{title}\n{_LICENSE_SEPARATOR}\n\n".encode("utf-8")
+    body = text if text.endswith(b"\n") else text + b"\n"
+    return heading + body
+
+
+def _notice(path: Path) -> bytes:
+    try:
+        text = path.read_bytes()
+    except OSError as error:
+        raise PackageError(f"license notice is missing or unreadable: {path}") from error
+    if not text.strip():
+        raise PackageError(f"license notice is empty: {path}")
+    return text
+
+
 def licenses_document(repository: Path, module: str) -> bytes:
     """Return the deterministic ``LICENSES.txt`` shipped beside one module.
 
-    The project license and only that module's dependency notices are concatenated in titled
-    sections, each keeping the complete original bytes; a missing or empty source fails closed.
+    unpackrat's own MIT grant and only that module's notices are concatenated in titled sections,
+    each keeping the complete original bytes; documentation-only format references follow in their
+    own labeled section. A missing or empty source fails closed.
     """
 
-    sources = [(_LICENSE_TITLE, repository / "LICENSE.txt")]
-    sources.extend((name, repository / "licenses" / name) for name in LICENSES[module])
-    sections: list[bytes] = []
-    for title, path in sources:
-        try:
-            text = path.read_bytes()
-        except OSError as error:
-            raise PackageError(f"license notice is missing or unreadable: {path}") from error
-        if not text.strip():
-            raise PackageError(f"license notice is empty: {path}")
-        heading = f"{_LICENSE_SEPARATOR}\n{title}\n{_LICENSE_SEPARATOR}\n\n".encode("utf-8")
-        body = text if text.endswith(b"\n") else text + b"\n"
-        sections.append(heading + body)
-    preamble = (_LICENSE_PREAMBLE.format(module=module) + "\n").encode("utf-8")
-    return preamble + b"\n".join(sections)
+    notices = [(_LICENSE_TITLE, repository / "LICENSE.txt")]
+    notices.extend((name, repository / "licenses" / name) for name in LICENSES[module])
+    sections = [_section(title, _notice(path)) for title, path in notices]
+    document = (_LICENSE_PREAMBLE.format(module=module) + "\n").encode("utf-8") + b"\n".join(sections)
+    references = [
+        (f"{_REFERENCE_TITLE}: {name}", repository / "licenses" / name)
+        for name in REFERENCE_LICENSES[module]
+    ]
+    if references:
+        reference_sections = [_section(title, _notice(path)) for title, path in references]
+        document += _REFERENCE_PREAMBLE.format(module=module).encode("utf-8") + b"\n".join(reference_sections)
+    return document
 
 
 def _payload_files(payload: Path) -> dict[str, Path]:
@@ -281,7 +318,7 @@ def _smoke(args: argparse.Namespace) -> None:
     subprocess.run(
         [str(args.tests), "[package-smoke]", "--reporter", "compact", "--rng-seed", "1"],
         check=True, cwd=output,
-        env=os.environ | {"OBSERVER_PACKAGE_MODULE": str(module), "OBSERVER_PACKAGE_FORMAT": args.module},
+        env=os.environ | {"UNPACKRAT_PACKAGE_MODULE": str(module), "UNPACKRAT_PACKAGE_FORMAT": args.module},
     )
 
 

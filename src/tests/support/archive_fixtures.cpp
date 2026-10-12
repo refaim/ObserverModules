@@ -146,7 +146,7 @@ namespace test::support
 
         static std::atomic_uint32_t sequence = 0;
         path_ = std::filesystem::temp_directory_path() /
-                std::format("observer-modules-{}-{}-{}.bin", label, GetCurrentProcessId(), sequence.fetch_add(1));
+                std::format("unpackrat-{}-{}-{}.bin", label, GetCurrentProcessId(), sequence.fetch_add(1));
 
         std::ofstream output(path_, std::ios::binary | std::ios::trunc);
         if (!output.is_open()) {
@@ -176,7 +176,7 @@ namespace test::support
     {
         static std::atomic_uint32_t sequence = 0;
         path_ = std::filesystem::temp_directory_path() /
-                std::format("observer-modules-renpy-sparse-{}-{}.bin", GetCurrentProcessId(), sequence.fetch_add(1));
+                std::format("unpackrat-renpy-sparse-{}-{}.bin", GetCurrentProcessId(), sequence.fetch_add(1));
         temporary_path_guard path_guard(path_);
 
         const unique_handle output(

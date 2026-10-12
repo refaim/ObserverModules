@@ -54,16 +54,16 @@ class ModuleVersionFileTests(unittest.TestCase):
                 )
                 body = source[source.index("version_info get_version_info"):]
                 body = body[: body.index("\n    }")]
-                self.assertIn("OBSERVER_MODULE_VERSION_MAJOR,", body)
-                self.assertIn("OBSERVER_MODULE_VERSION_MINOR,", body)
-                self.assertIn("build/ObserverModuleVersion.props", source)
+                self.assertIn("UNPACKRAT_MODULE_VERSION_MAJOR,", body)
+                self.assertIn("UNPACKRAT_MODULE_VERSION_MINOR,", body)
+                self.assertIn("build/unpackrat-module-version.props", source)
                 # No hardcoded major/minor component may survive beside the injected macros.
                 self.assertEqual([], re.findall(r"^\s+\d+,\s*$", body, re.MULTILINE))
 
     def test_version_inputs_follow_every_project_that_compiles_a_module(self) -> None:
         self.assertEqual(version_path("renpy"), "src/modules/renpy/VERSION")
         self.assertEqual((VERSION_PROPS, VERSION_RESOURCE), (
-            "build/ObserverModuleVersion.props", "src/modules/version.rc",
+            "build/unpackrat-module-version.props", "src/modules/version.rc",
         ))
         # A shipped DLL also carries the shared resource; its fuzz target only recompiles the
         # same translation units, so it signs the VERSION file alone.
@@ -90,7 +90,7 @@ class ModuleVersionFileTests(unittest.TestCase):
         self.assertIn(VERSION_PROPS, names)
         self.assertIn(VERSION_RESOURCE, names)
         self.assertIn("vcpkg.json", names)
-        self.assertIn("build/vcpkg/triplets/observer-x64-windows-static.cmake", names)
+        self.assertIn("build/vcpkg/triplets/unpackrat-x64-windows-static.cmake", names)
         self.assertNotIn("vcpkg-configuration.json", names)
         for name in names:
             with self.subTest(name=name):

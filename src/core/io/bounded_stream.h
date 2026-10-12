@@ -6,7 +6,7 @@
 #include <stdexcept>
 #include <type_traits>
 
-namespace observer::io
+namespace unpackrat::io
 {
     class read_error final : public std::runtime_error
     {
@@ -40,4 +40,4 @@ namespace observer::io
         std::istream &stream_;
         std::streamoff size_ = 0;
     };
-} // namespace observer::io
+} // namespace unpackrat::io

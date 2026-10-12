@@ -77,7 +77,7 @@ def doctor_report() -> tuple[Probe, ...]:
     return tuple(rows)
 
 def main(argv: Sequence[str] | None = None) -> int:
-    argparse.ArgumentParser(prog="observer-build doctor").parse_args(argv)
+    argparse.ArgumentParser(prog="unpackrat-build doctor").parse_args(argv)
     report = doctor_report()
     print("probe\tstatus\tdetail")
     for item in report:

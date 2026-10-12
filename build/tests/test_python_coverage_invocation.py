@@ -56,7 +56,7 @@ class CoverageInvocationTests(unittest.TestCase):
             work.mkdir()
             output.mkdir()
             commands: list[list[str]] = []
-            environment = {"OBSERVER_BUILD_DIR": str(work), "OBSERVER_OUT_DIR": str(output)}
+            environment = {"UNPACKRAT_BUILD_DIR": str(work), "UNPACKRAT_OUT_DIR": str(output)}
 
             with mock.patch.dict(os.environ, environment, clear=False):
                 with mock.patch.object(subprocess, "run", side_effect=self._recording_run(work, commands)):
@@ -77,7 +77,7 @@ class CoverageInvocationTests(unittest.TestCase):
             work.mkdir()
             output.mkdir()
             commands: list[list[str]] = []
-            environment = {"OBSERVER_BUILD_DIR": str(work), "OBSERVER_OUT_DIR": str(output)}
+            environment = {"UNPACKRAT_BUILD_DIR": str(work), "UNPACKRAT_OUT_DIR": str(output)}
 
             with mock.patch.dict(os.environ, environment, clear=False):
                 with mock.patch.object(subprocess, "run", side_effect=self._recording_run(work, commands)):

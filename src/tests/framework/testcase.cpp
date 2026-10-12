@@ -107,13 +107,13 @@ namespace test
 
     void test_external_archive(const std::filesystem::path &path)
     {
-        const auto required_size = GetEnvironmentVariableW(L"OBSERVER_TEST_CORPUS", nullptr, 0);
+        const auto required_size = GetEnvironmentVariableW(L"UNPACKRAT_TEST_CORPUS", nullptr, 0);
         if (required_size == 0) {
-            SKIP("OBSERVER_TEST_CORPUS is not set; external golden corpus test skipped");
+            SKIP("UNPACKRAT_TEST_CORPUS is not set; external golden corpus test skipped");
         }
 
         std::wstring corpus_root(required_size, L'\0');
-        const auto written = GetEnvironmentVariableW(L"OBSERVER_TEST_CORPUS", corpus_root.data(), required_size);
+        const auto written = GetEnvironmentVariableW(L"UNPACKRAT_TEST_CORPUS", corpus_root.data(), required_size);
         REQUIRE(written > 0);
         REQUIRE(written < required_size);
         corpus_root.resize(written);
