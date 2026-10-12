@@ -3,3 +3,7 @@
 /build/.uv-cache/
 /build/.coverage*
 /.idea/
+__pycache__/
+*.py[cod]
+/.vs/
+*.vcxproj.user

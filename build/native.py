@@ -1,4 +1,4 @@
-"""Direct native MSBuild and Catch2 route for ObserverModules.
+"""Direct native MSBuild and Catch2 route for unpackrat.
 
 The content-addressed graph drove MSBuild project by project through rendered
 PowerShell.  This module is the smaller successor for the native family: it
@@ -149,7 +149,7 @@ def test_executable(repository: Path, architecture: str, configuration: str) -> 
 
 
 def triplet(architecture: str) -> str:
-    return f"observer-{architecture}-windows-static"
+    return f"unpackrat-{architecture}-windows-static"
 
 
 def restore_command(repository: Path, architecture: str, tools: NativeTools) -> tuple[str, ...]:
@@ -176,7 +176,7 @@ def build_command(
     root = f"{artifacts_root(repository)}{os.sep}"
     return (
         str(tools.msbuild),
-        str(repository / "build" / "Observer.proj"),
+        str(repository / "build" / "unpackrat.proj"),
         "/nologo",
         f"/m:{jobs}",
         "/nr:false",
@@ -308,7 +308,7 @@ def test(
 
     The ordinary hermetic suite always runs for every runnable variant.  A
     compatibility corpus is optional and, when supplied, is appended as a
-    second suite per variant (with ``OBSERVER_TEST_CORPUS`` scoped to it only).
+    second suite per variant (with ``UNPACKRAT_TEST_CORPUS`` scoped to it only).
     Both report sets are returned together, unit reports first, so a caller
     never has to duplicate the ordinary run.
     """
@@ -334,7 +334,7 @@ def test(
             suites: list[tuple[Path | None, Mapping[str, str] | None]] = [(None, None)]
             if corpus_path is not None:
                 suites.append(
-                    (corpus_path, {"OBSERVER_TEST_CORPUS": str(corpus_path)})
+                    (corpus_path, {"UNPACKRAT_TEST_CORPUS": str(corpus_path)})
                 )
             for suite_corpus, environment in suites:
                 scope = "corpus" if suite_corpus is not None else "unit"
@@ -388,7 +388,7 @@ def _positive_integer(value: str) -> int:
 
 
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="observer-native")
+    parser = argparse.ArgumentParser(prog="unpackrat-native")
     commands = parser.add_subparsers(dest="command", required=True)
     restore_parser = commands.add_parser("restore")
     build_parser = commands.add_parser("build")
@@ -429,12 +429,12 @@ def main(
             )
     except subprocess.CalledProcessError as error:
         print(
-            f"observer-native: command failed with exit code {error.returncode}: {error.cmd}",
+            f"unpackrat-native: command failed with exit code {error.returncode}: {error.cmd}",
             file=sys.stderr,
         )
         return error.returncode or 1
     except (ValueError, OSError) as error:
-        print(f"observer-native: {error}", file=sys.stderr)
+        print(f"unpackrat-native: {error}", file=sys.stderr)
         return 2
     for output in outputs:
         print(output)

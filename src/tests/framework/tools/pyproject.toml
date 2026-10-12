@@ -1,8 +1,7 @@
 [project]
-name = "observer"
+name = "unpackrat"
 version = "0.1.0"
-description = "Add your description here"
-readme = "README.md"
+description = "Generate a sorted archive-listing fixture with XXH3-64 checksums."
 requires-python = ">=3.13"
 dependencies = [
     "xxhash>=3.5.0",

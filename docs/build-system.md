@@ -19,10 +19,26 @@ runtime and no non-system DLL; CMake is not part of this tree (vcpkg ports may u
 shipped module (`renpy`, `rpgmaker`, `zanzarah`) owns an independent semantic version in `src/modules/<module>/VERSION`
 and its own `renpy/vX.Y.Z` release lineage; there is no repository release version.
 
+## Prerequisites
+
+A Windows 11 host with:
+
+- Visual Studio Build Tools 2022 with the v143 toolset for x86, x64 and ARM64, and the matching
+  Spectre-mitigated libraries;
+- the Windows 11 SDK, for the tooling the binary audit and leak operations shell out to;
+- PowerShell 7.4 or newer, the shell `build.ps1` targets;
+- `uv`, which `build.ps1` uses to create the pinned Python environment;
+- `vcpkg` reachable through `PATH` or a `VCPKG_ROOT` environment variable, used in manifest mode over
+  the pinned dependency set.
+
+`.\build.ps1 doctor` probes this toolchain and reports which further verification tools it expects
+(clang-format, Cppcheck, PSScriptAnalyzer, BinSkim, LLVM and UMDH); install only what the operations
+you run need.
+
 ## Map
 
 - `build.ps1` / `build.cmd` — entry point: pinned `uv` environment, rejoins array-valued arguments with commas so an
-  unquoted `x86,x64` survives PowerShell parsing, forwards argv. `OBSERVER_BUILD_PRINT_ARGV=1` prints argv, exits 97.
+  unquoted `x86,x64` survives PowerShell parsing, forwards argv. `UNPACKRAT_BUILD_PRINT_ARGV=1` prints argv, exits 97.
 - `build/main.py` — the argument and command contract and the plain operation dispatch: subcommands, options, three
   architecture rejections, the desktop-priority class, and the keep-going verification runner.
 - `build/native.py` — vcpkg restore and MSBuild build/test against the stable `out/native` tree; MSBuild is the only
@@ -41,11 +57,11 @@ and its own `renpy/vX.Y.Z` release lineage; there is no repository release versi
 
 ## Invariants
 
-- **MSBuild owns incremental state.** Each operation asks MSBuild for one project or one `Observer.proj`, with an
+- **MSBuild owns incremental state.** Each operation asks MSBuild for one project or one `unpackrat.proj`, with an
   explicit `ArtifactsRoot`, and lets it decide what to rebuild. Python owns no object cache and no dependency graph.
 - **Explicit output directories.** The native tree is `out/native`; every other operation writes under an explicit
   directory the caller owns (`out/reports/<command>`, or the `-ExportDir` destination). A `core` validator that still
-  confines itself to an output root is reached with a scoped `OBSERVER_OUT_DIR`/`OBSERVER_BUILD_DIR`.
+  confines itself to an output root is reached with a scoped `UNPACKRAT_OUT_DIR`/`UNPACKRAT_BUILD_DIR`.
 - **100% lines and branches, in both gates**: first-party C++ under the Coverage configuration, and the build system's
   own python (`build/pyproject.toml`, `fail_under = 100`, `branch = true`). The only python escape hatch is a literal
   trailing `# pragma: no cover`; `exclude_also` is empty and `tests/test_coverage_config.py` drives coverage.py's parser
@@ -66,11 +82,11 @@ and its own `renpy/vX.Y.Z` release lineage; there is no repository release versi
 
 ## Deliberate decisions that look like bugs
 
-- `Fuzz|Win32` compiles with `/clang:-mllvm /clang:-asan-stack-dynamic-alloca=0` (`ObserverFuzz.props:24`). Never
+- `Fuzz|Win32` compiles with `/clang:-mllvm /clang:-asan-stack-dynamic-alloca=0` (`unpackrat-fuzz.props:24`). Never
   substitute `-asan-stack=0`: it clears the same spurious i386 frame report but gives up real overflow detection.
 - Coverage loads the three shipped `.so` files as `llvm-cov --object` with `tests.exe` as the profile executable, so the
   gate measures the DLLs FAR Manager actually loads, not the test binary.
-- Coverage is `/MTd`, not `/MT` (`ObserverProject.props:59-60`). Leak checking is an operation over `Release|x64`, not a
+- Coverage is `/MTd`, not `/MT` (`unpackrat-project.props:59-60`). Leak checking is an operation over `Release|x64`, not a
   seventh configuration.
 - ARM64 coverage, fuzzing and ASan are refused rather than composed: no toolset ships an ARM64 profile runtime, and the
   cross runtime for the module DLLs is explicitly deferred instead of approximated.
@@ -112,7 +128,9 @@ and its own `renpy/vX.Y.Z` release lineage; there is no repository release versi
 - The tag's version must also match both the `src/modules/<module>/ChangeLog.ru.txt` and `ChangeLog.en.txt` top entries,
   and a module release's published notes carry both language sections (`core.changelog.release_notes`) rather than a
   generated commit list. The selective module archive carries the module, the registration ini, the two change logs and
-  a generated `LICENSES.txt` (the project license plus only that module's dependency notices) at its root.
+  a generated `LICENSES.txt` at its root: the project's own MIT license, the Observer API header's LGPLv3 notice with the
+  accompanying full GPLv3 text, and only that module's dependency notices; documentation-only format references follow
+  in their own labeled section.
 - A module release publishes exactly three per-architecture module archives and one
   `<module>-<version>-pdb.zip`. Every architecture's manifest names the same intermediate symbol bundle, each carrying
   its one `<arch>/<module>.pdb`, so the gate assembles the disjoint architectures into the published bundle before the

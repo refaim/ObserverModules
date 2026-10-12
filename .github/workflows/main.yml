@@ -177,7 +177,7 @@ jobs:
           if (-not $version.StartsWith('10.0.19041.', [StringComparison]::Ordinal)) {
             throw "Unexpected Windows 10 UMDH version: $version"
           }
-          "OBSERVER_UMDH=$umdh" | Add-Content -Path $env:GITHUB_ENV
+          "UNPACKRAT_UMDH=$umdh" | Add-Content -Path $env:GITHUB_ENV
 
       - name: Verify repository sources
         id: verify-source

@@ -66,7 +66,7 @@ PROFILE_LIBRARIES = {
     "x86": "clang_rt.profile-i386.lib",
     "x64": "clang_rt.profile-x86_64.lib",
 }
-# ObserverFuzz.props links exactly these three archives per architecture.
+# unpackrat-fuzz.props links exactly these three archives per architecture.
 FUZZER_LIBRARIES = {
     "x86": (
         "clang_rt.fuzzer-i386.lib",
@@ -117,7 +117,7 @@ def resolve_binskim() -> ResolvedTool:
 
 
 def resolve_umdh() -> ResolvedTool:
-    override = os.environ.get("OBSERVER_UMDH")
+    override = os.environ.get("UNPACKRAT_UMDH")
     if override:
         path = Path(override)
         if not path.is_file():

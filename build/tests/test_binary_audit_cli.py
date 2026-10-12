@@ -49,7 +49,7 @@ class BinaryAuditCliTests(unittest.TestCase):
                 Path(argv[argv.index("--output") + 1]).write_text('{"runs":[]}', encoding="utf-8")
                 return subprocess.CompletedProcess(argv, 0)
 
-            with mock.patch.dict(os.environ, {"OBSERVER_OUT_DIR": str(output)}, clear=False):
+            with mock.patch.dict(os.environ, {"UNPACKRAT_OUT_DIR": str(output)}, clear=False):
                 with mock.patch("core.binary_audit.subprocess.run", side_effect=complete) as invoked:
                     self.assertEqual(0, binary_audit_main(("run-binskim", str(tool), str(binary))))
             argv = invoked.call_args.args[0]
@@ -58,11 +58,11 @@ class BinaryAuditCliTests(unittest.TestCase):
             self.assertEqual(output / "binskim.sarif", Path(argv[argv.index("--output") + 1]))
 
             with mock.patch.dict(os.environ, {}, clear=True):
-                with self.assertRaisesRegex(AuditError, "OBSERVER_OUT_DIR"):
+                with self.assertRaisesRegex(AuditError, "UNPACKRAT_OUT_DIR"):
                     binary_audit_main(("run-binskim", str(tool), str(binary)))
             empty_output = root / "empty-output"
             empty_output.mkdir()
-            with mock.patch.dict(os.environ, {"OBSERVER_OUT_DIR": str(empty_output)}, clear=False):
+            with mock.patch.dict(os.environ, {"UNPACKRAT_OUT_DIR": str(empty_output)}, clear=False):
                 with mock.patch("core.binary_audit.subprocess.run"):
                     with self.assertRaisesRegex(AuditError, "did not produce"):
                         binary_audit_main(("run-binskim", str(tool), str(binary)))

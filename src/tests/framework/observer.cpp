@@ -69,7 +69,7 @@ namespace test
 #pragma clang diagnostic pop
 #endif
                 if (load_module_ == nullptr || unload_module_ == nullptr) {
-                    throw std::runtime_error("The package module does not expose the Observer entry points");
+                    throw std::runtime_error("The package module does not expose the unpackrat entry points");
                 }
 
                 ModuleLoadParameters load_params{};
@@ -283,7 +283,7 @@ namespace test
         constexpr std::array module_names{"renpy.so", "rpgmaker.so", "zanzarah.so"};
         const auto invalid_archive_path =
             std::filesystem::temp_directory_path() /
-            std::format(L"observer-invalid-{}.bin", static_cast<unsigned long>(GetCurrentProcessId()));
+            std::format(L"unpackrat-invalid-{}.bin", static_cast<unsigned long>(GetCurrentProcessId()));
 
         for (const auto *module_name : module_names) {
             CAPTURE(module_name);
@@ -327,7 +327,7 @@ namespace test
             REQUIRE(storage == nullptr);
 
             params.DataSize = 0;
-            params.FilePath = L"this-file-does-not-exist.observer-test";
+            params.FilePath = L"this-file-does-not-exist.unpackrat-test";
             REQUIRE(api.OpenStorage(params, &storage, &info) == SOR_INVALID_FILE);
             REQUIRE(storage == nullptr);
 
@@ -508,7 +508,7 @@ namespace test
         REQUIRE(loaded.extract_file_status(0, std::filesystem::temp_directory_path(),
                                            [](void *, int64_t) { return TRUE; }) == SER_ERROR_WRITE);
 
-        const auto pipe_name = std::format(L"\\\\.\\pipe\\observer-write-failure-{}", GetCurrentProcessId());
+        const auto pipe_name = std::format(L"\\\\.\\pipe\\unpackrat-write-failure-{}", GetCurrentProcessId());
         const auto pipe = CreateNamedPipeW(pipe_name.c_str(), PIPE_ACCESS_INBOUND | FILE_FLAG_FIRST_PIPE_INSTANCE,
                                            PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT, 1, 0, 1, 0, nullptr);
         REQUIRE(pipe != INVALID_HANDLE_VALUE);
@@ -582,8 +582,8 @@ namespace test
             return value;
         };
 
-        const std::filesystem::path module_path(require_environment(L"OBSERVER_PACKAGE_MODULE"));
-        const auto format = require_environment(L"OBSERVER_PACKAGE_FORMAT");
+        const std::filesystem::path module_path(require_environment(L"UNPACKRAT_PACKAGE_MODULE"));
+        const auto format = require_environment(L"UNPACKRAT_PACKAGE_FORMAT");
         REQUIRE(module_path.is_absolute());
         REQUIRE(std::filesystem::is_regular_file(module_path));
 
@@ -603,7 +603,7 @@ namespace test
             expected_payload = "zanzarah package smoke";
             archive_contents = support::make_zanzarah_archive("..\\data\\package.txt", expected_payload);
         } else {
-            throw std::runtime_error("OBSERVER_PACKAGE_FORMAT expects renpy, rpgmaker, or zanzarah");
+            throw std::runtime_error("UNPACKRAT_PACKAGE_FORMAT expects renpy, rpgmaker, or zanzarah");
         }
 
         const support::temporary_archive archive("package-smoke", archive_contents);

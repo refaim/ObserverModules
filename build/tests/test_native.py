@@ -115,7 +115,7 @@ class RestoreCommandTests(unittest.TestCase):
                     f"--x-buildtrees-root={scratch / 'buildtrees'}",
                     f"--x-packages-root={scratch / 'packages'}",
                     "--triplet",
-                    "observer-x86-windows-static",
+                    "unpackrat-x86-windows-static",
                     f"--x-manifest-root={repository}",
                     f"--overlay-triplets={repository / 'build' / 'vcpkg' / 'triplets'}",
                 ),
@@ -123,7 +123,7 @@ class RestoreCommandTests(unittest.TestCase):
 
 
 class BuildCommandTests(unittest.TestCase):
-    def test_build_drives_observer_proj_with_the_platform_and_artifact_overrides(self) -> None:
+    def test_build_drives_unpackrat_proj_with_the_platform_and_artifact_overrides(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             repository = Path(temporary)
             tools = _tools(repository)
@@ -135,7 +135,7 @@ class BuildCommandTests(unittest.TestCase):
                 command,
                 (
                     str(tools.msbuild),
-                    str(repository / "build" / "Observer.proj"),
+                    str(repository / "build" / "unpackrat.proj"),
                     "/nologo",
                     "/m:6",
                     "/nr:false",
@@ -265,7 +265,7 @@ class RelativeRepositoryTests(unittest.TestCase):
 
             self.assertEqual(outputs, native.artifacts(repository, "x64", "Debug"))
             build_argv = runner.calls[-1].argv
-            self.assertIn(str(repository / "build" / "Observer.proj"), build_argv)
+            self.assertIn(str(repository / "build" / "unpackrat.proj"), build_argv)
             self.assertIn(
                 f"/p:ArtifactsRoot={repository / 'out' / 'native'}{os.sep}", build_argv
             )
@@ -621,7 +621,7 @@ class TestRunTests(unittest.TestCase):
             # The ordinary suite must never inherit the compatibility corpus environment.
             self.assertIsNone(unit_run.env)
             self.assertEqual(corpus_run.argv[1], "[compatibility]")
-            self.assertEqual(corpus_run.env, {"OBSERVER_TEST_CORPUS": str(corpus)})
+            self.assertEqual(corpus_run.env, {"UNPACKRAT_TEST_CORPUS": str(corpus)})
 
     def test_every_variant_runs_its_ordinary_suite_even_with_a_corpus(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -746,8 +746,8 @@ class RunToolTests(unittest.TestCase):
         native.run_tool([sys.executable, "-c", "raise SystemExit(0)"])
         with tempfile.TemporaryDirectory() as temporary:
             native.run_tool(
-                [sys.executable, "-c", "import os; assert os.environ['OBSERVER_PROBE'] == '1'"],
-                cwd=Path(temporary), env={"OBSERVER_PROBE": "1"},
+                [sys.executable, "-c", "import os; assert os.environ['UNPACKRAT_PROBE'] == '1'"],
+                cwd=Path(temporary), env={"UNPACKRAT_PROBE": "1"},
             )
 
     def test_the_real_runner_always_passes_an_explicit_inherited_environment(self) -> None:
@@ -755,14 +755,14 @@ class RunToolTests(unittest.TestCase):
         # PATH and Path; an explicit merged mapping is normalised by os.environ's case-folding.
         with mock.patch.object(native.subprocess, "run") as run:
             native.run_tool(["tool.exe", "arg"])
-            native.run_tool(["tool.exe", "arg"], env={"OBSERVER_PROBE": "1"})
+            native.run_tool(["tool.exe", "arg"], env={"UNPACKRAT_PROBE": "1"})
 
         inherited = run.call_args_list[0].kwargs["env"]
         self.assertIsNotNone(inherited)
         self.assertEqual(inherited, dict(os.environ))
 
         override = run.call_args_list[1].kwargs["env"]
-        self.assertEqual(override["OBSERVER_PROBE"], "1")
+        self.assertEqual(override["UNPACKRAT_PROBE"], "1")
         self.assertEqual(override["PATH"], os.environ["PATH"])
 
     def test_the_real_runner_preserves_a_nonzero_exit(self) -> None:
@@ -848,7 +848,7 @@ class CommandLineTests(unittest.TestCase):
                 environ={}, tools=None, runner=None,
             )
             self.assertEqual(code, 2)
-            self.assertIn("observer-native", err)
+            self.assertIn("unpackrat-native", err)
 
             failure = subprocess.CalledProcessError(3, "vcpkg.exe")
             code, _, err = self._invoke(
@@ -864,12 +864,12 @@ class CommandLineTests(unittest.TestCase):
 
 
 class ProjectContractTests(unittest.TestCase):
-    def test_observer_proj_builds_every_project_through_one_msbuild_submission(self) -> None:
-        project = ET.parse(REPOSITORY_ROOT / "build" / "Observer.proj").getroot()
+    def test_unpackrat_proj_builds_every_project_through_one_msbuild_submission(self) -> None:
+        project = ET.parse(REPOSITORY_ROOT / "build" / "unpackrat.proj").getroot()
 
         included = [
             Path(item.get("Include")).name
-            for item in project.findall(f".//{MSBUILD}ObserverProject")
+            for item in project.findall(f".//{MSBUILD}unpackratProject")
         ]
         self.assertEqual(
             included,

@@ -25,14 +25,44 @@ from core.package import PackageError, licenses_document, main as package_main  
 
 MODULES = ("renpy", "rpgmaker", "zanzarah")
 VERSIONS = {"renpy": "3.1.0", "rpgmaker": "1.1.0", "zanzarah": "2.1.0"}
+# Every module ships its own MIT grant, the Observer API header's LGPLv3 notice plus the full
+# GPLv3 text that the LGPL incorporates, and then only that module's own third-party notices.
 LICENSES = {
-    "renpy": ("Observer.txt", "rpatool.txt", "serde-pickle.txt", "zlib.txt"),
-    "rpgmaker": ("Observer.txt", "rgssad.txt"),
-    "zanzarah": ("Observer.txt", "zanzapak.txt"),
+    "renpy": ("Observer.txt", "GPL-3.0.txt", "rpatool.txt", "serde-pickle.txt", "zlib.txt"),
+    "rpgmaker": ("Observer.txt", "GPL-3.0.txt", "rgssad.txt"),
+    "zanzarah": ("Observer.txt", "GPL-3.0.txt"),
+}
+# Format descriptions that informed independent implementations: reproduced only in a clearly
+# labeled reference section, never as a shipped-code dependency.
+REFERENCES = {
+    "renpy": (),
+    "rpgmaker": (),
+    "zanzarah": ("zanzapak.txt",),
 }
 CHANGELOGS = ("ChangeLog.en.txt", "ChangeLog.ru.txt")
 SEPARATOR = "=" * 72
 PAYLOAD = ("ChangeLog.en.txt", "ChangeLog.ru.txt", "LICENSES.txt", "observer_user.ini", "renpy.so")
+MIT_TEXT = (
+    "MIT License\n"
+    "\n"
+    "Copyright (c) 2019-2026 Roman Kharitonov\n"
+    "\n"
+    "Permission is hereby granted, free of charge, to any person obtaining a copy\n"
+    'of this software and associated documentation files (the "Software"), to deal\n'
+    "in the Software without restriction, including without limitation the rights\n"
+    "to use, copy, modify, merge, publish, distribute, sublicense, and/or sell\n"
+    "copies of the Software.\n"
+)
+LGPL_TEXT = "GNU LESSER GENERAL PUBLIC LICENSE\nVersion 3, 29 June 2007\n"
+GPL_TEXT = "GNU GENERAL PUBLIC LICENSE\nVersion 3, 29 June 2007\n"
+ZANZAPAK_TEXT = "GNU General Public License version 2 or later (format reference)\n"
+# The shared project and dependency notices carry recognizable bodies; every other notice is a
+# stand-in so a section's provenance stays verifiable without a real license text.
+LICENSE_BODIES = {
+    "Observer.txt": LGPL_TEXT,
+    "GPL-3.0.txt": GPL_TEXT,
+    "zanzapak.txt": ZANZAPAK_TEXT,
+}
 PROJECT = """<?xml version="1.0" encoding="utf-8"?>
 <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemDefinitionGroup>
@@ -53,6 +83,10 @@ def write(root: Path, relative: str, content: str) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8", newline="\n")
     return path
+
+
+def license_body(name: str) -> str:
+    return LICENSE_BODIES.get(name, f"license:{name}\n")
 
 
 def entry(version: str, note: str, language: str = "en") -> str:
@@ -80,27 +114,27 @@ class PackageActionTests(unittest.TestCase):
                     entry(VERSIONS[module], f"{module} {language} release.", language),
                 )
             write(root, f"build/projects/{module}.vcxproj", PROJECT.format(module=module))
-            for name in licenses:
-                write(root, f"licenses/{name}", f"license:{name}\n")
+            for name in (*licenses, *REFERENCES[module]):
+                write(root, f"licenses/{name}", license_body(name))
             write(root, f"src/modules/{module}/{module}_private.h", "#pragma once\n")
         write(root, "src/modules/extractor.h", "#pragma once\n")
         write(root, "src/modules/version.rc", "VS_VERSION_INFO VERSIONINFO\n")
         for name in (
-            "build/ObserverProjectConfigurations.props",
-            "build/ObserverConfiguration.props",
-            "build/ObserverProject.props",
-            "build/ObserverModuleVersion.props",
+            "build/unpackrat-project-configurations.props",
+            "build/unpackrat-configuration.props",
+            "build/unpackrat-project.props",
+            "build/unpackrat-module-version.props",
         ):
             write(root, name, "<Project />\n")
         write(root, "vcpkg.json", '{"dependencies":["zlib"]}\n')
-        write(root, "build/vcpkg/triplets/observer-x64-windows-static.cmake", "static\n")
-        write(root, "LICENSE.txt", "project license\n")
+        write(root, "build/vcpkg/triplets/unpackrat-x64-windows-static.cmake", "static\n")
+        write(root, "LICENSE.txt", MIT_TEXT)
         return root
 
     @staticmethod
     def invoke(output: Path, *arguments: str) -> int:
         output.mkdir()
-        with mock.patch.dict(os.environ, {"OBSERVER_OUT_DIR": str(output)}, clear=False):
+        with mock.patch.dict(os.environ, {"UNPACKRAT_OUT_DIR": str(output)}, clear=False):
             return package_main(arguments)
 
     @staticmethod
@@ -162,11 +196,13 @@ class PackageActionTests(unittest.TestCase):
                         archive.read(name),
                         (repository / "src/modules/renpy" / name).read_bytes(),
                     )
-                # LICENSES.txt is the project license plus only this module's dependency notices.
-                self.assertEqual(archive.read("LICENSES.txt"), licenses_document(repository, "renpy"))
-                self.assertIn(b"project license\n", archive.read("LICENSES.txt"))
-                self.assertIn(b"license:zlib.txt\n", archive.read("LICENSES.txt"))
-                self.assertNotIn(b"license:rgssad.txt", archive.read("LICENSES.txt"))
+                # LICENSES.txt opens with the project's MIT grant and keeps only this module's notices.
+                licenses = archive.read("LICENSES.txt")
+                self.assertEqual(licenses, licenses_document(repository, "renpy"))
+                self.assertIn(b"MIT License", licenses)
+                self.assertIn(b"license:zlib.txt\n", licenses)
+                self.assertNotIn(b"license:rgssad.txt", licenses)
+                self.assertNotIn(b"zanzapak", licenses)
 
             validation = root / "validation"
             self.assertEqual(
@@ -228,7 +264,7 @@ class PackageActionTests(unittest.TestCase):
             document = licenses_document(repository, "renpy")
 
             sections = b"\n".join([
-                section("Observer Modules", (repository / "LICENSE.txt").read_bytes()),
+                section("unpackrat", (repository / "LICENSE.txt").read_bytes()),
                 *(section(name, (repository / "licenses" / name).read_bytes())
                   for name in LICENSES["renpy"]),
             ])
@@ -240,6 +276,20 @@ class PackageActionTests(unittest.TestCase):
             # Stable and deterministic across repeated reads of the same source bytes.
             self.assertEqual(document, licenses_document(repository, "renpy"))
             self.assertEqual(document.count(SEPARATOR.encode()), 2 * (1 + len(LICENSES["renpy"])))
+
+    def test_licenses_document_opens_with_the_mit_grant_and_the_lgpl_companion(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repository = self.repository(root / "repo")
+
+            for module in MODULES:
+                with self.subTest(module=module):
+                    document = licenses_document(repository, module)
+                    # The project's own section is the standard MIT text.
+                    self.assertIn(section("unpackrat", MIT_TEXT.encode("utf-8")), document)
+                    # The Observer API header stays LGPLv3 and ships with the full GPLv3 it references.
+                    self.assertIn(section("Observer.txt", LGPL_TEXT.encode("utf-8")), document)
+                    self.assertIn(section("GPL-3.0.txt", GPL_TEXT.encode("utf-8")), document)
 
     def test_licenses_document_preamble_identifies_the_module_and_project(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -256,18 +306,20 @@ class PackageActionTests(unittest.TestCase):
 
                     # The intro names the shipped artifact and the project it belongs to.
                     self.assertIn(f"{module}.so".encode("utf-8"), preamble)
-                    self.assertIn(b"Observer Modules", preamble)
+                    self.assertIn(b"unpackrat", preamble)
                     self.assertIn(b"https://github.com/refaim/ObserverModules", preamble)
-                    # It explains that the following sections reproduce the notices in full.
-                    self.assertIn(b"project license", preamble)
+                    # It explains the license layout and that notices are reproduced in full.
+                    self.assertIn(b"MIT", preamble)
+                    self.assertIn(b"LGPL", preamble)
+                    self.assertIn(b"GPL", preamble)
                     self.assertIn(b"third-party", preamble)
                     self.assertIn(b"format references", preamble)
                     self.assertIn(b"reproduced in full", preamble)
                     # It stays prose: no delimiters and a blank line before the first section.
                     self.assertNotIn(delimiter, preamble)
                     self.assertTrue(preamble.endswith(b"\n\n"))
-                    # It does not misstate how the referenced components are incorporated.
-                    self.assertNotIn(b"statically linked", preamble)
+                    # A format reference never enters the shipped-notice preamble.
+                    self.assertNotIn(b"zanzapak", preamble)
                     # One module's preamble never claims another module's artifact.
                     for other in (name for name in MODULES if name != module):
                         self.assertNotIn(f"{other}.so".encode("utf-8"), preamble)
@@ -283,6 +335,31 @@ class PackageActionTests(unittest.TestCase):
                     for name in exclusive:
                         self.assertNotIn(f"{SEPARATOR}\n{name}\n{SEPARATOR}".encode("utf-8"), document)
 
+    def test_licenses_document_separates_format_references_from_shipped_code(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repository = self.repository(root / "repo")
+
+            # A reference notice is reproduced only under an explicitly labeled reference section.
+            zanzarah = licenses_document(repository, "zanzarah")
+            heading = f"{SEPARATOR}\nFormat reference: zanzapak.txt\n{SEPARATOR}".encode("utf-8")
+            self.assertIn(heading, zanzarah)
+            self.assertIn(ZANZAPAK_TEXT.encode("utf-8"), zanzarah)
+            self.assertIn(b"not a shipped-code", zanzarah)
+            # The reference follows the shipped notices and never crowds the MIT grant.
+            self.assertLess(zanzarah.index(b"MIT License"), zanzarah.index(heading))
+            self.assertLess(
+                zanzarah.index(section("Observer.txt", LGPL_TEXT.encode("utf-8"))),
+                zanzarah.index(heading),
+            )
+
+            # Modules with no reference carry no reference section and no reference bytes at all.
+            for module in ("renpy", "rpgmaker"):
+                with self.subTest(module=module):
+                    document = licenses_document(repository, module)
+                    self.assertNotIn(b"zanzapak", document)
+                    self.assertNotIn(b"Format reference", document)
+
     def test_licenses_document_fails_closed_on_missing_or_empty_notices(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -296,6 +373,30 @@ class PackageActionTests(unittest.TestCase):
             (repository / "LICENSE.txt").write_bytes(b"   \n")
             with self.assertRaisesRegex(PackageError, "empty"):
                 licenses_document(repository, "renpy")
+
+    def test_licenses_document_fails_closed_on_the_lgpl_companion_and_references(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repository = self.repository(root / "repo")
+
+            gpl = repository / "licenses/GPL-3.0.txt"
+            gpl.unlink()
+            with self.assertRaisesRegex(PackageError, "missing or unreadable"):
+                licenses_document(repository, "rpgmaker")
+
+            gpl.write_bytes(b"   \n")
+            with self.assertRaisesRegex(PackageError, "empty"):
+                licenses_document(repository, "rpgmaker")
+
+            gpl.write_bytes(GPL_TEXT.encode("utf-8"))
+            reference = repository / "licenses/zanzapak.txt"
+            reference.unlink()
+            with self.assertRaisesRegex(PackageError, "missing or unreadable"):
+                licenses_document(repository, "zanzarah")
+
+            reference.write_bytes(b"  \n")
+            with self.assertRaisesRegex(PackageError, "empty"):
+                licenses_document(repository, "zanzarah")
 
     def test_licenses_document_normalizes_a_missing_trailing_newline(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -372,8 +473,8 @@ class PackageActionTests(unittest.TestCase):
             arguments = run.call_args.args[0]
             self.assertEqual(arguments[:2], [str(tests), "[package-smoke]"])
             self.assertEqual(run.call_args.kwargs["cwd"], output)
-            self.assertEqual(run.call_args.kwargs["env"]["OBSERVER_PACKAGE_MODULE"], str(module))
-            self.assertEqual(run.call_args.kwargs["env"]["OBSERVER_PACKAGE_FORMAT"], "renpy")
+            self.assertEqual(run.call_args.kwargs["env"]["UNPACKRAT_PACKAGE_MODULE"], str(module))
+            self.assertEqual(run.call_args.kwargs["env"]["UNPACKRAT_PACKAGE_FORMAT"], "renpy")
 
             missing = root / "missing.zip"
             with zipfile.ZipFile(missing, "w") as package:
@@ -402,7 +503,7 @@ class PackageActionTests(unittest.TestCase):
                 self.invoke(root / "bad-aggregate", "aggregate", *self.records(),
                             str(archive), str(archive))
 
-        with mock.patch.dict(os.environ, {}, clear=True), self.assertRaisesRegex(PackageError, "OBSERVER_OUT_DIR"):
+        with mock.patch.dict(os.environ, {}, clear=True), self.assertRaisesRegex(PackageError, "UNPACKRAT_OUT_DIR"):
             package_main(("aggregate", *self.records(), "missing.zip"))
 
     def test_the_retired_repository_symbol_commands_are_gone(self) -> None:

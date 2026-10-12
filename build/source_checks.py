@@ -1,4 +1,4 @@
-"""Direct source-format/analyzer checks and compiler analysis for ObserverModules.
+"""Direct source-format/analyzer checks and compiler analysis for unpackrat.
 
 These functions are the plain-command successors to ``graphs/source.py`` and
 ``graphs/analysis.py``.  They compose the repository's existing validators --
@@ -43,7 +43,6 @@ _COMPILE_TARGET = "/t:ClCompile"
 _REBUILD_TARGET = "/t:Rebuild"
 # Transient build state, VCS metadata and the local virtualenv are never sources.
 _IGNORED_DIRECTORIES = frozenset({".git", ".venv", "__pycache__", "out"})
-# Raw Jinja templates are not PowerShell; the rendered scripts are the ``checks`` scripts.
 _PS_SCRIPT = Path(__file__).resolve().parent / "checks" / "psscriptanalyzer.ps1"
 
 # PSScriptAnalyzer severities map onto SARIF levels; any other severity is informational.
@@ -300,9 +299,7 @@ def _positive_jobs(jobs: object) -> None:
         raise ValueError("jobs must be a positive integer")
 
 
-def _files(
-    root: Path, suffixes: frozenset[str], *, excluded: tuple[Path, ...] = ()
-) -> tuple[Path, ...]:
+def _files(root: Path, suffixes: frozenset[str]) -> tuple[Path, ...]:
     if not root.is_dir():
         return ()
     found = []
@@ -310,19 +307,13 @@ def _files(
         directories[:] = sorted(set(directories) - _IGNORED_DIRECTORIES)
         for name in names:
             path = directory / name
-            if path.suffix in suffixes and not any(
-                path.is_relative_to(item) for item in excluded
-            ):
+            if path.suffix in suffixes:
                 found.append(path)
     return tuple(sorted(found, key=str))
 
 
 def _powershell_sources(repository: Path) -> tuple[Path, ...]:
-    return _files(
-        repository,
-        _POWERSHELL_SUFFIXES,
-        excluded=(repository / "build" / "templates",),
-    )
+    return _files(repository, _POWERSHELL_SUFFIXES)
 
 
 def _projects(repository: Path) -> tuple[tuple[str, Path], ...]:
@@ -535,9 +526,9 @@ def _analyze_msvc(
         )
         + [
             "/p:EnableMicrosoftCodeAnalysis=true",
-            "/p:ObserverEnableClangTidy=false",
-            f"/p:ObserverAnalysisReportName={name}",
-            f"/p:ObserverAnalysisReportPath={report}",
+            "/p:unpackratEnableClangTidy=false",
+            f"/p:unpackratAnalysisReportName={name}",
+            f"/p:unpackratAnalysisReportPath={report}",
         ],
         repository,
         None,
@@ -569,7 +560,7 @@ def _analyze_tidy(
         )
         + [
             "/p:EnableMicrosoftCodeAnalysis=false",
-            "/p:ObserverEnableClangTidy=true",
+            "/p:unpackratEnableClangTidy=true",
             f"/p:LLVMInstallDir={tools.llvm_dir}",
             f"/p:ClangTidyLogFile={name}.ClangTidy.log",
         ],
@@ -613,10 +604,10 @@ def _analysis_command(
         f"/p:Platform={native.PLATFORMS[architecture]}",
         f"/p:OutDir={variant}{os.sep}",
         f"/p:IntDir={variant / 'obj'}{os.sep}",
-        "/p:ObserverCompileAnalysis=true",
+        "/p:unpackratCompileAnalysis=true",
         f"/p:VcpkgRoot={tools.native.vcpkg_root}",
         f"/p:VcpkgInstalledDir={native.restore_root(repository, architecture)}{os.sep}",
-        "/p:ObserverRunCodeAnalysis=true",
+        "/p:unpackratRunCodeAnalysis=true",
         "/p:RunCodeAnalysis=true",
     ]
     if fuzz_project:
@@ -672,8 +663,8 @@ def _sarif(
     repository: Path, output: Path, execute: Runner, arguments: Sequence[str]
 ) -> None:
     environment = {
-        "OBSERVER_OUT_DIR": str(output),
-        "OBSERVER_BUILD_DIR": str(output / "work"),
+        "UNPACKRAT_OUT_DIR": str(output),
+        "UNPACKRAT_BUILD_DIR": str(output / "work"),
     }
     execute(
         [sys.executable, "-m", "core.sarif", *arguments],

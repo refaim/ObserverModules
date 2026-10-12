@@ -30,9 +30,9 @@ class LeakError(RuntimeError):
 
 
 def _output() -> Path:
-    value = os.environ.get("OBSERVER_OUT_DIR")
+    value = os.environ.get("UNPACKRAT_OUT_DIR")
     if not value or not (output := Path(value)).is_dir():
-        raise LeakError("OBSERVER_OUT_DIR must be an existing directory")
+        raise LeakError("UNPACKRAT_OUT_DIR must be an existing directory")
     return output
 
 
@@ -76,7 +76,7 @@ def _count(value: str, name: str, *, minimum: int = 1) -> int:
 
 
 def _marker(lines: Sequence[str], marker: str) -> str:
-    prefix = f"OBSERVER_LEAK_PROBE|{marker}|"
+    prefix = f"UNPACKRAT_LEAK_PROBE|{marker}|"
     found = [line for line in lines if line.startswith(prefix)]
     if len(found) != 1:
         raise LeakError(f"leak probe emitted {len(found)} {marker} markers")
@@ -84,7 +84,7 @@ def _marker(lines: Sequence[str], marker: str) -> str:
 
 
 def _ready(line: str, mode: str, scenario: str, pid: int | None = None) -> None:
-    expected = rf"^OBSERVER_LEAK_PROBE\|READY\|pid=([0-9]+)\|mode={re.escape(mode)}\|configuration=Release\|scenarios={re.escape(scenario)}$"
+    expected = rf"^UNPACKRAT_LEAK_PROBE\|READY\|pid=([0-9]+)\|mode={re.escape(mode)}\|configuration=Release\|scenarios={re.escape(scenario)}$"
     match = re.fullmatch(expected, line)
     if match is None or (pid is not None and int(match.group(1)) != pid):
         raise LeakError("leak READY marker does not match the requested process/selection")
@@ -123,7 +123,7 @@ def _preflight(args: Sequence[str]) -> None:
 
 def _read(process: psutil.Popen[str], marker: str, label: str = "") -> str:
     assert process.stdout is not None
-    prefix = f"OBSERVER_LEAK_PROBE|{marker}|{label + '|' if label else ''}"
+    prefix = f"UNPACKRAT_LEAK_PROBE|{marker}|{label + '|' if label else ''}"
     while line := process.stdout.readline():
         if line.rstrip("\r\n").startswith(prefix):
             return line.rstrip("\r\n")
@@ -229,7 +229,7 @@ def _capture(
     process: psutil.Popen[str] | None = None
     with error_path.open("w+", encoding="utf-8") as errors:
         try:
-            lock = FileLock(Path(tempfile.gettempdir()) / "observer-modules-gflags.lock")
+            lock = FileLock(Path(tempfile.gettempdir()) / "unpackrat-gflags.lock")
             with lock:
                 changed, traced = _enable_stack_traces(gflags, probe.name)
                 try:

@@ -5,7 +5,7 @@
 
 #include <zlib.h>
 
-namespace observer::compression
+namespace unpackrat::compression
 {
     namespace
     {
@@ -89,4 +89,4 @@ namespace observer::compression
             }
         }
     }
-} // namespace observer::compression
+} // namespace unpackrat::compression

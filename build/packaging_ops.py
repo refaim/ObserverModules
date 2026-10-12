@@ -4,7 +4,7 @@ This is the console-first, standard-library successor to the content-addressed
 ``graphs/audit.py`` and ``graphs/package.py`` families.  It expresses the same
 release gates as plain Python that shells out to the already-validated ``core``
 command line modules -- ``core.binary_audit``, ``core.module_version`` and
-``core.package`` -- each with an operation-scoped ``OBSERVER_OUT_DIR``.  It owns no
+``core.package`` -- each with an operation-scoped ``UNPACKRAT_OUT_DIR``.  It owns no
 graph, cache or scheduler: MSBuild keeps the incremental state and ``core`` keeps
 the checks, so no gate is restated or weakened here.
 
@@ -35,8 +35,9 @@ import zipfile
 from core.host import DeferredGate, runnable_architectures
 from core.module_version import VERSION_FILE, content_identity, read_version, shared_content_inputs
 # A per-module symbol bundle reuses the deterministic ZIP writer and the staging payload
-# validator rather than restating them.
-from core.package import LICENSES, MODULES, _zip, module_archive_name
+# validator rather than restating them; the license maps decide which notices ship and which
+# are reproduced only as format references.
+from core.package import LICENSES, MODULES, REFERENCE_LICENSES, _zip, module_archive_name
 from core.quality_tools import resolve_binskim, resolve_dumpbin
 from core.toolchain import discover_msvc_toolchain
 from native import ARCHITECTURES, bin_directory, locate_tools
@@ -54,10 +55,10 @@ _CONSERVATIVE_HEADER_TREES = ("src/common", "src/core")
 # ``COMMON_PROJECT_INPUTS``.  A change here recompiles a module without touching its sources, so
 # the release identity must sign it; the module ``VERSION`` file stays excluded instead.
 _SHARED_BUILD_INPUTS = (
-    "build/ObserverProjectConfigurations.props",
-    "build/ObserverConfiguration.props",
-    "build/ObserverProject.props",
-    "build/ObserverModuleVersion.props",
+    "build/unpackrat-project-configurations.props",
+    "build/unpackrat-configuration.props",
+    "build/unpackrat-project.props",
+    "build/unpackrat-module-version.props",
 )
 Runner = Callable[..., None]
 
@@ -253,7 +254,7 @@ def _publish(pending: Path, publish: Path, root: Path) -> Path:
 
 
 def _environment(out: Path) -> dict[str, str]:
-    return {"OBSERVER_OUT_DIR": os.fspath(out)}
+    return {"UNPACKRAT_OUT_DIR": os.fspath(out)}
 
 
 def _python(module: str) -> tuple[str, ...]:
@@ -367,6 +368,7 @@ def module_content_inputs(
         f"src/modules/{module}/observer_user.ini",
         "LICENSE.txt",
         *(f"licenses/{name}" for name in LICENSES[module]),
+        *(f"licenses/{name}" for name in REFERENCE_LICENSES[module]),
     })
     trees = (
         repository / "src" / "modules" / module,

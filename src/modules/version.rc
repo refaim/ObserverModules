@@ -1,28 +1,28 @@
-// Shared VERSIONINFO resource for every Observer extractor module.
+// Shared VERSIONINFO resource for every unpackrat extractor module.
 //
-// build/ObserverModuleVersion.props injects the macros below from src/modules/<module>/VERSION,
+// build/unpackrat-module-version.props injects the macros below from src/modules/<module>/VERSION,
 // which is the single source of truth for that module's release version. The package gate reads
 // the fixed version information back out of the linked binary, so a module that fails to carry
 // this resource, or carries a stale one, cannot be packaged.
 
 #include <winver.h>
 
-#if !defined(OBSERVER_MODULE_NAME) || !defined(OBSERVER_MODULE_FILE) || !defined(OBSERVER_MODULE_VERSION)
-#error "Observer module identity macros must be supplied from the module VERSION file"
+#if !defined(UNPACKRAT_MODULE_NAME) || !defined(UNPACKRAT_MODULE_FILE) || !defined(UNPACKRAT_MODULE_VERSION)
+#error "unpackrat module identity macros must be supplied from the module VERSION file"
 #endif
 
-#if !defined(OBSERVER_MODULE_VERSION_MAJOR) || !defined(OBSERVER_MODULE_VERSION_MINOR) || !defined(OBSERVER_MODULE_VERSION_PATCH)
-#error "Observer module version macros must be supplied from the module VERSION file"
+#if !defined(UNPACKRAT_MODULE_VERSION_MAJOR) || !defined(UNPACKRAT_MODULE_VERSION_MINOR) || !defined(UNPACKRAT_MODULE_VERSION_PATCH)
+#error "unpackrat module version macros must be supplied from the module VERSION file"
 #endif
 
 // Every stringized macro is a single whitespace-free token sequence, so no adjacent string
 // literal concatenation is required inside the resource script.
-#define OBSERVER_STRINGIZE_IMPL(value) #value
-#define OBSERVER_STRINGIZE(value) OBSERVER_STRINGIZE_IMPL(value)
+#define UNPACKRAT_STRINGIZE_IMPL(value) #value
+#define UNPACKRAT_STRINGIZE(value) UNPACKRAT_STRINGIZE_IMPL(value)
 
 VS_VERSION_INFO VERSIONINFO
-FILEVERSION OBSERVER_MODULE_VERSION_MAJOR, OBSERVER_MODULE_VERSION_MINOR, OBSERVER_MODULE_VERSION_PATCH, 0
-PRODUCTVERSION OBSERVER_MODULE_VERSION_MAJOR, OBSERVER_MODULE_VERSION_MINOR, OBSERVER_MODULE_VERSION_PATCH, 0
+FILEVERSION UNPACKRAT_MODULE_VERSION_MAJOR, UNPACKRAT_MODULE_VERSION_MINOR, UNPACKRAT_MODULE_VERSION_PATCH, 0
+PRODUCTVERSION UNPACKRAT_MODULE_VERSION_MAJOR, UNPACKRAT_MODULE_VERSION_MINOR, UNPACKRAT_MODULE_VERSION_PATCH, 0
 FILEFLAGSMASK VS_FFI_FILEFLAGSMASK
 FILEFLAGS 0x0L
 FILEOS VOS_NT_WINDOWS32
@@ -34,13 +34,13 @@ BEGIN
         BLOCK "040904B0"
         BEGIN
             VALUE "CompanyName", "Refaim"
-            VALUE "FileDescription", "Observer extractor module"
-            VALUE "FileVersion", OBSERVER_STRINGIZE(OBSERVER_MODULE_VERSION)
-            VALUE "InternalName", OBSERVER_STRINGIZE(OBSERVER_MODULE_NAME)
-            VALUE "LegalCopyright", "Licensed under the GNU General Public License v3"
-            VALUE "OriginalFilename", OBSERVER_STRINGIZE(OBSERVER_MODULE_FILE)
-            VALUE "ProductName", "Refaim's Observer Modules"
-            VALUE "ProductVersion", OBSERVER_STRINGIZE(OBSERVER_MODULE_VERSION)
+            VALUE "FileDescription", "unpackrat extractor module"
+            VALUE "FileVersion", UNPACKRAT_STRINGIZE(UNPACKRAT_MODULE_VERSION)
+            VALUE "InternalName", UNPACKRAT_STRINGIZE(UNPACKRAT_MODULE_NAME)
+            VALUE "LegalCopyright", "Copyright (c) 2019-2026 Roman Kharitonov. Licensed under MIT."
+            VALUE "OriginalFilename", UNPACKRAT_STRINGIZE(UNPACKRAT_MODULE_FILE)
+            VALUE "ProductName", "unpackrat"
+            VALUE "ProductVersion", UNPACKRAT_STRINGIZE(UNPACKRAT_MODULE_VERSION)
         END
     END
     BLOCK "VarFileInfo"

@@ -20,7 +20,7 @@ def _project(relative_path: str) -> ET.Element:
 
 class MSBuildContractsTests(unittest.TestCase):
     def test_direct_msbuild_fallback_stays_below_managed_work_root(self) -> None:
-        project = _project("build/ObserverProject.props")
+        project = _project("build/unpackrat-project.props")
 
         artifacts_root = project.find(f".//{MSBUILD}ArtifactsRoot")
         self.assertIsNotNone(artifacts_root)
@@ -30,28 +30,28 @@ class MSBuildContractsTests(unittest.TestCase):
         )
 
     def test_analysis_reports_have_stable_unique_project_paths(self) -> None:
-        project = _project("build/ObserverProject.props")
+        project = _project("build/unpackrat-project.props")
 
-        report_name = project.find(f".//{MSBUILD}ObserverAnalysisReportName")
+        report_name = project.find(f".//{MSBUILD}unpackratAnalysisReportName")
         self.assertIsNotNone(report_name)
         self.assertEqual(report_name.text, "$(ProjectName)")
         self.assertEqual(
-            report_name.get("Condition"), "'$(ObserverAnalysisReportName)' == ''"
+            report_name.get("Condition"), "'$(unpackratAnalysisReportName)' == ''"
         )
 
         report_logs = project.findall(f".//{MSBUILD}PREfastLog")
         self.assertIn(
-            "$(ObserverAnalysisReportDirectory)\\$(PlatformMoniker)\\"
-            "$(ObserverAnalysisReportName).sarif",
+            "$(unpackratAnalysisReportDirectory)\\$(PlatformMoniker)\\"
+            "$(unpackratAnalysisReportName).sarif",
             (log.text for log in report_logs),
         )
 
     def test_coverage_links_the_architecture_specific_profile_runtime(self) -> None:
-        project = _project("build/ObserverProject.props")
+        project = _project("build/unpackrat-project.props")
 
         names = {
             node.get("Condition"): node.text
-            for node in project.findall(f".//{MSBUILD}ObserverProfileRuntime")
+            for node in project.findall(f".//{MSBUILD}unpackratProfileRuntime")
         }
         self.assertEqual(
             names,
@@ -66,15 +66,15 @@ class MSBuildContractsTests(unittest.TestCase):
         link = project.find(f".//{MSBUILD}ItemDefinitionGroup/{MSBUILD}Link")
         dependencies = [
             node.text for node in link.findall(f"{MSBUILD}AdditionalDependencies")
-            if node.get("Condition") == "'$(ObserverProfileRuntime)' != ''"
+            if node.get("Condition") == "'$(unpackratProfileRuntime)' != ''"
         ]
         options = [
             node.text for node in link.findall(f"{MSBUILD}AdditionalOptions")
-            if node.get("Condition") == "'$(ObserverProfileRuntime)' != ''"
+            if node.get("Condition") == "'$(unpackratProfileRuntime)' != ''"
         ]
         self.assertEqual(
             dependencies,
-            ["$(LLVMRuntimeDir)\\$(ObserverProfileRuntime);%(AdditionalDependencies)"],
+            ["$(LLVMRuntimeDir)\\$(unpackratProfileRuntime);%(AdditionalDependencies)"],
         )
         self.assertEqual(
             options,
@@ -82,31 +82,31 @@ class MSBuildContractsTests(unittest.TestCase):
         )
 
     def test_coverage_rejects_a_manual_build_without_a_usable_profile_runtime(self) -> None:
-        project = _project("build/ObserverProject.props")
+        project = _project("build/unpackrat-project.props")
         validation = project.findall(
-            f".//{MSBUILD}Target[@Name='ValidateObserverProfileRuntime']/{MSBUILD}Error"
+            f".//{MSBUILD}Target[@Name='ValidateunpackratProfileRuntime']/{MSBUILD}Error"
         )
 
         self.assertEqual(len(validation), 2)
         self.assertEqual(
             validation[0].get("Condition"),
-            "'$(ObserverCompileAnalysis)' != 'true' And "
-            "'$(ObserverProfileRuntime)' != '' And '$(LLVMRuntimeDir)' == ''",
+            "'$(unpackratCompileAnalysis)' != 'true' And "
+            "'$(unpackratProfileRuntime)' != '' And '$(LLVMRuntimeDir)' == ''",
         )
         self.assertIn("build.ps1 test-coverage", validation[0].get("Text"))
         self.assertEqual(
             validation[1].get("Condition"),
-            "'$(ObserverCompileAnalysis)' != 'true' And "
-            "'$(Configuration)' == 'Coverage' And '$(ObserverProfileRuntime)' == ''",
+            "'$(unpackratCompileAnalysis)' != 'true' And "
+            "'$(Configuration)' == 'Coverage' And '$(unpackratProfileRuntime)' == ''",
         )
         self.assertIn("Win32 and x64 only", validation[1].get("Text"))
 
     def test_fuzz_links_the_architecture_specific_libfuzzer_runtime(self) -> None:
-        project = _project("build/ObserverFuzz.props")
+        project = _project("build/unpackrat-fuzz.props")
 
         suffixes = {
             node.get("Condition"): node.text
-            for node in project.findall(f".//{MSBUILD}ObserverFuzzRuntimeSuffix")
+            for node in project.findall(f".//{MSBUILD}unpackratFuzzRuntimeSuffix")
         }
         self.assertEqual(
             suffixes,
@@ -124,19 +124,19 @@ class MSBuildContractsTests(unittest.TestCase):
         self.assertNotIn("x86_64", options)
         for library in ("clang_rt.asan", "clang_rt.asan_cxx"):
             self.assertIn(
-                f"$(LLVMRuntimeDir)\\{library}-$(ObserverFuzzRuntimeSuffix).lib;",
+                f"$(LLVMRuntimeDir)\\{library}-$(unpackratFuzzRuntimeSuffix).lib;",
                 dependencies,
             )
         self.assertTrue(dependencies.endswith(";%(AdditionalDependencies)"))
         for library in ("clang_rt.fuzzer", "clang_rt.asan", "clang_rt.asan_cxx"):
             self.assertIn(
-                f'/WHOLEARCHIVE:"$(LLVMRuntimeDir)\\{library}-$(ObserverFuzzRuntimeSuffix).lib"',
+                f'/WHOLEARCHIVE:"$(LLVMRuntimeDir)\\{library}-$(unpackratFuzzRuntimeSuffix).lib"',
                 options,
             )
         self.assertIn("/INFERASANLIBS:NO", options)
 
     def test_fuzz_win32_keeps_msvc_exception_unwinding_under_asan(self) -> None:
-        project = _project("build/ObserverFuzz.props")
+        project = _project("build/unpackrat-fuzz.props")
 
         options = project.findall(
             f".//{MSBUILD}ItemDefinitionGroup/{MSBUILD}ClCompile/{MSBUILD}AdditionalOptions"
@@ -152,7 +152,7 @@ class MSBuildContractsTests(unittest.TestCase):
         )
 
     def test_fuzz_validation_allows_only_win32_and_x64_fuzz_or_compile_analysis(self) -> None:
-        project = _project("build/ObserverFuzz.props")
+        project = _project("build/unpackrat-fuzz.props")
         validation = project.findall(
             f".//{MSBUILD}Target[@Name='ValidateFuzzConfiguration']/{MSBUILD}Error"
         )
@@ -160,33 +160,33 @@ class MSBuildContractsTests(unittest.TestCase):
         self.assertEqual(len(validation), 2)
         self.assertEqual(
             validation[0].get("Condition"),
-            "'$(ObserverCompileAnalysis)' != 'true' And "
-            "'$(ObserverFuzzRuntimeSuffix)' == ''",
+            "'$(unpackratCompileAnalysis)' != 'true' And "
+            "'$(unpackratFuzzRuntimeSuffix)' == ''",
         )
         self.assertIn("Fuzz|Win32 and Fuzz|x64", validation[0].get("Text"))
         self.assertEqual(
             validation[1].get("Condition"),
-            "'$(ObserverCompileAnalysis)' != 'true' And '$(LLVMRuntimeDir)' == ''",
+            "'$(unpackratCompileAnalysis)' != 'true' And '$(LLVMRuntimeDir)' == ''",
         )
         self.assertIn("build.ps1 fuzz", validation[1].get("Text"))
 
     def test_props_own_no_compile_analysis_manifest_plumbing(self) -> None:
         # Direct MSBuild names the compiler manifests itself, so the props must not keep the
         # retired per-file manifest target or the build-graph override hooks it keyed on.
-        for relative_path in ("build/ObserverProject.props", "build/ObserverFuzz.props"):
+        for relative_path in ("build/unpackrat-project.props", "build/unpackrat-fuzz.props"):
             with self.subTest(path=relative_path):
                 text = (REPOSITORY_ROOT / relative_path).read_text(encoding="utf-8")
                 self.assertNotRegex(text, r"(?i)\bgraph\b", "no retired build-graph wording")
 
-        project = _project("build/ObserverProject.props")
+        project = _project("build/unpackrat-project.props")
         targets = [node.get("Name") for node in project.findall(f".//{MSBUILD}Target")]
-        self.assertNotIn("ObserverNameCompilerManifests", targets)
-        self.assertIsNone(project.find(f".//{MSBUILD}ObserverManifestName"))
+        self.assertNotIn("unpackratNameCompilerManifests", targets)
+        self.assertIsNone(project.find(f".//{MSBUILD}unpackratManifestName"))
 
-        text = (REPOSITORY_ROOT / "build/ObserverProject.props").read_text(encoding="utf-8")
+        text = (REPOSITORY_ROOT / "build/unpackrat-project.props").read_text(encoding="utf-8")
         for retired in (
-            "ObserverNameCompilerManifests",
-            "ObserverManifestName",
+            "unpackratNameCompilerManifests",
+            "unpackratManifestName",
             "sourceDependencies",
             "clang:-MJ",
         ):
@@ -194,30 +194,30 @@ class MSBuildContractsTests(unittest.TestCase):
                 self.assertNotIn(retired, text)
 
     def test_module_version_props_derive_every_macro_from_the_version_file(self) -> None:
-        project = _project("build/ObserverModuleVersion.props")
+        project = _project("build/unpackrat-module-version.props")
 
-        version_file = project.find(f".//{MSBUILD}ObserverModuleVersionFile")
+        version_file = project.find(f".//{MSBUILD}unpackratModuleVersionFile")
         self.assertIsNotNone(version_file)
         self.assertEqual(
             version_file.text,
-            "$(RepositoryRoot)src\\modules\\$(ObserverModuleName)\\VERSION",
+            "$(RepositoryRoot)src\\modules\\$(unpackratModuleName)\\VERSION",
         )
-        raw = project.find(f".//{MSBUILD}ObserverModuleVersionRaw")
+        raw = project.find(f".//{MSBUILD}unpackratModuleVersionRaw")
         self.assertIsNotNone(raw)
         self.assertEqual(
             raw.text,
-            "$([System.IO.File]::ReadAllText('$(ObserverModuleVersionFile)'))",
+            "$([System.IO.File]::ReadAllText('$(unpackratModuleVersionFile)'))",
         )
         for component, member in (("Major", "Major"), ("Minor", "Minor"), ("Patch", "Build")):
             with self.subTest(component=component):
-                node = project.find(f".//{MSBUILD}ObserverModuleVersion{component}")
+                node = project.find(f".//{MSBUILD}unpackratModuleVersion{component}")
                 self.assertIsNotNone(node)
                 self.assertEqual(
                     node.text,
-                    f"$([System.Version]::Parse('$(ObserverModuleVersion)').{member})",
+                    f"$([System.Version]::Parse('$(unpackratModuleVersion)').{member})",
                 )
                 self.assertEqual(
-                    node.get("Condition"), "'$(ObserverModuleVersionValid)' == 'true'"
+                    node.get("Condition"), "'$(unpackratModuleVersionValid)' == 'true'"
                 )
 
         definitions = [
@@ -228,16 +228,16 @@ class MSBuildContractsTests(unittest.TestCase):
         for text in definitions:
             with self.subTest(text=text):
                 for macro in ("MAJOR", "MINOR", "PATCH"):
-                    self.assertIn(f"OBSERVER_MODULE_VERSION_{macro}=$(ObserverModuleVersion", text)
+                    self.assertIn(f"UNPACKRAT_MODULE_VERSION_{macro}=$(unpackratModuleVersion", text)
                 self.assertTrue(text.endswith(";%(PreprocessorDefinitions)"))
         resource_definitions = project.find(
             f".//{MSBUILD}ResourceCompile/{MSBUILD}PreprocessorDefinitions"
         )
         self.assertIsNotNone(resource_definitions)
         for macro in (
-            "OBSERVER_MODULE_NAME=$(ObserverModuleName)",
-            "OBSERVER_MODULE_FILE=$(ObserverModuleName).so",
-            "OBSERVER_MODULE_VERSION=$(ObserverModuleVersion)",
+            "UNPACKRAT_MODULE_NAME=$(unpackratModuleName)",
+            "UNPACKRAT_MODULE_FILE=$(unpackratModuleName).so",
+            "UNPACKRAT_MODULE_VERSION=$(unpackratModuleVersion)",
         ):
             self.assertIn(f"{macro};", resource_definitions.text)
 
@@ -246,16 +246,16 @@ class MSBuildContractsTests(unittest.TestCase):
         self.assertEqual(resource.get("Include"), "$(RepositoryRoot)src\\modules\\version.rc")
         item_group = project.find(f".//{MSBUILD}ItemGroup[{MSBUILD}ResourceCompile]")
         self.assertEqual(
-            item_group.get("Condition"), "'$(ObserverConfigurationType)' == 'DynamicLibrary'"
+            item_group.get("Condition"), "'$(unpackratConfigurationType)' == 'DynamicLibrary'"
         )
 
         # MSBuild and core.module_version.parse_version must accept exactly the same versions.
-        valid = project.find(f".//{MSBUILD}ObserverModuleVersionValid")
+        valid = project.find(f".//{MSBUILD}unpackratModuleVersionValid")
         self.assertIsNotNone(valid)
         self.assertEqual(
             valid.text,
             "$([System.Text.RegularExpressions.Regex]::IsMatch("
-            "'$(ObserverModuleVersion)', "
+            "'$(unpackratModuleVersion)', "
             "'^(0|[1-9][0-9]{0,4})\\.(0|[1-9][0-9]{0,4})\\.(0|[1-9][0-9]{0,4})$'))",
         )
         pattern = re.compile(re.search(r"'(\^\(0\|.*\$)'", valid.text).group(1))
@@ -272,17 +272,17 @@ class MSBuildContractsTests(unittest.TestCase):
                     parse_version(version)
 
         errors = project.findall(
-            f".//{MSBUILD}Target[@Name='ValidateObserverModuleVersion']/{MSBUILD}Error"
+            f".//{MSBUILD}Target[@Name='ValidateunpackratModuleVersion']/{MSBUILD}Error"
         )
         self.assertEqual(
             [node.get("Condition") for node in errors],
             [
-                "'$(ObserverModuleName)' == ''",
-                "'$(ObserverModuleVersionValid)' != 'true'",
-                "'$(ObserverModuleVersionValid)' == 'true' And ("
-                "$(ObserverModuleVersionMajor) > 65535 Or "
-                "$(ObserverModuleVersionMinor) > 65535 Or "
-                "$(ObserverModuleVersionPatch) > 65535)",
+                "'$(unpackratModuleName)' == ''",
+                "'$(unpackratModuleVersionValid)' != 'true'",
+                "'$(unpackratModuleVersionValid)' == 'true' And ("
+                "$(unpackratModuleVersionMajor) > 65535 Or "
+                "$(unpackratModuleVersionMinor) > 65535 Or "
+                "$(unpackratModuleVersionPatch) > 65535)",
             ],
         )
 
@@ -298,12 +298,12 @@ class MSBuildContractsTests(unittest.TestCase):
             with self.subTest(project=project_name):
                 project = _project(f"build/projects/{project_name}.vcxproj")
                 imports = [node.get("Project") for node in project.findall(f"{MSBUILD}Import")]
-                self.assertIn("..\\ObserverModuleVersion.props", imports)
+                self.assertIn("..\\unpackrat-module-version.props", imports)
                 self.assertLess(
-                    imports.index("..\\ObserverProject.props"),
-                    imports.index("..\\ObserverModuleVersion.props"),
+                    imports.index("..\\unpackrat-project.props"),
+                    imports.index("..\\unpackrat-module-version.props"),
                 )
-                name = project.find(f".//{MSBUILD}ObserverModuleName")
+                name = project.find(f".//{MSBUILD}unpackratModuleName")
                 self.assertIsNotNone(name)
                 self.assertEqual(name.text, module)
 
@@ -312,8 +312,8 @@ class MSBuildContractsTests(unittest.TestCase):
             with self.subTest(project=project_name):
                 project = _project(f"build/projects/{project_name}.vcxproj")
                 imports = [node.get("Project") for node in project.findall(f"{MSBUILD}Import")]
-                self.assertNotIn("..\\ObserverModuleVersion.props", imports)
-                self.assertIsNone(project.find(f".//{MSBUILD}ObserverModuleName"))
+                self.assertNotIn("..\\unpackrat-module-version.props", imports)
+                self.assertIsNone(project.find(f".//{MSBUILD}unpackratModuleName"))
 
     def test_leak_probe_is_shipping_x64_release_with_release_zlib(self) -> None:
         project = _project("build/projects/leak-probe.vcxproj")

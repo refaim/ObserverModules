@@ -106,7 +106,7 @@ def prepare_fresh(directory: Path | str, boundary: Path | str) -> Path:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="observer-build clean")
+    parser = argparse.ArgumentParser(prog="unpackrat-build clean")
     parser.add_argument("repository", type=Path)
     parser.add_argument("--mode", choices=_MODES, default="all")
     args = parser.parse_args(argv)

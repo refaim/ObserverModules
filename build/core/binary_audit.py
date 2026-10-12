@@ -43,7 +43,7 @@ def require_release_pe(
 ) -> None:
     """Gate one release PE.
 
-    A shipped Observer module is a DLL that must export exactly ``LoadSubModule``
+    A shipped unpackrat module is a DLL that must export exactly ``LoadSubModule``
     and ``UnloadSubModule``.  The leak probe is a self-contained EXE, so with
     ``executable=True`` it must instead carry *no* exports at all; the machine,
     dependency and BinSkim policies are unchanged for either kind.
@@ -100,9 +100,9 @@ def require_clean_binskim(document: dict[str, object]) -> None:
 
 
 def _run_binskim(tool: Path, binary: Path) -> None:
-    raw_output = os.environ.get("OBSERVER_OUT_DIR")
+    raw_output = os.environ.get("UNPACKRAT_OUT_DIR")
     if not raw_output or not (output_root := Path(raw_output)).is_dir():
-        raise AuditError("OBSERVER_OUT_DIR must be an existing directory")
+        raise AuditError("UNPACKRAT_OUT_DIR must be an existing directory")
     report = output_root / "binskim.sarif"
     argv = [
         str(tool), "analyze", str(binary), "--level", "Error;Warning", "--kind", "Fail",

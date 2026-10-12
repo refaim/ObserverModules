@@ -47,7 +47,7 @@ class PythonCoverageWorkerTests(unittest.TestCase):
             project, work, output = self.project(root / "project"), root / "work", root / "output"
             work.mkdir()
             output.mkdir()
-            environment = {"OBSERVER_BUILD_DIR": str(work), "OBSERVER_OUT_DIR": str(output)}
+            environment = {"UNPACKRAT_BUILD_DIR": str(work), "UNPACKRAT_OUT_DIR": str(output)}
             coverage = BUILD_ROOT / ".venv/Scripts/coverage.exe"
             with mock.patch.dict(os.environ, environment, clear=False):
                 self.assertEqual(0, coverage_main((str(coverage), str(project))))
@@ -76,7 +76,7 @@ class PythonCoverageWorkerTests(unittest.TestCase):
                 encoding="utf-8",
             )
             coverage = BUILD_ROOT / ".venv/Scripts/coverage.exe"
-            with mock.patch.dict(os.environ, {"OBSERVER_BUILD_DIR": str(work), "OBSERVER_OUT_DIR": str(output)}):
+            with mock.patch.dict(os.environ, {"UNPACKRAT_BUILD_DIR": str(work), "UNPACKRAT_OUT_DIR": str(output)}):
                 with self.assertRaises(subprocess.CalledProcessError):
                     coverage_main((str(coverage), str(project)))
             self.assertLess(json.loads((output / "coverage.json").read_text())["totals"]["percent_covered"], 100)
@@ -94,15 +94,15 @@ class PythonCoverageWorkerTests(unittest.TestCase):
             branch_work, branch_output = root / "branch-work", root / "branch-output"
             branch_work.mkdir()
             branch_output.mkdir()
-            with mock.patch.dict(os.environ, {"OBSERVER_BUILD_DIR": str(branch_work),
-                                              "OBSERVER_OUT_DIR": str(branch_output)}):
+            with mock.patch.dict(os.environ, {"UNPACKRAT_BUILD_DIR": str(branch_work),
+                                              "UNPACKRAT_OUT_DIR": str(branch_output)}):
                 with self.assertRaises(subprocess.CalledProcessError):
                     coverage_main((str(coverage), str(project)))
             totals = json.loads((branch_output / "coverage.json").read_text())["totals"]
             self.assertEqual(0, totals["missing_lines"])
             self.assertGreater(totals["missing_branches"], 0)
 
-        with mock.patch.dict(os.environ, {}, clear=True), self.assertRaisesRegex(RuntimeError, "OBSERVER_BUILD_DIR"):
+        with mock.patch.dict(os.environ, {}, clear=True), self.assertRaisesRegex(RuntimeError, "UNPACKRAT_BUILD_DIR"):
             coverage_main((str(BUILD_ROOT / ".venv/Scripts/coverage.exe"), str(BUILD_ROOT)))
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -111,7 +111,7 @@ class PythonCoverageWorkerTests(unittest.TestCase):
             output.mkdir()
             tool.mkdir()
             build_file.touch()
-            environment = {"OBSERVER_BUILD_DIR": str(work), "OBSERVER_OUT_DIR": str(output)}
+            environment = {"UNPACKRAT_BUILD_DIR": str(work), "UNPACKRAT_OUT_DIR": str(output)}
             for arguments in ((tool, BUILD_ROOT), (BUILD_ROOT / ".venv/Scripts/coverage.exe", build_file)):
                 with self.subTest(arguments=arguments), mock.patch.dict(os.environ, environment, clear=False):
                     with self.assertRaises(FileNotFoundError):
@@ -120,9 +120,9 @@ class PythonCoverageWorkerTests(unittest.TestCase):
             missing_config.mkdir()
             with mock.patch.dict(os.environ, environment, clear=False), self.assertRaises(FileNotFoundError):
                 coverage_main((str(BUILD_ROOT / ".venv/Scripts/coverage.exe"), str(missing_config)))
-            with mock.patch.dict(os.environ, {"OBSERVER_BUILD_DIR": str(root / "missing"),
-                                              "OBSERVER_OUT_DIR": str(output)}, clear=True):
-                with self.assertRaisesRegex(RuntimeError, "OBSERVER_BUILD_DIR"):
+            with mock.patch.dict(os.environ, {"UNPACKRAT_BUILD_DIR": str(root / "missing"),
+                                              "UNPACKRAT_OUT_DIR": str(output)}, clear=True):
+                with self.assertRaisesRegex(RuntimeError, "UNPACKRAT_BUILD_DIR"):
                     coverage_main((str(BUILD_ROOT / ".venv/Scripts/coverage.exe"), str(BUILD_ROOT)))
 
 

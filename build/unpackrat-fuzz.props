@@ -4,8 +4,8 @@
        finds no 32-bit libFuzzer or ASan archive of its own. The caller supplies LLVMRuntimeDir from
        the toolset that owns the architecture and every archive below is named explicitly. -->
   <PropertyGroup>
-    <ObserverFuzzRuntimeSuffix Condition="'$(Configuration)' == 'Fuzz' And '$(Platform)' == 'Win32'">i386</ObserverFuzzRuntimeSuffix>
-    <ObserverFuzzRuntimeSuffix Condition="'$(Configuration)' == 'Fuzz' And '$(Platform)' == 'x64'">x86_64</ObserverFuzzRuntimeSuffix>
+    <unpackratFuzzRuntimeSuffix Condition="'$(Configuration)' == 'Fuzz' And '$(Platform)' == 'Win32'">i386</unpackratFuzzRuntimeSuffix>
+    <unpackratFuzzRuntimeSuffix Condition="'$(Configuration)' == 'Fuzz' And '$(Platform)' == 'x64'">x86_64</unpackratFuzzRuntimeSuffix>
   </PropertyGroup>
   <ItemDefinitionGroup>
     <!-- An i386 clang-cl lays the ASan-instrumented frame out through a dynamic alloca, and the
@@ -25,14 +25,14 @@
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
-      <AdditionalDependencies>$(LLVMRuntimeDir)\clang_rt.asan-$(ObserverFuzzRuntimeSuffix).lib;$(LLVMRuntimeDir)\clang_rt.asan_cxx-$(ObserverFuzzRuntimeSuffix).lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <AdditionalOptions>/WHOLEARCHIVE:"$(LLVMRuntimeDir)\clang_rt.fuzzer-$(ObserverFuzzRuntimeSuffix).lib" /WHOLEARCHIVE:"$(LLVMRuntimeDir)\clang_rt.asan-$(ObserverFuzzRuntimeSuffix).lib" /WHOLEARCHIVE:"$(LLVMRuntimeDir)\clang_rt.asan_cxx-$(ObserverFuzzRuntimeSuffix).lib" /INFERASANLIBS:NO %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalDependencies>$(LLVMRuntimeDir)\clang_rt.asan-$(unpackratFuzzRuntimeSuffix).lib;$(LLVMRuntimeDir)\clang_rt.asan_cxx-$(unpackratFuzzRuntimeSuffix).lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalOptions>/WHOLEARCHIVE:"$(LLVMRuntimeDir)\clang_rt.fuzzer-$(unpackratFuzzRuntimeSuffix).lib" /WHOLEARCHIVE:"$(LLVMRuntimeDir)\clang_rt.asan-$(unpackratFuzzRuntimeSuffix).lib" /WHOLEARCHIVE:"$(LLVMRuntimeDir)\clang_rt.asan_cxx-$(unpackratFuzzRuntimeSuffix).lib" /INFERASANLIBS:NO %(AdditionalOptions)</AdditionalOptions>
     </Link>
   </ItemDefinitionGroup>
   <Target Name="ValidateFuzzConfiguration" BeforeTargets="PrepareForBuild">
-    <Error Condition="'$(ObserverCompileAnalysis)' != 'true' And '$(ObserverFuzzRuntimeSuffix)' == ''"
+    <Error Condition="'$(unpackratCompileAnalysis)' != 'true' And '$(unpackratFuzzRuntimeSuffix)' == ''"
            Text="libFuzzer targets are supported only as Fuzz|Win32 and Fuzz|x64 executables." />
-    <Error Condition="'$(ObserverCompileAnalysis)' != 'true' And '$(LLVMRuntimeDir)' == ''"
+    <Error Condition="'$(unpackratCompileAnalysis)' != 'true' And '$(LLVMRuntimeDir)' == ''"
            Text="libFuzzer links the LLVM runtime archives and requires LLVMRuntimeDir; build through build.ps1 fuzz." />
   </Target>
 </Project>

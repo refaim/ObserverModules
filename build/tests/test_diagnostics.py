@@ -142,8 +142,8 @@ class WorkspaceTestCase(unittest.TestCase):
 class RunnerTests(unittest.TestCase):
     def test_the_real_runner_merges_the_environment_preserves_cwd_and_exit_code(self) -> None:
         result = diagnostics.run_tool(
-            [sys.executable, "-c", "import os; print(os.environ['OBSERVER_PROBE'])"],
-            env={"OBSERVER_PROBE": "1"},
+            [sys.executable, "-c", "import os; print(os.environ['UNPACKRAT_PROBE'])"],
+            env={"UNPACKRAT_PROBE": "1"},
         )
 
         self.assertEqual(result.returncode, 0)
@@ -165,14 +165,14 @@ class RunnerTests(unittest.TestCase):
         completed = subprocess.CompletedProcess([], 0, stdout="")
         with mock.patch.object(diagnostics.subprocess, "run", return_value=completed) as run:
             diagnostics.run_tool(["tool.exe"])
-            diagnostics.run_tool(["tool.exe"], env={"OBSERVER_PROBE": "1"})
+            diagnostics.run_tool(["tool.exe"], env={"UNPACKRAT_PROBE": "1"})
 
         inherited = run.call_args_list[0].kwargs["env"]
         self.assertIsNotNone(inherited)
         self.assertEqual(inherited, dict(os.environ))
 
         override = run.call_args_list[1].kwargs["env"]
-        self.assertEqual(override["OBSERVER_PROBE"], "1")
+        self.assertEqual(override["UNPACKRAT_PROBE"], "1")
         self.assertEqual(override["PATH"], os.environ["PATH"])
 
 
@@ -291,7 +291,7 @@ class CoverageTests(WorkspaceTestCase):
         self.assertEqual(
             [call.argv for call in runner.commands("msbuild.exe")],
             [
-                diagnostics._observer_command(
+                diagnostics._unpackrat_command(
                     repository, architecture, "Coverage", diagnostics._job_count(None), tools,
                     runtime=tools.llvm_runtimes[architecture],
                 )
@@ -373,8 +373,8 @@ class CoverageTests(WorkspaceTestCase):
         self.assertEqual(gate[0].cwd, diagnostics._BUILD_ROOT)
         self.assertEqual(
             gate[0].env,
-            {"OBSERVER_OUT_DIR": str(output / "coverage" / "x86"),
-             "OBSERVER_BUILD_DIR": str(output / "coverage" / "x86")},
+            {"UNPACKRAT_OUT_DIR": str(output / "coverage" / "x86"),
+             "UNPACKRAT_BUILD_DIR": str(output / "coverage" / "x86")},
         )
 
     def test_coverage_emits_the_full_lcov_detail_alongside_the_summary(self) -> None:
@@ -451,7 +451,7 @@ class CoverageTests(WorkspaceTestCase):
                 output / "coverage" / "x64" / "unit" / "tests.xml", None,
             )
         )
-        self.assertNotIn("OBSERVER_TEST_CORPUS", unit.env)
+        self.assertNotIn("UNPACKRAT_TEST_CORPUS", unit.env)
         corpus_call = next(
             call for call in suites
             if call.argv == native.test_command(
@@ -460,7 +460,7 @@ class CoverageTests(WorkspaceTestCase):
             )
         )
         self.assertIn("[compatibility]", corpus_call.argv)
-        self.assertEqual(corpus_call.env["OBSERVER_TEST_CORPUS"], str(corpus))
+        self.assertEqual(corpus_call.env["UNPACKRAT_TEST_CORPUS"], str(corpus))
         self.assertEqual(
             corpus_call.env["LLVM_PROFILE_FILE"],
             str(native.artifacts_root(repository) / "coverage" / "x64" / "corpus"
@@ -605,7 +605,7 @@ class SanitizerTests(WorkspaceTestCase):
             self.assertIn("-asan", call.argv[2])
         self.assertEqual(
             {call.argv[6] for call in restores},
-            {"observer-x86-windows-static-asan", "observer-x64-windows-static-asan"},
+            {"unpackrat-x86-windows-static-asan", "unpackrat-x64-windows-static-asan"},
         )
         for call in runner.commands("msbuild.exe"):
             self.assertFalse(any(item.startswith("/p:LLVM") for item in call.argv))
@@ -1018,7 +1018,7 @@ class LeakTests(WorkspaceTestCase):
         self.assertEqual(measure.argv[-4:], ("2", "3", "4", "8"))
         self.assertEqual(measure.argv[4], str(output / "leak" / "setup"))
         self.assertEqual(
-            measure.env["OBSERVER_OUT_DIR"],
+            measure.env["UNPACKRAT_OUT_DIR"],
             str(output / "leak" / diagnostics.LEAK_MODES[0]
                 / diagnostics.LEAK_SCENARIOS[0] / "measure"),
         )

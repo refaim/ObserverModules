@@ -1,27 +1,27 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" ToolsVersion="Current" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
-  <Import Project="..\ObserverProjectConfigurations.props" />
+  <Import Project="..\unpackrat-project-configurations.props" />
   <PropertyGroup Label="Globals">
     <VCProjectVersion>17.0</VCProjectVersion>
     <ProjectGuid>{C074B2CD-C481-4C20-A349-902E02D39C6D}</ProjectGuid>
     <Keyword>Win32Proj</Keyword>
     <RootNamespace>tests</RootNamespace>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
-    <ObserverConfigurationType>Application</ObserverConfigurationType>
+    <unpackratConfigurationType>Application</unpackratConfigurationType>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
-  <Import Project="..\ObserverConfiguration.props" />
+  <Import Project="..\unpackrat-configuration.props" />
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
-  <Import Project="..\ObserverProject.props" />
+  <Import Project="..\unpackrat-project.props" />
   <Import Project="$(VcpkgRoot)\scripts\buildsystems\msbuild\vcpkg.props" />
 
   <PropertyGroup>
     <TargetName>tests</TargetName>
-    <ObserverVcpkgDebugPrefix Condition="'$(UseDebugLibraries)' == 'true'">debug\</ObserverVcpkgDebugPrefix>
+    <unpackratVcpkgDebugPrefix Condition="'$(UseDebugLibraries)' == 'true'">debug\</unpackratVcpkgDebugPrefix>
   </PropertyGroup>
   <ItemDefinitionGroup>
     <Link>
-      <AdditionalLibraryDirectories>$(VcpkgInstalledDir)$(VcpkgTriplet)\$(ObserverVcpkgDebugPrefix)lib\manual-link;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>$(VcpkgInstalledDir)$(VcpkgTriplet)\$(unpackratVcpkgDebugPrefix)lib\manual-link;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalDependencies Condition="'$(UseDebugLibraries)' == 'true'">Catch2d.lib;xxhash.lib;zsd.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalDependencies Condition="'$(UseDebugLibraries)' != 'true'">Catch2.lib;xxhash.lib;zs.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>

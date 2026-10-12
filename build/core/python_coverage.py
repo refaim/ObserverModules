@@ -33,7 +33,7 @@ def run(build_root: Path | str) -> Path:
     if not build_root.is_dir() or not config.is_file():
         raise FileNotFoundError("coverage build root and config must exist")
 
-    work, output = _directory("OBSERVER_BUILD_DIR"), _directory("OBSERVER_OUT_DIR")
+    work, output = _directory("UNPACKRAT_BUILD_DIR"), _directory("UNPACKRAT_OUT_DIR")
     data = work / ".coverage"
     command = [sys.executable, "-m", "coverage"]
     subprocess.run(command + ["run", "--rcfile", str(config), "--data-file", str(data),

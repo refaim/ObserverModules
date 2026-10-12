@@ -4,7 +4,7 @@
 
 #include <fstream>
 
-// build/ObserverModuleVersion.props injects the version macros from src/modules/rpgmaker/VERSION,
+// build/unpackrat-module-version.props injects the version macros from src/modules/rpgmaker/VERSION,
 // the single source of truth. A project that does not import that file fails to compile here.
 
 namespace extractor
@@ -13,8 +13,8 @@ namespace extractor
     {
         return {
             {0xc4674077, 0x464a, 0x425b, {0x89, 0x80, 0x9e, 0x14, 0xe8, 0x16, 0x49, 0x00}},
-            OBSERVER_MODULE_VERSION_MAJOR,
-            OBSERVER_MODULE_VERSION_MINOR,
+            UNPACKRAT_MODULE_VERSION_MAJOR,
+            UNPACKRAT_MODULE_VERSION_MINOR,
         };
     }
 
@@ -38,7 +38,7 @@ namespace extractor
     std::vector<std::unique_ptr<file>> extractor::list_files(
         std::istream &stream) // NOLINT(*-convert-member-functions-to-static)
     {
-        observer::io::bounded_stream input(stream);
+        unpackrat::io::bounded_stream input(stream);
         input.seek_absolute(static_cast<std::streamoff>(get_signature().size()));
         const auto archive_size = input.size();
 
@@ -54,7 +54,7 @@ namespace extractor
             const uint32_t name_len = input.read_trivial<std::uint32_t>() ^ magic;
 
             const auto name_position = input.position();
-            if (name_len > observer::archive_limits::max_path_bytes ||
+            if (name_len > unpackrat::archive_limits::max_path_bytes ||
                 static_cast<std::uint64_t>(name_len) > static_cast<std::uint64_t>(archive_size - name_position)) {
                 throw read_error();
             }

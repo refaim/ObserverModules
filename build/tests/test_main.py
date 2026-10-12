@@ -147,7 +147,7 @@ class DispatchTests(Harness):
             self.repo, ("arm64", "x86"), tools=_NATIVE_TOOLS, runner=self.processes.native
         )
         self.assertEqual(self.processes.native.call_count, 1)
-        self.assertIn("observer-x86-windows-static-asan", self.processes.native.call_args.args[0])
+        self.assertIn("unpackrat-x86-windows-static-asan", self.processes.native.call_args.args[0])
 
         self.restore.reset_mock()
         self.processes.native.reset_mock()
@@ -944,16 +944,16 @@ class HelperTests(unittest.TestCase):
             # The retained gate writes its raw data file into the build directory and then copies
             # it into the output directory, so the two must be distinct or its ``copyfile`` raises
             # SameFileError before the evidence is published.
-            self.assertNotEqual(env["OBSERVER_BUILD_DIR"], env["OBSERVER_OUT_DIR"])
-            self.assertTrue(Path(env["OBSERVER_BUILD_DIR"]).is_dir())
-            self.assertTrue(Path(env["OBSERVER_OUT_DIR"]).is_dir())
+            self.assertNotEqual(env["UNPACKRAT_BUILD_DIR"], env["UNPACKRAT_OUT_DIR"])
+            self.assertTrue(Path(env["UNPACKRAT_BUILD_DIR"]).is_dir())
+            self.assertTrue(Path(env["UNPACKRAT_OUT_DIR"]).is_dir())
         self.assertEqual(reports, (
             output / ".coverage", output / "coverage.json", output / "coverage.xml",
             output / "coverage.toml", output / "coverage.txt",
         ))
         self.assertEqual(argv[1:3], ("-m", "core.python_coverage"))
         self.assertEqual(cwd, (repository / "build").resolve())
-        self.assertEqual(env["OBSERVER_OUT_DIR"], str(output))
+        self.assertEqual(env["UNPACKRAT_OUT_DIR"], str(output))
 
     def test_python_coverage_runs_the_real_gate_with_distinct_directories(self) -> None:
         from core import python_coverage as coverage_gate

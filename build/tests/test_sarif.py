@@ -245,13 +245,13 @@ class SarifTests(unittest.TestCase):
         with self.assertRaisesRegex(SarifFindingsError, "2 warning/error finding"):
             require_clean((clean, warning))
 
-    def test_cli_dispatches_every_command_into_observer_output_directory(self) -> None:
+    def test_cli_dispatches_every_command_into_unpackrat_output_directory(self) -> None:
         output = self.root / "out"
         output.mkdir()
         source = self.root / "raw.sarif"
         logs = self.root / "logs"
         repository = self.root / "repo"
-        environment = {"OBSERVER_OUT_DIR": str(output)}
+        environment = {"UNPACKRAT_OUT_DIR": str(output)}
 
         with mock.patch.dict("os.environ", environment, clear=True):
             with mock.patch.object(sarif, "normalize_msvc") as operation:
@@ -284,11 +284,11 @@ class SarifTests(unittest.TestCase):
         with mock.patch.dict("os.environ", {}, clear=True), contextlib.redirect_stderr(stderr):
             with self.assertRaises(SystemExit):
                 sarif.main(("gate", str(source)))
-        self.assertIn("OBSERVER_OUT_DIR", stderr.getvalue())
+        self.assertIn("UNPACKRAT_OUT_DIR", stderr.getvalue())
 
         missing = self.root / "missing"
         stderr = io.StringIO()
-        with mock.patch.dict("os.environ", {"OBSERVER_OUT_DIR": str(missing)}, clear=True), contextlib.redirect_stderr(stderr):
+        with mock.patch.dict("os.environ", {"UNPACKRAT_OUT_DIR": str(missing)}, clear=True), contextlib.redirect_stderr(stderr):
             with self.assertRaises(SystemExit):
                 sarif.main(("gate", str(source)))
         self.assertIn("existing directory", stderr.getvalue())
@@ -296,7 +296,7 @@ class SarifTests(unittest.TestCase):
         output = self.root / "out"
         output.mkdir()
         stderr = io.StringIO()
-        with mock.patch.dict("os.environ", {"OBSERVER_OUT_DIR": str(output)}, clear=True), contextlib.redirect_stderr(stderr):
+        with mock.patch.dict("os.environ", {"UNPACKRAT_OUT_DIR": str(output)}, clear=True), contextlib.redirect_stderr(stderr):
             with self.assertRaises(SystemExit):
                 sarif.main(("normalize-msvc", str(source), "id", "--output-name", "../escape.sarif"))
         self.assertIn("confined", stderr.getvalue())
