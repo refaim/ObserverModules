@@ -310,7 +310,7 @@ jobs:
             "packages/$module-$version-bin-x86.zip"
             "packages/$module-$version-pdb.zip"
           )
-          gh release create $env:GITHUB_REF_NAME --verify-tag --notes-file $notes @archives
+          gh release create $env:GITHUB_REF_NAME --verify-tag --title "$module $version" --notes-file $notes @archives
           if ($LASTEXITCODE -ne 0) {
             throw "Unable to publish the release $env:GITHUB_REF_NAME."
           }
