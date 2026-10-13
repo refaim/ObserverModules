@@ -59,7 +59,7 @@ jobs:
         uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
-          key: vcpkg-${{ steps.runner-image.outputs.identity }}-${{ inputs.arch == 'none' && 'x64' || inputs.arch }}-${{ (inputs.stage == 'asan' || inputs.stage == 'fuzz') && 'asan' || 'standard' }}-${{ hashFiles('vcpkg.json', 'build/vcpkg/triplets/*.cmake') }}
+          key: vcpkg-${{ steps.runner-image.outputs.identity }}-${{ inputs.arch == 'none' && 'x64' || inputs.arch }}-${{ (inputs.stage == 'asan' || inputs.stage == 'fuzz') && 'asan' || 'standard' }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'build/vcpkg/ports/**', 'build/vcpkg/triplets/*.cmake') }}
 
       - name: Bootstrap the pinned vcpkg baseline
         if: inputs.stage != 'leaks'

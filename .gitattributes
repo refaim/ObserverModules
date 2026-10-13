@@ -5,3 +5,4 @@ third_party/**/*.h text eol=lf
 
 # Preserve repository-owned archive fixtures byte for byte across checkouts.
 src/tests/data/**/*.pck binary
+src/tests/data/**/*.rpa binary

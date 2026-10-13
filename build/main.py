@@ -716,6 +716,17 @@ def _sanitizer(
         env = {"UBSAN_OPTIONS": _UBSAN_OPTIONS}
     report = _report_path(repository, architecture, configuration, sanitizer)
     report.parent.mkdir(parents=True, exist_ok=True)
+    if sanitizer == "asan" and architecture == "x86":
+        shard_count = 4
+        first_report = report.with_name("tests-shard-0.xml")
+        for index in range(shard_count):
+            shard_report = report.with_name(f"tests-shard-{index}.xml")
+            run(
+                (*test_command(repository, architecture, configuration, shard_report, None),
+                 "--shard-count", str(shard_count), "--shard-index", str(index), "--rng-seed", "1"),
+                cwd=stage, env=env,
+            )
+        return first_report
     run(test_command(repository, architecture, configuration, report, None), cwd=stage, env=env)
     return report
 

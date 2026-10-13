@@ -1,9 +1,7 @@
-// dr_mp3 is compiled into exactly this translation unit; its headers, types and error codes stay
-// private to the adapter and never appear in our public API. The adapter drives the decoder with
-// caller-owned output buffers, so it never hands out a dr_mp3-allocated buffer.
-#define DR_MP3_IMPLEMENTATION
+// The pinned drlibs overlay builds dr_mp3 in a static library. Its types and errors stay private
+// to this adapter, which drives the decoder with caller-owned output buffers.
 #pragma warning(push, 0)
-#include <../third_party/dr_libs/dr_mp3.h>
+#include <dr_mp3.h>
 #pragma warning(pop)
 
 #include "mp3_codec.h"
@@ -28,8 +26,10 @@ namespace unpackrat::codecs
         constexpr std::size_t id3_footer_bytes = 10;
         // dr_mp3 checks at most ten sync positions, and a free-format frame is at most 2304
         // bytes in this pinned decoder. Two extra frames fund free-format size discovery.
+        constexpr std::size_t decoder_sync_matches = 10;
+        constexpr std::size_t mpeg_header_bytes = 4;
         constexpr std::size_t first_frame_window =
-            DRMP3_MAX_FREE_FORMAT_FRAME_SIZE * (DRMP3_MAX_FRAME_SYNC_MATCHES + 2) + DRMP3_HDR_SIZE;
+            DRMP3_MAX_FREE_FORMAT_FRAME_SIZE * (decoder_sync_matches + 2) + mpeg_header_bytes;
 
         [[nodiscard]] bool has_id3_magic(const std::span<const std::byte> input) noexcept
         {

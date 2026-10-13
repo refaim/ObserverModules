@@ -83,6 +83,10 @@ module.
 | [Zycore](https://github.com/zyantific/zycore-c) | [MIT](licenses/zycore.txt) | Godot |
 | [Mbed TLS](https://github.com/Mbed-TLS/mbedtls) (mbedcrypto only) | [Apache-2.0](licenses/mbedcrypto.txt) | Godot |
 
+The bcdec, dr_libs and QOA decoders are restored through [local vcpkg overlay ports](build/vcpkg/ports/README.md)
+as static libraries. Their source revisions and downloaded header hashes are pinned there. QOA uses the header
+from Godot 4.5-stable, which is the version tested with this module.
+
 ### Sources of inspiration
 
 | Project | License | Modules |

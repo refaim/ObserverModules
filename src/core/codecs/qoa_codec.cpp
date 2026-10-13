@@ -7,13 +7,12 @@
 #include <cstdint>
 #include <limits>
 
-// Declarations only: the vendored implementation is compiled as C in qoa_reference.c. Its macros
-// and types stay private to this translation unit, and the adapter only ever uses the
-// caller-owned-buffer entry points, so nothing allocates through the reference decoder.
+// The pinned QOA overlay builds Godot's reference implementation as a C static library. Its types
+// stay private to this adapter, which uses caller-owned buffers for frame decoding.
 //   godot @ 876b290332ec6f2e6d173d08162a02aa7e6ca46d, thirdparty/misc/qoa.h
 //   sha256 ab501e91f4afd18c811e689713e5fd3956030562bf80cda784d304af17133f01
 #pragma warning(push, 0)
-#include <../third_party/qoa/qoa.h>
+#include <qoa.h>
 #pragma warning(pop)
 
 namespace unpackrat::codecs

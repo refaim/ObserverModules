@@ -5,14 +5,10 @@
 #include <cstring>
 #include <limits>
 
-// Vendored, unmodified bcdec is a self-contained decoder with no external dependencies. Building
-// it with internal linkage here keeps its symbols local to this translation unit; BCDECDEF is
-// overridden to static inline so the BC6H and precise-mode helpers that this adapter does not use
-// (those families are unsupported) do not trip the unused-function warning under either toolset.
-#define BCDECDEF static inline
-#define BCDEC_IMPLEMENTATION
+// The pinned bcdec overlay builds its implementation as a static library. Only declarations enter
+// this adapter; bcdec types and errors stay behind the project-owned codec interface.
 #pragma warning(push, 0)
-#include <../third_party/bcdec/bcdec.h>
+#include <bcdec.h>
 #pragma warning(pop)
 
 namespace unpackrat::codecs

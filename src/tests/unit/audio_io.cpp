@@ -22,10 +22,10 @@
 #include <Windows.h>
 #endif
 
-// The adapter links the decoder/writer implementations; the tests drive the vendored libraries
+// The adapter links the decoder/writer implementations; the tests drive the pinned libraries
 // directly as an independent cross-check of the bytes the adapter produces.
-#include <../third_party/dr_libs/dr_mp3.h>
-#include <../third_party/dr_libs/dr_wav.h>
+#include <dr_mp3.h>
+#include <dr_wav.h>
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -920,6 +920,30 @@ TEST_CASE("audio: MP3 source probe keeps its bounded frame window off the callba
     CHECK(info.sample_rate == 44100);
     CHECK(info.channels == 1);
     CHECK(farthest < std::uintptr_t{20} * 1024);
+}
+
+TEST_CASE("audio: MP3 source probe reads only its pinned decoder frame window", "[mp3-window]")
+{
+    constexpr std::uint64_t frame_window = 2304U * 12U + 4U;
+    const auto frames = test::support::make_mp3_silence(11, false);
+    std::vector<std::pair<std::uint64_t, std::size_t>> reads;
+    const unpackrat::io::byte_source source{
+        frame_window + 1,
+        [&](const std::uint64_t offset, const std::span<std::byte> destination) {
+            reads.emplace_back(offset, destination.size());
+            std::fill(destination.begin(), destination.end(), std::byte{});
+            if (offset < frames.size()) {
+                const auto count = (std::min)(destination.size(), frames.size() - static_cast<std::size_t>(offset));
+                std::copy_n(std::span<const std::byte>(frames).subspan(static_cast<std::size_t>(offset)).begin(), count,
+                            destination.begin());
+            }
+        },
+    };
+    const auto info = unpackrat::codecs::probe_mp3_source(source);
+    CHECK(info.sample_rate == 44100);
+    REQUIRE(reads.size() == 2);
+    CHECK(reads[0] == std::pair<std::uint64_t, std::size_t>{0, 10});
+    CHECK(reads[1] == std::pair<std::uint64_t, std::size_t>{0, static_cast<std::size_t>(frame_window)});
 }
 
 #ifdef _WIN64

@@ -20,10 +20,10 @@
 #include <utility>
 #include <vector>
 
-// The QOA encoder is the vendored reference implementation; it lets the fixture produce a
+// The QOA encoder is the pinned reference implementation; it lets the fixture produce a
 // canonical valid QOA sample. Only the declarations are needed here.
 #define QOA_NO_STDIO
-#include <../third_party/qoa/qoa.h>
+#include <qoa.h>
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -348,7 +348,7 @@ namespace
         return found != haystack.end();
     }
 
-    // A canonical QOA stream, encoded by the vendored reference encoder.
+    // A canonical QOA stream, encoded by the pinned reference encoder.
     std::vector<std::byte> make_qoa(const std::uint32_t channels, const std::uint32_t sample_rate,
                                     const std::span<const std::int16_t> interleaved)
     {
