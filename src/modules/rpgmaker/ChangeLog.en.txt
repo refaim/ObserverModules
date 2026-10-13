@@ -1,3 +1,9 @@
+Version 1.2.0
+-------------
+ * Fixed misaligned access to the packed Observer output buffers that are filled while listing archive information.
+ + Added native RPG Maker XP (.rgssad) and VX (.rgss2a) archive support alongside VX Ace: the module now lists and extracts all three formats and generations.
+ * Malformed or truncated version 1 archives are now rejected with an error.
+
 Version 1.1.1
 -------------
  * Fixed unaligned path access when opening archives through Observer.

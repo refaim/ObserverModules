@@ -113,6 +113,40 @@ namespace test::support
             return static_cast<std::uint8_t>(value);
         }
 
+        // Legacy RPG Maker metadata and bodies advance a single key with key = key * 7 + 3. The
+        // encoder below is the exact inverse of the reader: every value is XORed with the key
+        // before it advances, and each body restarts from the post-size seed.
+        constexpr std::uint32_t rpgmaker_legacy_initial_key = 0xDEADCAFE;
+
+        [[nodiscard]] std::uint32_t advance_rpgmaker_legacy_key(std::uint32_t &key) noexcept
+        {
+            const std::uint32_t old = key;
+            key = key * 7 + 3;
+            return old;
+        }
+
+        void append_rpgmaker_legacy_body(byte_buffer &output, const std::string_view payload, std::uint32_t key)
+        {
+            byte_buffer encrypted;
+            encrypted.reserve(payload.size());
+            append_bytes(encrypted, payload);
+
+            std::size_t index = 0;
+            while (index + 4 <= encrypted.size()) {
+                for (std::size_t byte_index = 0; byte_index < 4; ++byte_index) {
+                    encrypted[index + byte_index] ^= static_cast<std::uint8_t>(key >> (8 * byte_index));
+                }
+                key = key * 7 + 3;
+                index += 4;
+            }
+            while (index < encrypted.size()) {
+                encrypted[index] ^= static_cast<std::uint8_t>(key >> (8 * (index % 4)));
+                ++index;
+            }
+
+            output.insert(output.end(), encrypted.begin(), encrypted.end());
+        }
+
         [[nodiscard]] byte_buffer build_renpy_archive(const std::span<const std::uint8_t> pickle_index,
                                                       const std::string_view payload, const renpy_version version,
                                                       const std::uint8_t encryption_key, const std::size_t data_offset)
@@ -301,6 +335,41 @@ namespace test::support
         }
         archive.insert(archive.end(), encrypted.begin(), encrypted.end());
         return archive;
+    }
+
+    byte_buffer make_rpgmaker_legacy_header(const std::uint8_t version)
+    {
+        return byte_buffer{'R', 'G', 'S', 'S', 'A', 'D', 0x00, version};
+    }
+
+    byte_buffer make_rpgmaker_legacy_archive(const std::span<const rpgmaker_entry> entries, const std::uint8_t version)
+    {
+        byte_buffer archive = make_rpgmaker_legacy_header(version);
+        std::uint32_t key = rpgmaker_legacy_initial_key;
+
+        for (const auto &entry : entries) {
+            const auto name_length = checked_u32(entry.path.size(), "RPG Maker legacy path length");
+            append_u32(archive, name_length ^ advance_rpgmaker_legacy_key(key));
+            for (const char character : entry.path) {
+                const auto encrypted =
+                    static_cast<std::uint8_t>(static_cast<std::uint8_t>(static_cast<unsigned char>(character)) ^
+                                              static_cast<std::uint8_t>(advance_rpgmaker_legacy_key(key)));
+                archive.push_back(encrypted);
+            }
+
+            const auto body_length = checked_u32(entry.payload.size(), "RPG Maker legacy payload length");
+            append_u32(archive, body_length ^ advance_rpgmaker_legacy_key(key));
+            append_rpgmaker_legacy_body(archive, entry.payload, key);
+        }
+
+        return archive;
+    }
+
+    byte_buffer make_rpgmaker_legacy_archive(const std::string_view path, const std::string_view payload,
+                                             const std::uint8_t version)
+    {
+        const std::array entries{rpgmaker_entry{std::string(path), std::string(payload)}};
+        return make_rpgmaker_legacy_archive(entries, version);
     }
 
     byte_buffer make_renpy_archive(const std::string_view path, const std::string_view payload)

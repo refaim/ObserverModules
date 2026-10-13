@@ -2,6 +2,8 @@
 #include "archive.h"
 #include "modules/extractor.h"
 
+#include <cstddef>
+#include <cstring>
 #include <filesystem>
 #include <memory>
 #include <span>
@@ -53,10 +55,14 @@ extern "C" int MODULE_EXPORT OpenStorage(StorageOpenParams params, HANDLE *stora
     try {
         auto [format, compression, comment] = archive->open(path, data);
 
-        std::memset(info, 0, sizeof(StorageGeneralInfo));
-        copy_string(format, info->Format, STORAGE_FORMAT_NAME_MAX_LEN);
-        copy_string(compression.empty() ? std::wstring(L"-") : compression, info->Compression, STORAGE_PARAM_MAX_LEN);
-        copy_string(comment.empty() ? std::wstring(L"-") : comment, info->Comment, STORAGE_PARAM_MAX_LEN);
+        alignas(std::max_align_t) StorageGeneralInfo local_info;
+        std::memset(&local_info, 0, sizeof(StorageGeneralInfo));
+        copy_string(format, local_info.Format, STORAGE_FORMAT_NAME_MAX_LEN);
+        copy_string(compression.empty() ? std::wstring(L"-") : compression, local_info.Compression,
+                    STORAGE_PARAM_MAX_LEN);
+        copy_string(comment.empty() ? std::wstring(L"-") : comment, local_info.Comment, STORAGE_PARAM_MAX_LEN);
+
+        std::memcpy(info, &local_info, sizeof(StorageGeneralInfo));
 
         *storage = static_cast<HANDLE>(archive.release());
     } catch (std::runtime_error &) {
@@ -105,13 +111,15 @@ extern "C" int MODULE_EXPORT GetItem(HANDLE storage, int item_index, StorageItem
         const auto &file = archive->get_file(item_index);
         const auto header_size = std::ssize(file.header);
 
-        std::memset(item_info, 0, sizeof(StorageItemInfo));
-        item_info->Attributes = FILE_ATTRIBUTE_NORMAL;
-        item_info->Size = header_size + file.uncompressed_body_size_in_bytes;
-        item_info->PackedSize = header_size + file.compressed_body_size_in_bytes;
-        item_info->NumHardlinks = 0;
-        const auto chars_written = MultiByteToWideChar(CP_UTF8, 0, file.path.c_str(), -1, item_info->Path,
-                                                       static_cast<int>(std::size(item_info->Path)));
+        alignas(std::max_align_t) StorageItemInfo local_info;
+        std::memset(&local_info, 0, sizeof(StorageItemInfo));
+        local_info.Attributes = FILE_ATTRIBUTE_NORMAL;
+        local_info.Size = header_size + file.uncompressed_body_size_in_bytes;
+        local_info.PackedSize = header_size + file.compressed_body_size_in_bytes;
+        local_info.NumHardlinks = 0;
+        const auto chars_written = MultiByteToWideChar(CP_UTF8, 0, file.path.c_str(), -1, local_info.Path,
+                                                       static_cast<int>(std::size(local_info.Path)));
+        std::memcpy(item_info, &local_info, sizeof(StorageItemInfo));
         if (chars_written == 0) {
             return GET_ITEM_ERROR;
         }
