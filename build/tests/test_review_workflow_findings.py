@@ -3,9 +3,8 @@
 These tests encode the observable behaviour the workflow must have after the
 2026-10-12 review and are expected to fail against the frozen workflow and lock
 as they stand.  Every assertion is about a composition of the workflow's own
-declarations (artifact names, paths, matrix values, conditionals) or about the
-effect of running the release step's own PowerShell, never about a particular
-source keyword.
+declarations (artifact names, paths, conditionals) or about the effect of running
+the release step's own PowerShell, never about a particular source keyword.
 
 Nothing here reaches the network: the release-notes test runs only the local
 notes-building statements against fixture change logs, and the artifact test is
@@ -26,10 +25,15 @@ import unittest
 
 REPOSITORY = Path(__file__).resolve().parents[2]
 WORKFLOW_PATH = REPOSITORY / ".github" / "workflows" / "main.yml"
+CHECK_WORKFLOW_PATH = REPOSITORY / ".github" / "workflows" / "ci-check.yml"
 
 
 def _workflow() -> str:
     return WORKFLOW_PATH.read_text(encoding="utf-8")
+
+
+def _check_workflow() -> str:
+    return CHECK_WORKFLOW_PATH.read_text(encoding="utf-8")
 
 
 def _job_lines(text: str, job: str) -> list[str]:
@@ -92,66 +96,37 @@ def _steps(block: list[str]) -> list[dict]:
     return steps
 
 
-def _matrix_rows(text: str, job: str) -> list[tuple[str, str]]:
-    return re.findall(r"- job: (\w+)\n\s+arch: (\S+)", "\n".join(_job_lines(text, job)))
-
-
-def _substitute(value: str, job: str, arch: str) -> str:
-    return value.replace("${{ matrix.job }}", job).replace("${{ matrix.arch }}", arch)
-
-
 class ArtifactLayoutTests(unittest.TestCase):
     """Finding 1: the downloaded Release artifacts must land where packaging reads them."""
 
     def test_release_binaries_land_in_the_directories_packaging_reads(self) -> None:
-        text = _workflow()
-        rows = _matrix_rows(text, "verification")
-        self.assertEqual({arch for _, arch in rows}, {"x86", "x64", "none"})
-        archs = sorted(arch for _, arch in rows if arch != "none")
-        self.assertEqual(archs, ["x64", "x86"])
-
-        uploads: list[tuple[str, str, str]] = []
-        for step in _steps(_job_lines(text, "verification")):
+        # The reusable native slice uploads the whole per-architecture Release directory.
+        uploads: list[str] = []
+        for step in _steps(_job_lines(_check_workflow(), "check")):
             if not step["uses"] or "upload-artifact@" not in step["uses"]:
                 continue
-            for job, arch in rows:
-                if arch == "none":
-                    continue
-                uploads.append(
-                    (
-                        _substitute(step["with"].get("name", ""), job, arch),
-                        _substitute(step["with"].get("path", ""), job, arch),
-                        arch,
-                    )
-                )
-        self.assertTrue(uploads, "the verification jobs must upload their Release binaries")
+            if step["with"].get("name") == "release-${{ inputs.arch }}":
+                uploads.append(step["with"].get("path", ""))
+        self.assertEqual(uploads, ["out/native/bin/${{ inputs.arch }}/Release"])
 
-        landings: dict[str, set[str]] = {arch: set() for arch in archs}
+        # Packaging downloads each verified architecture into the directory it reads.
+        text = _workflow()
+        landings: dict[str, str] = {}
         found_download = False
-        for step in _steps(_job_lines(text, "packaging")):
+        for step in _steps(_job_lines(_workflow(), "packaging")):
             if not step["uses"] or "download-artifact@" not in step["uses"]:
                 continue
             found_download = True
-            base = step["with"].get("path", ".")
-            pattern = step["with"].get("pattern")
-            single = step["with"].get("name")
-            for name, _path, arch in uploads:
-                if pattern is not None:
-                    landings[arch].add(f"{base}/{name}")
-                elif single is not None and single == name:
-                    landings[arch].add(base)
+            name = step["with"].get("name")
+            for arch in ("x86", "x64"):
+                if name == f"release-{arch}":
+                    landings[arch] = step["with"].get("path", ".")
         self.assertTrue(found_download, "the packaging job must download the Release artifacts")
-
-        # `main.package` reads `<repo>/out/native/bin/<arch>/Release/<module>.so`.  The download
-        # layout is correct when that Release directory is either a landing directory itself or
-        # sits below one.
-        for arch in archs:
-            expected = f"out/native/bin/{arch}/Release"
-            candidates = landings[arch]
-            self.assertTrue(
-                any(expected == c or expected.startswith(c.rstrip("/") + "/") for c in candidates),
-                f"{arch}: {expected} is not produced by the download layout {sorted(candidates)}",
-            )
+        # `main.package` reads `<repo>/out/native/bin/<arch>/Release/<module>.so`.
+        self.assertEqual(
+            landings,
+            {"x86": "out/native/bin/x86/Release", "x64": "out/native/bin/x64/Release"},
+        )
 
 
 class DiagnosticsUploadTests(unittest.TestCase):
@@ -163,11 +138,9 @@ class DiagnosticsUploadTests(unittest.TestCase):
         return bool(base) and (target == base or target.startswith(base + "/") or base.startswith(target + "/"))
 
     def test_ci_diagnostics_are_uploaded_with_always(self) -> None:
-        text = _workflow()
         uploads = [
             step
-            for job in ("verification", "packaging")
-            for step in _steps(_job_lines(text, job))
+            for step in _steps(_job_lines(_check_workflow(), "check"))
             if step["uses"] and "upload-artifact@" in step["uses"]
         ]
         unconditional = [step for step in uploads if (step["if"] or "").replace("${{", "").replace("}}", "").strip() == "always()"]

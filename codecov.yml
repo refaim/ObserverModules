@@ -1,0 +1,48 @@
+# Codecov policy for unpackrat. The repository's own exact 100% line-and-branch gates stay
+# authoritative; this policy only surfaces the same evidence on a pull request.
+codecov:
+  require_ci_to_pass: false
+  notify:
+    # Each coverage report is uploaded by its own job; wait for all three before the final status.
+    after_n_builds: 3
+    wait_for_ci: true
+
+coverage:
+  precision: 2
+  round: down
+  status:
+    project:
+      default:
+        target: 100%
+        threshold: 0%
+        flags:
+          - python
+          - native-x86
+          - native-x64
+    patch:
+      default:
+        target: 100%
+        threshold: 0%
+
+# Each uploader carries its own flag. Distinct architecture flags expose a separate per-architecture
+# report; Codecov's project default combines them, so the flags do not add a per-architecture mask
+# check. Enforcement of each architecture lives in the local strict 100% line-and-branch gates, and
+# no flag carries stale state forward.
+flag_management:
+  default_rules:
+    carryforward: false
+  individual_flags:
+    - name: python
+      carryforward: false
+    - name: native-x86
+      carryforward: false
+    - name: native-x64
+      carryforward: false
+
+comment:
+  layout: "diff, flags, files"
+  require_changes: false
+  require_base: false
+  require_head: true
+  hide_project_coverage: false
+  after_n_builds: 3

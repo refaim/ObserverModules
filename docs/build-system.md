@@ -93,6 +93,7 @@ holds no GitHub credentials and does no orchestration.
 .\build.ps1 test -Arch x86,x64 -Config Debug
 .\build.ps1 ci-source                 # clang-format, Cppcheck, PSScriptAnalyzer, contracts, python gate
 .\build.ps1 ci-arch -Arch x64         # tests, coverage, sanitizers, fuzz, leaks, audit
+.\build.ps1 ci-arch -Arch x64 -Stage coverage   # one slice only
 .\build.ps1 package                   # the three release archives per module
 ```
 
@@ -106,17 +107,79 @@ holds no GitHub credentials and does no orchestration.
   `halt_on_error`, runs the bounded x86 replay and x64 timed libFuzzer gates, runs the x64 UMDH leak
   probe, and audits the shipped DLLs' machine, imports and exports with dumpbin.
 
+`ci-arch` also takes a bounded `-Stage` selection, `all` (the default), `native`, `coverage`,
+`asan`, `ubsan`, `fuzz` or `leaks`. `all` runs every stage in the fixed order native, coverage,
+asan, ubsan, fuzz, leaks and prepares the Release tree and the x64 leak probe once. A single stage
+runs only itself: `native` is the Debug/Release suites, the x64 leak-probe build and the dumpbin
+and BinSkim audits; `leaks` is only the UMDH setup and the mode/scenario measurements over an
+already-built x64 Release tree, so it never restores vcpkg, runs MSBuild, BinSkim or LLVM. The
+`ubsan` and `leaks` stages are the x64 specialists and refuse any other selection up front. The
+flag exists so CI can run each slice in an independent job; the local default is unchanged.
+
 ## CI
 
-Three verification jobs — `source` (`ci-source`) and `x86`/`x64` (`ci-arch -Arch …`) — plus a
-dependent `packaging` job and a `release` job on `renpy/vX.Y.Z`, `rpgmaker/vX.Y.Z` or `zanzarah/vX.Y.Z`
-tags. Triggers: `pull_request` on `master`, `push` on `master` and the module tag prefixes; no
+The required check names are the real per-stage jobs, not a gate that re-scores other jobs. Branch
+protection requires `source-checks`, `native-x86`, `native-x64`, `coverage-x86`, `coverage-x64`,
+`asan-x86`, `asan-x64`, `ubsan-x64`, `fuzz-x86`, `fuzz-x64` and `leaks-x64` directly, so the slow
+native build of one architecture never waits on another and a single stage fails on its own. Every
+stage/architecture slice calls one maintained reusable workflow, `.github/workflows/ci-check.yml`,
+with its `arch` and `stage`, and that workflow provisions only what the stage needs: the source tools
+only for `source-checks`, BinSkim only for `native`, UMDH only for `leaks`, the pinned Python/uv
+environment for every stage, and the vcpkg/MSBuild side only for the build and source stages. The
+`source-checks` row runs `ci-source`; the rest run `ci-arch -Stage …` for one architecture
+(`native`/`coverage`/`asan`/`ubsan`/`fuzz`/`leaks`). `leaks-x64` depends only on `native-x64` and
+downloads that job's `release-x64` artifact from the same run — its x64 Release directory already
+carries the module `.so`/`.pdb` and `leak-probe.exe`/`.pdb` — and never touches another run's
+binaries or a cache. A failed, skipped or cancelled slice therefore fails closed through GitHub's own
+`needs`, not through a shell decision table.
+
+Triggers: `pull_request` on `master`, `push` on `master` and the module tag prefixes; no
 `workflow_dispatch` and no schedule. Every mandatory check stays runnable from a local console through
-the same public entry points. The verification rows upload the verified Release binaries as Actions
-artifacts; `packaging` consumes them without rebuilding and writes the module archives; the tag-only
-`release` job selects exactly the three archives of the tagged module and publishes them with
-`gh release create --verify-tag --notes-file`. Logs and reports are uploaded as Actions artifacts,
-never as public release assets.
+the same public entry points. The `native` slices upload their verified Release binaries as Actions
+artifacts; `packaging` (needing all eleven required checks) consumes them without rebuilding and
+writes the module archives; the tag-only `release` job selects exactly the three archives of the
+tagged module and publishes them with `gh release create --verify-tag --notes-file`. Logs and reports
+are uploaded as Actions artifacts, never as public release assets.
+
+## Coverage reports and Codecov
+
+Every first-party gate keeps its tool's own failure mode; the reports exist so a failing run stays
+reviewable and so a pull request shows the same evidence.
+
+- The native Coverage configuration still exports the authoritative JSON summary and gates it with
+  `coverage_complete` (exact 100% first-party lines and branches). `ci-arch` additionally writes the
+  full LCOV export, `out/native/coverage/<arch>/coverage.lcov`, over the same test and module objects
+  and the same production filter. `--summary-only` appears only on the JSON export. Both files are
+  written before the gate, so an incomplete run still leaves the uncovered lines and branches visible.
+- `ci-source` writes the coverage.py Cobertura XML, `out/native/coverage/python/coverage.xml`, before
+  the report gate. The XML keeps branch metrics and resolves `<source>` plus `<filename>` back to
+  `build/main.py` and `build/leaks.py`; `coverage xml` inherits the configured `fail_under = 100`, so
+  it emits the report and then fails, and the gate is never weakened with `--fail-under=0`.
+
+The reusable `ci-check.yml` uploads the coverage reports to Codecov through the pinned official
+`codecov/codecov-action` with `disable_search: true` and `fail_ci_if_error: true`: the `source` stage
+uploads the python XML under the `python` flag, and each `coverage` stage uploads its own LCOV under
+the `native-<arch>` flag. The distinct flags expose a separate per-architecture report; Codecov's
+project default combines those flags, so the flags themselves do not enforce a per-architecture
+check. Each architecture is enforced by the local strict 100% line-and-branch gates.
+Uploads use OIDC (`id-token: write`, propagated through the caller) for same-repo runs and fall back
+to Codecov's tokenless public-fork path for a cross-repo pull request; no secret is exposed and there
+is no `pull_request_target`. The upload runs even after a gate failure, so the report is published
+while the job keeps its original failure. There is no custom comment bot: the Codecov App posts the
+comment and the checks.
+
+The vcpkg binary cache key distinguishes the runner image, the architecture, the standard versus ASan
+toolchain and the dependency inputs, so two concurrent jobs can never save a mixed or incomplete
+cache under one key. Only the binary dependency cache exists; no content-addressed or incremental
+build output is carried across commits.
+
+`codecov.yml` shows project and patch coverage with a `100%` target and a `0%` threshold, lists the
+flags and files in the pull-request comment (`layout: "diff, flags, files"`), and waits for all three
+uploads (`after_n_builds: 3`) with no carry-forward flag state. The comment is allowed with only the
+head report (`require_head: true`, `require_base: false`, `require_changes: false`), so the first
+onboarding pull request does not pretend a baseline exists. The Codecov App must be installed on the
+repository, and Codecov's own normalizer resolves the standard XML `<source>` and the LCOV `SF:`
+paths, so the build driver carries no first-party report converter.
 
 ## Open gaps
 

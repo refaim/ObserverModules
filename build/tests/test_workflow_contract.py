@@ -15,11 +15,115 @@ REPOSITORY = Path(__file__).parents[2]
 
 
 class WorkflowContractTests(unittest.TestCase):
-    def workflow(self) -> str:
+    def main_workflow(self) -> str:
         return (REPOSITORY / ".github/workflows/main.yml").read_text(encoding="utf-8")
 
-    def test_verification_matrix_preserves_the_required_check_names(self) -> None:
-        workflow = self.workflow()
+    def check_workflow(self) -> str:
+        return (REPOSITORY / ".github/workflows/ci-check.yml").read_text(encoding="utf-8")
+
+    def all_workflows(self) -> str:
+        return "\n".join(
+            path.read_text(encoding="utf-8")
+            for path in sorted((REPOSITORY / ".github/workflows").glob("*.yml"))
+        )
+
+    def job_permissions(self, workflow: str) -> dict[str, dict[str, str]]:
+        """Map each top-level job in a workflow's ``jobs`` section to its permission grants."""
+        _, _, jobs = workflow.partition("\njobs:\n")
+        grants: dict[str, dict[str, str]] = {}
+        current: str | None = None
+        collecting = False
+        for line in jobs.splitlines():
+            job = re.match(r"^  ([A-Za-z0-9_-]+):\s*$", line)
+            if job:
+                current = job.group(1)
+                grants[current] = {}
+                collecting = False
+                continue
+            if current is None:
+                continue
+            if re.match(r"^    permissions:\s*$", line):
+                collecting = True
+                continue
+            if collecting:
+                grant = re.match(r"^      ([A-Za-z0-9_-]+):\s*(\S+)\s*$", line)
+                if grant:
+                    grants[current][grant.group(1)] = grant.group(2)
+                else:
+                    collecting = False
+        return grants
+
+    def job_blocks(self, workflow: str) -> dict[str, list[str]]:
+        """Split a workflow's ``jobs`` section into the line block of each top-level job."""
+        _, _, jobs = workflow.partition("\njobs:\n")
+        blocks: dict[str, list[str]] = {}
+        current: str | None = None
+        for line in jobs.splitlines():
+            job = re.match(r"^  ([A-Za-z0-9_-]+):\s*$", line)
+            if job:
+                current = job.group(1)
+                blocks[current] = []
+                continue
+            if current is not None:
+                blocks[current].append(line)
+        return blocks
+
+    def job_needs(self, block: list[str]) -> list[str]:
+        """Read a job block's declared ``needs`` as the ordered list of dependencies."""
+        for line in block:
+            needs = re.match(r"^    needs:\s*(.+?)\s*$", line)
+            if needs:
+                value = needs.group(1)
+                if value.startswith("["):
+                    return [name.strip() for name in value.strip("[]").split(",") if name.strip()]
+                return [value]
+        return []
+
+    def test_check_workflow_inherits_the_caller_permission_grant(self) -> None:
+        check = self.check_workflow()
+        caller = self.main_workflow()
+
+        # GitHub's reusable-workflow reference: a called workflow can only keep or lower the
+        # caller's token permissions; it can never widen them. The maintained check workflow must
+        # therefore declare no permissions block of its own and inherit the caller grant, while
+        # the caller stays least-privilege and mints id-token only for the three Codecov uploads.
+        self.assertNotIn("permissions:", check)
+
+        grants = self.job_permissions(caller)
+        oidc = sorted(name for name, entries in grants.items() if "id-token" in entries)
+        self.assertEqual(oidc, ["coverage-x64", "coverage-x86", "source-checks"])
+        callers = (
+            "source-checks", "native-x86", "native-x64", "coverage-x86", "coverage-x64",
+            "asan-x86", "asan-x64", "ubsan-x64", "fuzz-x86", "fuzz-x64", "leaks-x64",
+        )
+        for job in callers:
+            expected = {"contents": "read", "id-token": "write"} if job in oidc else {"contents": "read"}
+            with self.subTest(job=job):
+                self.assertEqual(grants[job], expected)
+
+    def test_vcpkg_cache_key_normalizes_the_source_architecture(self) -> None:
+        check = self.check_workflow()
+
+        # The source stage is dispatched with arch "none" yet restores the x64 Debug dependency
+        # cache, so the key's architecture field must normalize "none" to "x64" through a GitHub
+        # expression instead of embedding the raw caller input. The runner image, the
+        # standard/asan selector and the dependency hash stay part of the same key.
+        self.assertIn("      arch: none\n      stage: source\n", self.main_workflow())
+        key = next(
+            line.strip()
+            for line in check.splitlines()
+            if line.strip().startswith("key: vcpkg-")
+        )
+        self.assertIn("${{ steps.runner-image.outputs.identity }}", key)
+        self.assertIn("${{ inputs.arch == 'none' && 'x64' || inputs.arch }}", key)
+        self.assertIn(
+            "${{ (inputs.stage == 'asan' || inputs.stage == 'fuzz') && 'asan' || 'standard' }}",
+            key,
+        )
+        self.assertIn("${{ hashFiles('vcpkg.json', 'build/vcpkg/triplets/*.cmake') }}", key)
+
+    def test_triggers_and_concurrency_are_preserved(self) -> None:
+        workflow = self.main_workflow()
 
         self.assertIn("pull_request:", workflow)
         self.assertIn("push:", workflow)
@@ -28,69 +132,67 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertNotIn("schedule:", workflow)
         self.assertNotIn("pull_request_target", workflow)
         self.assertIn("cancel-in-progress: ${{ github.event_name == 'pull_request' }}", workflow)
-
         self.assertIn("runs-on: windows-2022", workflow)
-        self.assertIn("fail-fast: false", workflow)
-        matrix_rows = re.findall(r"- job: ([^\n]+)\n\s+arch: ([^\n]+)", workflow)
-        self.assertEqual(matrix_rows, [("source", "none"), ("x86", "x86"), ("x64", "x64")])
-
-        self.assertEqual(workflow.count("./build.ps1 ci-source"), 1)
-        self.assertEqual(workflow.count("./build.ps1 ci-arch"), 1)
         self.assertNotIn("continue-on-error", workflow)
 
-        # Only the vcpkg binary cache remains; there is no content-addressed build cache.
-        self.assertNotIn("out/cas", workflow)
-        self.assertNotIn("actions/cache/restore@", workflow)
-        self.assertNotIn("actions/cache/save@", workflow)
-        self.assertIn("Cache vcpkg binaries", workflow)
-        self.assertIn("uses: actions/cache@", workflow)
+    def test_no_aggregate_gate_jobs_or_bash_result_scripts_remain(self) -> None:
+        workflow = self.main_workflow()
 
-        # The source row installs only the source tools; the x64 row provisions UMDH.
-        self.assertIn("choco install cppcheck --version=2.19.0", workflow)
-        self.assertIn("C:\\Program Files\\Cppcheck", workflow)
-        self.assertIn("Install-Module PSScriptAnalyzer -RequiredVersion 1.25.0", workflow)
-        self.assertIn("if: matrix.job == 'x64'", workflow)
-        self.assertIn("OptionId.WindowsDesktopDebuggers", workflow)
-        self.assertIn(
-            "https://download.microsoft.com/download/e119c04b-71aa-4067-ac3c-360c2e13d209/"
-            "windowssdk/Installers/X64%20Debuggers%20And%20Tools-x64_en-us.msi",
-            workflow,
+        # The three aggregate `source`/`x86`/`x64` jobs are removed: the required check names
+        # become the real per-stage jobs directly, with no job left re-scoring their results in a
+        # shell script. Nothing here keeps an old aggregate gate or its decision table alive.
+        blocks = self.job_blocks(workflow)
+        for name in ("source", "x86", "x64"):
+            with self.subTest(name=name):
+                self.assertNotIn(name, blocks)
+        self.assertNotIn("if: always()", workflow)
+        self.assertNotIn("toJSON(needs.*.result)", workflow)
+        self.assertNotIn('grep -Eq \'"(failure|cancelled|skipped)"\'', workflow)
+        self.assertNotIn("runs-on: ubuntu-latest", workflow)
+
+    def test_slices_are_independent_reusable_calls(self) -> None:
+        workflow = self.main_workflow()
+
+        self.assertEqual(workflow.count("uses: ./.github/workflows/ci-check.yml"), 11)
+        jobs = (
+            "source-checks", "native-x86", "native-x64", "coverage-x86", "coverage-x64",
+            "asan-x86", "asan-x64", "ubsan-x64", "fuzz-x86", "fuzz-x64", "leaks-x64",
         )
-        self.assertIn("354173D844D5C061050EE2638AA94FAFB4835AC3DE836E220F6A74A992849A3B", workflow)
-        self.assertIn("'10.0.19041.'", workflow)
-        self.assertIn('"UNPACKRAT_UMDH=$umdh" | Add-Content -Path $env:GITHUB_ENV', workflow)
-        self.assertNotIn("upload-sarif", workflow)
-        self.assertNotIn("codeql-action", workflow)
-
-        actions = dict(re.findall(r"uses:\s+([^@\s]+)@([^\s#]+)", workflow))
-        self.assertEqual(
-            actions,
-            {
-                "actions/checkout": "d23441a48e516b6c34aea4fa41551a30e30af803",
-                "astral-sh/setup-uv": "08807647e7069bb48b6ef5acd8ec9567f424441b",
-                "actions/cache": "caa296126883cff596d87d8935842f9db880ef25",
-                "actions/upload-artifact": "043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
-                "actions/download-artifact": "3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
-            },
-        )
-        for action, revision in actions.items():
-            with self.subTest(action=action):
-                self.assertRegex(revision, r"^[0-9a-f]{40}$")
-
-        self.assertIn("persist-credentials: false", workflow)
-        self.assertEqual(workflow.count('version: "0.13.0"'), 2)
-        pyproject = tomllib.loads((REPOSITORY / "build/pyproject.toml").read_text(encoding="utf-8"))
-        self.assertEqual(pyproject["project"]["requires-python"], "==3.14.7")
-        self.assertIn("id: runner-image", workflow)
-        self.assertIn("${{ steps.runner-image.outputs.identity }}", workflow)
-        self.assertIn("bootstrap-vcpkg.bat", workflow)
+        blocks = self.job_blocks(workflow)
+        # The whole job set is exactly the eleven real reusable-workflow calls plus the tag-gated
+        # packaging and release jobs; no aggregate gate survives.
+        self.assertEqual(sorted(blocks), sorted([*jobs, "packaging", "release"]))
+        for job in jobs:
+            with self.subTest(job=job):
+                self.assertIn(f"\n  {job}:\n", workflow)
+        # The leak measurement depends only on the architecture it measures, never on a whole
+        # matrix of both architectures.
+        self.assertEqual(self.job_needs(blocks["leaks-x64"]), ["native-x64"])
+        self.assertNotIn("matrix:", workflow)
+        # No verification slice waits on another; every job except the leak measurement starts
+        # immediately and only packaging fans the results back in.
+        for job in jobs:
+            if job == "leaks-x64":
+                continue
+            with self.subTest(job=job):
+                self.assertEqual(self.job_needs(blocks[job]), [])
 
     def test_release_publishes_three_selected_archives_from_verified_outputs(self) -> None:
-        workflow = self.workflow()
+        workflow = self.main_workflow()
 
         self.assertIn("tags: ['renpy/v*', 'rpgmaker/v*', 'zanzarah/v*']", workflow)
         self.assertIn("  packaging:\n", workflow)
-        self.assertIn("needs: verification", workflow)
+        # Packaging waits on every real verification job directly, so a failed, skipped or
+        # cancelled slice fails closed through GitHub's own `needs` instead of a bash gate.
+        self.assertEqual(
+            sorted(self.job_needs(self.job_blocks(workflow)["packaging"])),
+            sorted(
+                [
+                    "source-checks", "native-x86", "native-x64", "coverage-x86", "coverage-x64",
+                    "asan-x86", "asan-x64", "ubsan-x64", "fuzz-x86", "fuzz-x64", "leaks-x64",
+                ]
+            ),
+        )
         self.assertIn("  release:\n", workflow)
         self.assertIn("needs: packaging", workflow)
         self.assertIn("if: startsWith(github.ref, 'refs/tags/renpy/v')", workflow)
@@ -127,8 +229,82 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertNotIn("$archives.Count", workflow)
         self.assertNotIn("VERSION", workflow)
 
+    def test_reusable_check_workflow_gates_tools_by_stage(self) -> None:
+        check = self.check_workflow()
+
+        # One maintained reusable workflow, driven only by the arch/stage inputs.
+        self.assertIn("workflow_call", check)
+        self.assertIn("./build.ps1 ci-source", check)
+        self.assertIn("./build.ps1 ci-arch", check)
+        self.assertIn("-Stage '${{ inputs.stage }}'", check)
+        self.assertEqual(check.count("./build.ps1 ci-source"), 1)
+        self.assertEqual(check.count("./build.ps1 ci-arch"), 1)
+
+        # The build machinery (vcpkg baseline, uv, MSBuild side) is prepared only for a build or
+        # source stage; leaks runs only the Python environment and the measurement tools.
+        self.assertEqual(check.count("if: inputs.stage != 'leaks'"), 3)
+        self.assertIn("bootstrap-vcpkg.bat", check)
+        self.assertIn("uv sync --project build --frozen", check)
+        self.assertIn("Cache vcpkg binaries", check)
+        self.assertIn("uses: actions/cache@", check)
+        self.assertIn("id: runner-image", check)
+        self.assertIn("${{ steps.runner-image.outputs.identity }}", check)
+
+        # The source tools are installed only for the source stage.
+        self.assertIn("if: inputs.stage == 'source'", check)
+        self.assertIn("choco install cppcheck --version=2.19.0", check)
+        self.assertIn("C:\\Program Files\\Cppcheck", check)
+        self.assertIn("Install-Module PSScriptAnalyzer -RequiredVersion 1.25.0", check)
+
+        # BinSkim is installed only for the native stage.
+        self.assertIn("if: inputs.stage == 'native'", check)
+        self.assertIn("Microsoft.CodeAnalysis.BinSkim -Version 4.4.9.11", check)
+
+        # UMDH is provisioned only for the leak stage, and the stage downloads this run's tree.
+        self.assertIn("if: inputs.stage == 'leaks'", check)
+        self.assertIn("OptionId.WindowsDesktopDebuggers", check)
+        self.assertIn(
+            "https://download.microsoft.com/download/e119c04b-71aa-4067-ac3c-360c2e13d209/"
+            "windowssdk/Installers/X64%20Debuggers%20And%20Tools-x64_en-us.msi",
+            check,
+        )
+        self.assertIn("354173D844D5C061050EE2638AA94FAFB4835AC3DE836E220F6A74A992849A3B", check)
+        self.assertIn("'10.0.19041.'", check)
+        self.assertIn('"UNPACKRAT_UMDH=$umdh" | Add-Content -Path $env:GITHUB_ENV', check)
+        self.assertIn("name: release-x64", check)
+        self.assertIn("path: out/native/bin/x64/Release", check)
+        # No cross-run or cached binaries: a plain same-run artifact download only.
+        self.assertNotIn("actions/cache/restore@", check)
+        self.assertNotIn("actions/cache/save@", check)
+        self.assertNotIn("out/cas", check)
+        self.assertNotIn("upload-sarif", self.all_workflows())
+        self.assertNotIn("codeql-action", self.all_workflows())
+
+    def test_only_approved_pinned_actions_are_used(self) -> None:
+        workflow = self.all_workflows()
+
+        actions = dict(re.findall(r"uses:\s+([^@\s]+)@([^\s#]+)", workflow))
+        self.assertEqual(
+            actions,
+            {
+                "actions/checkout": "d23441a48e516b6c34aea4fa41551a30e30af803",
+                "astral-sh/setup-uv": "08807647e7069bb48b6ef5acd8ec9567f424441b",
+                "actions/cache": "caa296126883cff596d87d8935842f9db880ef25",
+                "actions/upload-artifact": "043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+                "actions/download-artifact": "3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+                "codecov/codecov-action": "303a32d7a59b442fa8d48b6a1cc6825c09c847a5",
+            },
+        )
+        for action, revision in actions.items():
+            with self.subTest(action=action):
+                self.assertRegex(revision, r"^[0-9a-f]{40}$")
+        self.assertIn("persist-credentials: false", workflow)
+        self.assertEqual(workflow.count('version: "0.13.0"'), 2)
+        pyproject = tomllib.loads((REPOSITORY / "build/pyproject.toml").read_text(encoding="utf-8"))
+        self.assertEqual(pyproject["project"]["requires-python"], "==3.14.7")
+
     def test_release_display_name_is_the_module_and_version_for_every_module_tag(self) -> None:
-        publish_step = self.workflow().split("      - name: Publish the module release\n", 1)[1]
+        publish_step = self.main_workflow().split("      - name: Publish the module release\n", 1)[1]
         body = re.search(r"(?m)^        run: \|\n((?: {10}.*(?:\n|$))+)", publish_step)
         self.assertIsNotNone(body, "the publish step must contain a PowerShell run block")
         script = (
@@ -172,6 +348,35 @@ class WorkflowContractTests(unittest.TestCase):
                         f"packages/{module}-{version}-pdb.zip",
                     ],
                 )
+
+    def test_coverage_reports_upload_to_codecov_with_flags_and_oidc(self) -> None:
+        check = self.check_workflow()
+
+        # One reused upload step per report kind: the source stage publishes the python XML and
+        # every coverage stage publishes its own native LCOV under a per-architecture flag.
+        self.assertEqual(
+            check.count("codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5"),
+            2,
+        )
+        self.assertIn("out/native/coverage/python/coverage.xml", check)
+        self.assertIn("format('out/native/coverage/{0}/coverage.lcov', inputs.arch)", check)
+        self.assertIn("flags: python", check)
+        self.assertIn("flags: native-${{ inputs.arch }}", check)
+        self.assertEqual(check.count("disable_search: true"), 2)
+        self.assertEqual(check.count("fail_ci_if_error: true"), 2)
+        # OIDC needs a job-scoped id-token permission on the caller, never on the reusable
+        # workflow: the called workflow declares no permissions and inherits the caller grant,
+        # while fork pull requests fall back to the tokenless path instead of assuming it.
+        self.assertNotIn("permissions:", check)
+        self.assertIn("id-token: write", self.main_workflow())
+        self.assertEqual(check.count("use_oidc:"), 2)
+        self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", check)
+        # Uploads still run after a coverage gate failure, but never from a missing report.
+        self.assertIn("always()", check)
+        self.assertIn("hashFiles(", check)
+        # No custom comment bot and no secret-based fallback.
+        self.assertNotIn("secrets.", self.all_workflows())
+        self.assertNotIn("codecov-commenter", self.all_workflows())
 
 
 class RepositoryMetadataTests(unittest.TestCase):
@@ -309,6 +514,12 @@ class RepositoryMetadataTests(unittest.TestCase):
             with self.subTest(requirement=requirement):
                 self.assertIn(requirement, docs)
 
+    def test_build_documentation_documents_the_coverage_reports_and_codecov(self) -> None:
+        docs = (REPOSITORY / "docs" / "build-system.md").read_text(encoding="utf-8")
+        for token in ("coverage.xml", "coverage.lcov", "codecov.yml", "Codecov", "OIDC", "flag"):
+            with self.subTest(token=token):
+                self.assertIn(token, docs)
+
     def test_readme_links_self_contained_outputs_to_the_build_documentation(self) -> None:
         readme = self.readme
         self.assertIn("docs/build-system.md", readme)
@@ -328,6 +539,36 @@ class RepositoryMetadataTests(unittest.TestCase):
                     self.assertTrue(set(lines[1]) == {"-"})
                     self.assertTrue(any(line.lstrip().startswith(("*", "+")) for line in lines[2:]))
                     self.assertIn(f"{module}/{name}", readme)
+
+
+class CodecovConfigTests(unittest.TestCase):
+    """The Codecov policy keeps the local gates authoritative and shows the PR evidence."""
+
+    def config(self) -> str:
+        return (REPOSITORY / "codecov.yml").read_text(encoding="utf-8")
+
+    def test_project_and_patch_targets_are_exact_100_with_zero_drift(self) -> None:
+        text = self.config()
+        self.assertEqual(text.count("target: 100%"), 2)
+        self.assertEqual(text.count("threshold: 0%"), 2)
+        self.assertIn("project:", text)
+        self.assertIn("patch:", text)
+
+    def test_comment_lists_diff_flags_and_files_for_base_less_prs(self) -> None:
+        text = self.config()
+        self.assertIn('layout: "diff, flags, files"', text)
+        self.assertIn("require_changes: false", text)
+        self.assertIn("require_base: false", text)
+        self.assertIn("require_head: true", text)
+        self.assertIn("hide_project_coverage: false", text)
+
+    def test_flags_carry_no_stale_state_and_wait_for_all_three_uploads(self) -> None:
+        text = self.config()
+        self.assertNotIn("carryforward: true", text)
+        for flag in ("python", "native-x86", "native-x64"):
+            with self.subTest(flag=flag):
+                self.assertIn(flag, text)
+        self.assertIn("after_n_builds: 3", text)
 
 
 if __name__ == "__main__":

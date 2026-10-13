@@ -16,207 +16,120 @@ concurrency:
 permissions:
   contents: read
 
-env:
-  VCPKG_ROOT: C:\vcpkg
-  VCPKG_DEFAULT_BINARY_CACHE: C:\vcpkg-binary-cache
-
 jobs:
-  verification:
-    name: ${{ matrix.job }}
-    runs-on: windows-2022
-    timeout-minutes: 120
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - job: source
-            arch: none
-          - job: x86
-            arch: x86
-          - job: x64
-            arch: x64
+  # One independent slice per stage and architecture, so the slow native build of one
+  # architecture never waits on another job and each slice can fail on its own. Every slice
+  # reuses the single maintained setup workflow, and these real jobs are the required check
+  # names directly: branch protection requires each of them, with no aggregate gate re-scoring
+  # their results.
+  source-checks:
+    name: source-checks
+    uses: ./.github/workflows/ci-check.yml
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      arch: none
+      stage: source
 
-    steps:
-      - name: Check out the repository
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          persist-credentials: false
+  native-x86:
+    name: native-x86
+    uses: ./.github/workflows/ci-check.yml
+    permissions:
+      contents: read
+    with:
+      arch: x86
+      stage: native
 
-      - name: Set up uv
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
-        with:
-          version: "0.13.0"
-          enable-cache: true
-          cache-dependency-glob: build/uv.lock
-          cache-suffix: ${{ matrix.job }}
+  native-x64:
+    name: native-x64
+    uses: ./.github/workflows/ci-check.yml
+    permissions:
+      contents: read
+    with:
+      arch: x64
+      stage: native
 
-      - name: Identify the hosted runner image
-        id: runner-image
-        shell: pwsh
-        run: |
-          if ([string]::IsNullOrWhiteSpace($env:ImageOS) -or
-              [string]::IsNullOrWhiteSpace($env:ImageVersion)) {
-            throw 'GitHub runner image identity is unavailable.'
-          }
-          "identity=$($env:ImageOS)-$($env:ImageVersion)" | Add-Content -Path $env:GITHUB_OUTPUT
+  coverage-x86:
+    name: coverage-x86
+    uses: ./.github/workflows/ci-check.yml
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      arch: x86
+      stage: coverage
 
-      - name: Cache vcpkg binaries
-        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
-        with:
-          path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
-          key: vcpkg-${{ steps.runner-image.outputs.identity }}-${{ matrix.arch }}-${{ hashFiles('vcpkg.json', 'build/vcpkg/triplets/*.cmake') }}
+  coverage-x64:
+    name: coverage-x64
+    uses: ./.github/workflows/ci-check.yml
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      arch: x64
+      stage: coverage
 
-      - name: Prepare the pinned Python environment
-        shell: pwsh
-        run: |
-          "TEMP=$env:RUNNER_TEMP" | Add-Content -Path $env:GITHUB_ENV
-          "TMP=$env:RUNNER_TEMP" | Add-Content -Path $env:GITHUB_ENV
-          New-Item -ItemType Directory -Force -Path $env:VCPKG_DEFAULT_BINARY_CACHE | Out-Null
-          $baseline = (Get-Content -Raw -LiteralPath 'vcpkg.json' | ConvertFrom-Json).'builtin-baseline'
-          if ($baseline -notmatch '^[0-9a-f]{40}$') {
-            throw "Invalid vcpkg builtin baseline: $baseline"
-          }
-          git -C $env:VCPKG_ROOT cat-file -e "$baseline^{commit}" 2>$null
-          if ($LASTEXITCODE -ne 0) {
-            git -C $env:VCPKG_ROOT fetch --no-tags --depth=1 origin $baseline
-            if ($LASTEXITCODE -ne 0) {
-              throw "Unable to fetch vcpkg baseline $baseline."
-            }
-          }
-          git -C $env:VCPKG_ROOT -c advice.detachedHead=false `
-            checkout --detach --force $baseline
-          if ($LASTEXITCODE -ne 0) {
-            throw "Unable to check out vcpkg baseline $baseline."
-          }
-          & (Join-Path $env:VCPKG_ROOT 'bootstrap-vcpkg.bat') -disableMetrics
-          if ($LASTEXITCODE -ne 0) {
-            throw "Unable to bootstrap vcpkg baseline $baseline."
-          }
-          uv sync --project build --frozen
+  asan-x86:
+    name: asan-x86
+    uses: ./.github/workflows/ci-check.yml
+    permissions:
+      contents: read
+    with:
+      arch: x86
+      stage: asan
 
-      - name: Provision source-check tools
-        shell: pwsh
-        run: |
-          choco install cppcheck --version=2.19.0 --yes --no-progress
-          $cppcheck = 'C:\Program Files\Cppcheck\cppcheck.exe'
-          if (-not (Test-Path -LiteralPath $cppcheck -PathType Leaf)) {
-            throw "Cppcheck was not found after installation: $cppcheck"
-          }
-          (Split-Path -Parent $cppcheck) | Add-Content -Path $env:GITHUB_PATH
-          Install-Module PSScriptAnalyzer -RequiredVersion 1.25.0 -Repository PSGallery -Scope CurrentUser -Force
+  asan-x64:
+    name: asan-x64
+    uses: ./.github/workflows/ci-check.yml
+    permissions:
+      contents: read
+    with:
+      arch: x64
+      stage: asan
 
-      - name: Provision binary-analysis tools
-        if: matrix.job != 'source'
-        shell: pwsh
-        run: |
-          $binskimRoot = Join-Path $env:RUNNER_TEMP 'binskim'
-          nuget install Microsoft.CodeAnalysis.BinSkim -Version 4.4.9.11 `
-            -OutputDirectory $binskimRoot -DirectDownload -NonInteractive
-          $binskim = Join-Path $binskimRoot `
-            'Microsoft.CodeAnalysis.BinSkim.4.4.9.11\tools\net9.0\win-x64\BinSkim.exe'
-          if (-not (Test-Path -LiteralPath $binskim -PathType Leaf)) {
-            throw "BinSkim was not found after installation: $binskim"
-          }
-          (Split-Path -Parent $binskim) | Add-Content -Path $env:GITHUB_PATH
+  ubsan-x64:
+    name: ubsan-x64
+    uses: ./.github/workflows/ci-check.yml
+    permissions:
+      contents: read
+    with:
+      arch: x64
+      stage: ubsan
 
-      - name: Provision the x64 leak-debugging tools
-        if: matrix.job == 'x64'
-        shell: pwsh
-        run: |
-          $programFilesX86 = [Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFilesX86)
-          $umdh = Join-Path $programFilesX86 'Windows Kits\10\Debuggers\x64\umdh.exe'
-          if (-not (Test-Path -LiteralPath $umdh -PathType Leaf)) {
-            $installer = Join-Path $env:RUNNER_TEMP 'winsdksetup.exe'
-            Invoke-WebRequest -Uri 'https://go.microsoft.com/fwlink/?linkid=2349110' -OutFile $installer
-            $signature = Get-AuthenticodeSignature -LiteralPath $installer
-            if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'Microsoft') {
-              throw "Windows SDK installer signature validation failed: $($signature.Status)"
-            }
-            $process = Start-Process -FilePath $installer -ArgumentList @(
-              '/features', 'OptionId.WindowsDesktopDebuggers',
-              '/quiet', '/norestart', '/ceip', 'off'
-            ) -Wait -PassThru
-            if ($process.ExitCode -notin @(0, 3010)) {
-              throw "Windows Debugging Tools installation failed with exit code $($process.ExitCode)."
-            }
-          }
-          if (-not (Test-Path -LiteralPath $umdh -PathType Leaf)) {
-            throw "UMDH was not found after Windows Debugging Tools setup: $umdh"
-          }
+  fuzz-x86:
+    name: fuzz-x86
+    uses: ./.github/workflows/ci-check.yml
+    permissions:
+      contents: read
+    with:
+      arch: x86
+      stage: fuzz
 
-          $root = Join-Path $env:RUNNER_TEMP 'winsdk-19041'
-          $extract = Join-Path $root 'extracted'
-          $msi = Join-Path $root 'debuggers-x64.msi'
-          New-Item -ItemType Directory -Force -Path $root | Out-Null
-          Invoke-WebRequest -Uri 'https://download.microsoft.com/download/e119c04b-71aa-4067-ac3c-360c2e13d209/windowssdk/Installers/X64%20Debuggers%20And%20Tools-x64_en-us.msi' -OutFile $msi
-          $expected = '354173D844D5C061050EE2638AA94FAFB4835AC3DE836E220F6A74A992849A3B'
-          if ((Get-FileHash -LiteralPath $msi -Algorithm SHA256).Hash -ne $expected) {
-            throw 'Windows 10 Debugging Tools payload hash validation failed.'
-          }
-          $signature = Get-AuthenticodeSignature -LiteralPath $msi
-          if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'Microsoft') {
-            throw "Windows 10 Debugging Tools payload signature validation failed: $($signature.Status)"
-          }
-          $arguments = @('/a', $msi, '/qn', '/norestart', "TARGETDIR=$extract")
-          $process = Start-Process -FilePath "$env:SystemRoot\System32\msiexec.exe" -ArgumentList $arguments -Wait -PassThru
-          if ($process.ExitCode -ne 0) {
-            throw "Windows 10 Debugging Tools extraction failed with exit code $($process.ExitCode)."
-          }
-          $debuggers = Join-Path $extract 'Windows Kits\10\Debuggers\x64'
-          $umdh = Join-Path $debuggers 'umdh.exe'
-          $gflags = Join-Path $debuggers 'gflags.exe'
-          if (-not (Test-Path -LiteralPath $umdh -PathType Leaf)) {
-            throw "Windows 10 UMDH was not found after setup: $umdh"
-          }
-          if (-not (Test-Path -LiteralPath $gflags -PathType Leaf)) {
-            throw "Windows 10 GFlags was not found after setup: $gflags"
-          }
-          $version = [Diagnostics.FileVersionInfo]::GetVersionInfo($umdh).FileVersion
-          if (-not $version.StartsWith('10.0.19041.', [StringComparison]::Ordinal)) {
-            throw "Unexpected Windows 10 UMDH version: $version"
-          }
-          "UNPACKRAT_UMDH=$umdh" | Add-Content -Path $env:GITHUB_ENV
+  fuzz-x64:
+    name: fuzz-x64
+    uses: ./.github/workflows/ci-check.yml
+    permissions:
+      contents: read
+    with:
+      arch: x64
+      stage: fuzz
 
-      - name: Verify repository sources
-        if: matrix.job == 'source'
-        shell: pwsh
-        run: ./build.ps1 ci-source -Jobs 4
-
-      - name: Verify one architecture
-        if: matrix.job != 'source'
-        shell: pwsh
-        run: ./build.ps1 ci-arch -Arch '${{ matrix.arch }}' -Jobs 4
-
-      - name: Upload the Release binaries
-        if: matrix.job != 'source'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: release-${{ matrix.job }}
-          path: out/native/bin/${{ matrix.job }}/Release
-          if-no-files-found: error
-          retention-days: 30
-
-      - name: Upload the test reports
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: diagnostics-${{ matrix.job }}-reports
-          path: out/native/reports
-          if-no-files-found: warn
-          retention-days: 14
-
-      - name: Upload the coverage summaries
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: diagnostics-${{ matrix.job }}-coverage
-          path: out/native/coverage
-          if-no-files-found: warn
-          retention-days: 14
+  # The leak measurement reuses the x64 Release output this same run already built: it downloads
+  # the native-x64 artifact and never touches another run's binaries.
+  leaks-x64:
+    name: leaks-x64
+    needs: native-x64
+    uses: ./.github/workflows/ci-check.yml
+    permissions:
+      contents: read
+    with:
+      arch: x64
+      stage: leaks
 
   packaging:
     name: packaging
-    needs: verification
+    needs: [source-checks, native-x86, native-x64, coverage-x86, coverage-x64, asan-x86, asan-x64, ubsan-x64, fuzz-x86, fuzz-x64, leaks-x64]
     runs-on: windows-2022
     timeout-minutes: 30
     steps:

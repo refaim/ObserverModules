@@ -109,7 +109,8 @@ class CiArchLlvmRoutingTests(unittest.TestCase):
             _coverage=coverage,
             _sanitizer=sanitizer,
             _fuzz=fuzz,
-            _leaks=mock.Mock(),
+            _prepare_leak_probe=mock.Mock(),
+            _leak_measure=mock.Mock(),
             _audit=mock.Mock(),
             _binskim=mock.Mock(),
         ):

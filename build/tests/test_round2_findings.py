@@ -130,7 +130,8 @@ class CiArchJobsTests(unittest.TestCase):
             _coverage=mock.Mock(),
             _sanitizer=mock.Mock(),
             _fuzz=mock.Mock(),
-            _leaks=mock.Mock(),
+            _prepare_leak_probe=mock.Mock(),
+            _leak_measure=mock.Mock(),
             _audit=mock.Mock(),
             _binskim=mock.Mock(),
         ):
