@@ -1,14 +1,18 @@
 #include "observer.h"
 #include "../../api.h"
+#include "../../core/archive_limits.h"
 #include "../support/archive_fixtures.h"
 
 #include <algorithm>
 #include <array>
+#include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <format>
 #include <fstream>
 #include <iterator>
 #include <string>
+#include <system_error>
 #include <thread>
 #include <vector>
 
@@ -261,6 +265,20 @@ namespace test
 
     namespace
     {
+        // The Observer ABI declares StorageItemInfo and StorageGeneralInfo inside
+        // #pragma pack(1), so a live host may legitimately hand the module a naturally
+        // aligned outer buffer whose packed member lands on an odd address. This wrapper
+        // reproduces that layout with guard bytes on both sides of the packed member.
+        template <typename T> struct guarded_packed
+        {
+            std::byte prefix{0xA5};
+            T value{};
+            std::byte suffix{0x5A};
+        };
+
+        static_assert(offsetof(guarded_packed<StorageItemInfo>, value) == 1);
+        static_assert(offsetof(guarded_packed<StorageGeneralInfo>, value) == 1);
+
         constexpr std::uint32_t canonical_prefix = 0x00000101U;
         constexpr std::uint32_t canonical_suffix = 0x00000202U;
         constexpr std::uint32_t legacy_marker = 0x12345678U;
@@ -1127,5 +1145,561 @@ namespace test
         REQUIRE(extracted.is_open());
         const std::string actual_payload{std::istreambuf_iterator<char>(extracted), std::istreambuf_iterator<char>()};
         REQUIRE(actual_payload == expected_payload);
+    }
+
+    namespace
+    {
+        [[nodiscard]] std::wstring utf8_to_wide(const std::string &text)
+        {
+            const auto source_size = static_cast<int>(text.size());
+            const auto wide_size = MultiByteToWideChar(CP_UTF8, 0, text.c_str(), source_size, nullptr, 0);
+            REQUIRE(wide_size > 0);
+            std::wstring wide(static_cast<std::size_t>(wide_size), L'\0');
+            REQUIRE(MultiByteToWideChar(CP_UTF8, 0, text.c_str(), source_size, wide.data(), wide_size) == wide_size);
+            return wide;
+        }
+
+        [[nodiscard]] std::string read_binary_file(const std::filesystem::path &path)
+        {
+            std::ifstream input(path, std::ios::binary);
+            REQUIRE(input.is_open());
+            return {std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
+        }
+
+        // Mirrors c_module::open: the Observer host hands the module the leading archive bytes.
+        [[nodiscard]] std::string read_sniff_prefix(const std::filesystem::path &path)
+        {
+            std::ifstream input(path, std::ios::binary);
+            REQUIRE(input.is_open());
+            std::string buffer(std::size_t{128} * 1024, '\0');
+            input.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
+            buffer.resize(static_cast<std::size_t>(input.gcount()));
+            return buffer;
+        }
+
+        [[nodiscard]] int open_with_prefix(c_module &loaded, const std::filesystem::path &path,
+                                           const std::string &prefix, HANDLE *storage, StorageGeneralInfo &info)
+        {
+            StorageOpenParams params{
+                .StructSize = sizeof(StorageOpenParams),
+                .FilePath = path.c_str(),
+                .Password = nullptr,
+                .Data = prefix.data(),
+                .DataSize = prefix.size(),
+            };
+            return loaded.api().OpenStorage(params, storage, &info);
+        }
+
+        [[nodiscard]] HANDLE open_without_data(c_module &loaded, const std::filesystem::path &path,
+                                               StorageGeneralInfo &info)
+        {
+            StorageOpenParams params{
+                .StructSize = sizeof(StorageOpenParams),
+                .FilePath = path.c_str(),
+                .Password = nullptr,
+                .Data = nullptr,
+                .DataSize = 0,
+            };
+            HANDLE storage = nullptr;
+            REQUIRE(loaded.api().OpenStorage(params, &storage, &info) == SOR_SUCCESS);
+            REQUIRE(storage != nullptr);
+            return storage;
+        }
+
+        [[nodiscard]] std::string extract_item(c_module &loaded, const int index, const std::filesystem::path &source)
+        {
+            const std::filesystem::path destination(source.wstring() + L".legacy.out");
+            std::error_code error;
+            std::filesystem::remove(destination, error);
+            REQUIRE(loaded.extract_file_status(index, destination, [](void *, int64_t) { return TRUE; }) ==
+                    SER_SUCCESS);
+            const auto contents = read_binary_file(destination);
+            std::filesystem::remove(destination, error);
+            return contents;
+        }
+    } // namespace
+
+    TEST_CASE("module ABI: RPG Maker reports the generation in a complete sniffed header", "[contract]")
+    {
+        const struct generation
+        {
+            support::byte_buffer contents;
+            const wchar_t *format;
+            const wchar_t *comment;
+        } generations[]{
+            {support::make_rpgmaker_legacy_archive("Data\\generation.txt", "payload"), L"RGSS", L"RPG Maker XP/VX"},
+            {support::make_rpgmaker_archive("Data\\generation.txt", "payload"), L"RGSS3", L"RPG Maker VX Ace"},
+        };
+
+        for (const auto &generation : generations) {
+            CAPTURE(generation.format);
+            const support::temporary_archive archive("rpgmaker-generation-info", generation.contents);
+            c_module loaded("rpgmaker.so");
+            const auto prefix = read_sniff_prefix(archive.path());
+            alignas(std::max_align_t) StorageGeneralInfo info{};
+            HANDLE storage = nullptr;
+            REQUIRE(open_with_prefix(loaded, archive.path(), prefix, &storage, info) == SOR_SUCCESS);
+            REQUIRE(storage != nullptr);
+            REQUIRE(std::wstring(info.Format) == std::wstring(generation.format));
+            REQUIRE(std::wstring(info.Compression) == std::wstring(L"-"));
+            REQUIRE(std::wstring(info.Comment) == std::wstring(generation.comment));
+            loaded.api().CloseStorage(storage);
+        }
+    }
+
+    TEST_CASE("module ABI: RPG Maker reports generic metadata without a sniffed header", "[contract]")
+    {
+        const support::temporary_archive archive("rpgmaker-no-sniff-info",
+                                                 support::make_rpgmaker_legacy_archive("Data\\only.txt", "x"));
+        c_module loaded("rpgmaker.so");
+        alignas(std::max_align_t) StorageGeneralInfo info{};
+        const HANDLE storage = open_without_data(loaded, archive.path(), info);
+        REQUIRE(std::wstring(info.Format) == std::wstring(L"RPG Maker"));
+        REQUIRE(std::wstring(info.Compression) == std::wstring(L"-"));
+        REQUIRE(std::wstring(info.Comment) == std::wstring(L"RPG Maker archive"));
+        loaded.api().CloseStorage(storage);
+    }
+
+    TEST_CASE("module ABI: RPG Maker parses the real header when a sniffed header disagrees", "[contract]")
+    {
+        {
+            const support::temporary_archive actual("rpgmaker-actual-v3-sniff-v1",
+                                                    support::make_rpgmaker_archive("Data\\ace.txt", "ace"));
+            c_module loaded("rpgmaker.so");
+            const std::string prefix{static_cast<char>('R'),
+                                     static_cast<char>('G'),
+                                     static_cast<char>('S'),
+                                     static_cast<char>('S'),
+                                     static_cast<char>('A'),
+                                     static_cast<char>('D'),
+                                     '\0',
+                                     '\1'};
+            alignas(std::max_align_t) StorageGeneralInfo info{};
+            HANDLE storage = nullptr;
+            REQUIRE(open_with_prefix(loaded, actual.path(), prefix, &storage, info) == SOR_SUCCESS);
+            REQUIRE(storage != nullptr);
+            REQUIRE(std::wstring(info.Format) == std::wstring(L"RGSS"));
+            REQUIRE(loaded.api().PrepareFiles(storage) == TRUE);
+            alignas(std::max_align_t) StorageItemInfo item{};
+            REQUIRE(loaded.api().GetItem(storage, 0, &item) == GET_ITEM_OK);
+            REQUIRE(std::wstring(item.Path) == std::wstring(L"Data\\ace.txt"));
+            loaded.api().CloseStorage(storage);
+        }
+        {
+            const support::temporary_archive actual("rpgmaker-actual-v1-sniff-v3",
+                                                    support::make_rpgmaker_legacy_archive("Data\\legacy.txt", "x"));
+            c_module loaded("rpgmaker.so");
+            const std::string prefix{static_cast<char>('R'),
+                                     static_cast<char>('G'),
+                                     static_cast<char>('S'),
+                                     static_cast<char>('S'),
+                                     static_cast<char>('A'),
+                                     static_cast<char>('D'),
+                                     '\0',
+                                     '\3'};
+            alignas(std::max_align_t) StorageGeneralInfo info{};
+            HANDLE storage = nullptr;
+            REQUIRE(open_with_prefix(loaded, actual.path(), prefix, &storage, info) == SOR_SUCCESS);
+            REQUIRE(storage != nullptr);
+            REQUIRE(std::wstring(info.Format) == std::wstring(L"RGSS3"));
+            REQUIRE(loaded.api().PrepareFiles(storage) == TRUE);
+            alignas(std::max_align_t) StorageItemInfo item{};
+            REQUIRE(loaded.api().GetItem(storage, 0, &item) == GET_ITEM_OK);
+            REQUIRE(std::wstring(item.Path) == std::wstring(L"Data\\legacy.txt"));
+            REQUIRE(item.Size == 1);
+            REQUIRE(item.PackedSize == 1);
+            loaded.api().CloseStorage(storage);
+        }
+    }
+
+    TEST_CASE("module ABI: RPG Maker rejects an invalid real stream masked by a valid sniffed header", "[contract]")
+    {
+        struct invalid_stream
+        {
+            support::byte_buffer contents;
+            const char *label;
+        };
+
+        support::byte_buffer wrong_prefix = support::make_rpgmaker_legacy_archive("Data\\masked.txt", "payload");
+        wrong_prefix[0] = static_cast<std::uint8_t>('X');
+        const std::array invalid_streams{
+            invalid_stream{std::move(wrong_prefix), "rpgmaker-masked-wrong-prefix"},
+            invalid_stream{
+                support::make_rpgmaker_legacy_archive("Data\\masked.txt", "payload", static_cast<std::uint8_t>(2)),
+                "rpgmaker-masked-unsupported-version",
+            },
+        };
+        const std::string prefix{static_cast<char>('R'),
+                                 static_cast<char>('G'),
+                                 static_cast<char>('S'),
+                                 static_cast<char>('S'),
+                                 static_cast<char>('A'),
+                                 static_cast<char>('D'),
+                                 '\0',
+                                 '\1'};
+
+        for (const auto &stream : invalid_streams) {
+            CAPTURE(stream.label);
+            const support::temporary_archive archive(stream.label, stream.contents);
+            c_module loaded("rpgmaker.so");
+            alignas(std::max_align_t) StorageGeneralInfo info{};
+            HANDLE storage = nullptr;
+            REQUIRE(open_with_prefix(loaded, archive.path(), prefix, &storage, info) == SOR_SUCCESS);
+            REQUIRE(storage != nullptr);
+            REQUIRE(loaded.api().PrepareFiles(storage) == FALSE);
+            loaded.api().CloseStorage(storage);
+        }
+    }
+
+    TEST_CASE("module ABI: RPG Maker legacy v1 archives enumerate and extract", "[contract]")
+    {
+        const std::string first = "rpgmaker xp payload one";
+        const std::string second(5'000, 'B');
+        const std::string empty;
+        const std::string third = "tail";
+        const std::array entries{
+            support::rpgmaker_entry{"Data\\hello.txt", first},
+            support::rpgmaker_entry{"Graphics\\deep\\picture.bin", second},
+            support::rpgmaker_entry{"Data\\empty.txt", empty},
+            support::rpgmaker_entry{"Data\\tail.dat", third},
+        };
+        const support::temporary_archive archive("rpgmaker-legacy-entries",
+                                                 support::make_rpgmaker_legacy_archive(entries));
+        c_module loaded("rpgmaker.so");
+        REQUIRE(loaded.open(archive.path()));
+        REQUIRE(loaded.api().PrepareFiles(loaded.storage()) == TRUE);
+        REQUIRE(loaded.api().PrepareFiles(loaded.storage()) == TRUE);
+
+        for (std::size_t index = 0; index < entries.size(); ++index) {
+            CAPTURE(index);
+            alignas(std::max_align_t) StorageItemInfo item{};
+            REQUIRE(loaded.api().GetItem(loaded.storage(), static_cast<int>(index), &item) == GET_ITEM_OK);
+            REQUIRE(std::wstring(item.Path) == utf8_to_wide(entries[index].path));
+            REQUIRE(item.Size == static_cast<int64_t>(entries[index].payload.size()));
+            REQUIRE(item.PackedSize == static_cast<int64_t>(entries[index].payload.size()));
+        }
+        alignas(std::max_align_t) StorageItemInfo extra{};
+        REQUIRE(loaded.api().GetItem(loaded.storage(), static_cast<int>(entries.size()), &extra) ==
+                GET_ITEM_NOMOREITEMS);
+
+        // Repeated and out-of-order extraction: every entry restarts from its own body seed.
+        REQUIRE(extract_item(loaded, 3, archive.path()) == third);
+        REQUIRE(extract_item(loaded, 0, archive.path()) == first);
+        REQUIRE(extract_item(loaded, 3, archive.path()) == third);
+        REQUIRE(extract_item(loaded, 1, archive.path()) == second);
+        REQUIRE(extract_item(loaded, 2, archive.path()) == empty);
+    }
+
+    TEST_CASE("module ABI: RPG Maker legacy reads the real stream header without params.Data", "[contract]")
+    {
+        const std::string payload = "stream payload";
+        const support::temporary_archive archive("rpgmaker-legacy-stream-header",
+                                                 support::make_rpgmaker_legacy_archive("Data\\only.txt", payload));
+        c_module loaded("rpgmaker.so");
+        alignas(std::max_align_t) StorageGeneralInfo info{};
+        const HANDLE storage = open_without_data(loaded, archive.path(), info);
+        REQUIRE(loaded.api().PrepareFiles(storage) == TRUE);
+        alignas(std::max_align_t) StorageItemInfo item{};
+        REQUIRE(loaded.api().GetItem(storage, 0, &item) == GET_ITEM_OK);
+        REQUIRE(std::wstring(item.Path) == std::wstring(L"Data\\only.txt"));
+        REQUIRE(item.Size == static_cast<int64_t>(payload.size()));
+        loaded.api().CloseStorage(storage);
+    }
+
+    TEST_CASE("module ABI: RPG Maker rejects unsupported legacy header versions", "[contract]")
+    {
+        const std::array versions{std::uint8_t{0}, std::uint8_t{2}, std::uint8_t{4}, std::uint8_t{255}};
+        for (const auto version : versions) {
+            CAPTURE(static_cast<int>(version));
+            const support::temporary_archive archive("rpgmaker-legacy-version",
+                                                     support::make_rpgmaker_legacy_archive("a\\b.txt", "x", version));
+            c_module loaded("rpgmaker.so");
+
+            const auto prefix = read_sniff_prefix(archive.path());
+            HANDLE sniffed = nullptr;
+            alignas(std::max_align_t) StorageGeneralInfo sniff_info{};
+            REQUIRE(open_with_prefix(loaded, archive.path(), prefix, &sniffed, sniff_info) == SOR_INVALID_FILE);
+            REQUIRE(sniffed == nullptr);
+
+            // Without a sniff buffer the real stream header is validated at PrepareFiles instead.
+            alignas(std::max_align_t) StorageGeneralInfo stream_info{};
+            const HANDLE storage = open_without_data(loaded, archive.path(), stream_info);
+            REQUIRE(loaded.api().PrepareFiles(storage) == FALSE);
+            loaded.api().CloseStorage(storage);
+        }
+    }
+
+    TEST_CASE("module ABI: RPG Maker rejects malformed and truncated legacy headers", "[contract]")
+    {
+        const std::array cases{
+            support::byte_buffer{'R'},
+            support::byte_buffer{'R', 'G', 'S', 'S', 'A'},
+            support::byte_buffer{'R', 'G', 'S', 'S', 'A', 'D', 0x00},
+            support::byte_buffer{'R', 'G', 'S', 'S', 'A', 'E', 0x00, 0x01},
+            support::byte_buffer{'r', 'g', 's', 's', 'a', 'd', 0x00, 0x01},
+            support::byte_buffer{0, 0, 0, 0, 0, 0, 0, 0},
+        };
+        for (const auto &contents : cases) {
+            const support::temporary_archive archive("rpgmaker-legacy-malformed", contents);
+            c_module loaded("rpgmaker.so");
+
+            const auto prefix = read_sniff_prefix(archive.path());
+            HANDLE sniffed = nullptr;
+            alignas(std::max_align_t) StorageGeneralInfo sniff_info{};
+            REQUIRE(open_with_prefix(loaded, archive.path(), prefix, &sniffed, sniff_info) == SOR_INVALID_FILE);
+            REQUIRE(sniffed == nullptr);
+
+            alignas(std::max_align_t) StorageGeneralInfo stream_info{};
+            const HANDLE storage = open_without_data(loaded, archive.path(), stream_info);
+            REQUIRE(loaded.api().PrepareFiles(storage) == FALSE);
+            loaded.api().CloseStorage(storage);
+        }
+    }
+
+    TEST_CASE("module ABI: RPG Maker accepts a header-only legacy archive as empty", "[contract]")
+    {
+        const support::temporary_archive archive(
+            "rpgmaker-legacy-empty", support::make_rpgmaker_legacy_header(support::rpgmaker_legacy_version));
+        c_module loaded("rpgmaker.so");
+        REQUIRE(loaded.open(archive.path()));
+        REQUIRE(loaded.api().PrepareFiles(loaded.storage()) == TRUE);
+        alignas(std::max_align_t) StorageItemInfo item{};
+        REQUIRE(loaded.api().GetItem(loaded.storage(), 0, &item) == GET_ITEM_NOMOREITEMS);
+    }
+
+    TEST_CASE("module ABI: RPG Maker repeats PrepareFiles on empty archives", "[contract]")
+    {
+        // A repeated PrepareFiles must restart from the stream header rather than continue at the
+        // position the previous listing left behind, because an empty archive caches no items and
+        // the archive wrapper re-parses on every call.
+        const struct empty_archive
+        {
+            support::byte_buffer contents;
+            const char *label;
+        } archives[]{
+            {support::make_rpgmaker_legacy_header(support::rpgmaker_legacy_version), "rpgmaker-legacy-empty-repeat"},
+            {support::byte_buffer{'R', 'G', 'S', 'S', 'A', 'D', 0x00, 0x03, 0, 0, 0, 0, 3, 0, 0, 0},
+             "rpgmaker-ace-empty-repeat"},
+        };
+
+        for (const auto &candidate : archives) {
+            CAPTURE(candidate.label);
+            const support::temporary_archive archive(candidate.label, candidate.contents);
+            c_module loaded("rpgmaker.so");
+            REQUIRE(loaded.open(archive.path()));
+            REQUIRE(loaded.api().PrepareFiles(loaded.storage()) == TRUE);
+            REQUIRE(loaded.api().PrepareFiles(loaded.storage()) == TRUE);
+            REQUIRE(loaded.api().PrepareFiles(loaded.storage()) == TRUE);
+            alignas(std::max_align_t) StorageItemInfo item{};
+            REQUIRE(loaded.api().GetItem(loaded.storage(), 0, &item) == GET_ITEM_NOMOREITEMS);
+        }
+    }
+
+    TEST_CASE("module ABI: RPG Maker rejects truncated legacy metadata", "[contract]")
+    {
+        const auto complete = support::make_rpgmaker_legacy_archive("Data\\hello.txt", "payload");
+        constexpr std::size_t header_size = 8;
+        constexpr std::size_t name_size = 14; // "Data\\hello.txt"
+
+        const auto expect_rejected = [](const std::string_view label, const support::byte_buffer &contents) {
+            const support::temporary_archive archive(label, contents);
+            c_module loaded("rpgmaker.so");
+            REQUIRE(loaded.open(archive.path()));
+            REQUIRE(loaded.api().PrepareFiles(loaded.storage()) == FALSE);
+        };
+
+        {
+            support::byte_buffer partial = support::make_rpgmaker_legacy_header(support::rpgmaker_legacy_version);
+            partial.insert(partial.end(), 3, 0x00); // partial name-length field
+            expect_rejected("rpgmaker-legacy-partial-length", partial);
+        }
+        {
+            support::byte_buffer truncated(complete);
+            truncated.resize(header_size + 4 + name_size + 2); // complete name, partial size field
+            expect_rejected("rpgmaker-legacy-partial-size", truncated);
+        }
+        {
+            support::byte_buffer truncated(complete);
+            truncated.resize(header_size + 4 + 5); // name-length claims a longer name than the stream holds
+            expect_rejected("rpgmaker-legacy-name-past-eof", truncated);
+        }
+    }
+
+    TEST_CASE("module ABI: RPG Maker rejects a legacy body that overruns the stream", "[contract]")
+    {
+        const auto complete = support::make_rpgmaker_legacy_archive("Data\\body.bin", std::string(64, 'x'));
+        support::byte_buffer truncated(complete);
+        truncated.resize(truncated.size() - 20); // declared 64-byte body is 20 bytes short
+
+        const support::temporary_archive archive("rpgmaker-legacy-short-body", truncated);
+        c_module loaded("rpgmaker.so");
+        REQUIRE(loaded.open(archive.path()));
+        REQUIRE(loaded.api().PrepareFiles(loaded.storage()) == FALSE);
+    }
+
+    TEST_CASE("module ABI: RPG Maker rejects a legacy name beyond its resource budget", "[contract]")
+    {
+        const std::string oversized(unpackrat::archive_limits::max_path_bytes + 1, 'a');
+        const support::temporary_archive archive("rpgmaker-legacy-path-budget",
+                                                 support::make_rpgmaker_legacy_archive(oversized, "payload"));
+        c_module loaded("rpgmaker.so");
+        REQUIRE(loaded.open(archive.path()));
+        REQUIRE(loaded.api().PrepareFiles(loaded.storage()) == FALSE);
+    }
+
+    TEST_CASE("module ABI: RPG Maker legacy names honour the ABI path capacity", "[contract]")
+    {
+        {
+            const std::string fitting(std::size_t{1023}, 'n');
+            const support::temporary_archive archive("rpgmaker-legacy-path-fit",
+                                                     support::make_rpgmaker_legacy_archive(fitting, "payload"));
+            c_module loaded("rpgmaker.so");
+            REQUIRE(loaded.open(archive.path()));
+            REQUIRE(loaded.api().PrepareFiles(loaded.storage()) == TRUE);
+            alignas(std::max_align_t) StorageItemInfo item{};
+            REQUIRE(loaded.api().GetItem(loaded.storage(), 0, &item) == GET_ITEM_OK);
+            REQUIRE(wcslen(item.Path) == std::size_t{1023});
+        }
+        {
+            const std::string overflowing(std::size_t{1024}, 'n');
+            const support::temporary_archive archive("rpgmaker-legacy-path-overflow",
+                                                     support::make_rpgmaker_legacy_archive(overflowing, "payload"));
+            c_module loaded("rpgmaker.so");
+            REQUIRE(loaded.open(archive.path()));
+            REQUIRE(loaded.api().PrepareFiles(loaded.storage()) == TRUE);
+            alignas(std::max_align_t) StorageItemInfo item{};
+            REQUIRE(loaded.api().GetItem(loaded.storage(), 0, &item) == GET_ITEM_ERROR);
+        }
+    }
+
+    TEST_CASE("module ABI: RPG Maker rejects legacy empty and embedded-NUL names", "[contract]")
+    {
+        const auto expect_rejected = [](const std::string_view label, const support::byte_buffer &contents) {
+            const support::temporary_archive archive(label, contents);
+            c_module loaded("rpgmaker.so");
+            REQUIRE(loaded.open(archive.path()));
+            REQUIRE(loaded.api().PrepareFiles(loaded.storage()) == FALSE);
+        };
+
+        expect_rejected("rpgmaker-legacy-empty-name",
+                        support::make_rpgmaker_legacy_archive(std::string_view{}, "payload"));
+        expect_rejected("rpgmaker-legacy-nul-name",
+                        support::make_rpgmaker_legacy_archive(std::string_view("a\0b", 3), "payload"));
+    }
+
+    TEST_CASE("module ABI: RPG Maker legacy preserves non-ASCII UTF-8 names", "[contract]")
+    {
+        const std::string path = "Data\\caf\xC3\xA9-\xE6\x97\xA5.txt";
+        const support::temporary_archive archive("rpgmaker-legacy-unicode",
+                                                 support::make_rpgmaker_legacy_archive(path, "unicode payload"));
+        c_module loaded("rpgmaker.so");
+        REQUIRE(loaded.open(archive.path()));
+        REQUIRE(loaded.api().PrepareFiles(loaded.storage()) == TRUE);
+        alignas(std::max_align_t) StorageItemInfo item{};
+        REQUIRE(loaded.api().GetItem(loaded.storage(), 0, &item) == GET_ITEM_OK);
+        REQUIRE(std::wstring(item.Path) == utf8_to_wide(path));
+        REQUIRE(extract_item(loaded, 0, archive.path()) == "unicode payload");
+    }
+
+    TEST_CASE("module ABI: RPG Maker legacy bounds the entry count", "[contract]")
+    {
+        const auto build = [](const std::size_t count) {
+            std::vector<support::rpgmaker_entry> entries;
+            entries.reserve(count);
+            for (std::size_t index = 0; index < count; ++index) {
+                entries.push_back({std::format("d{:05}", index), {}});
+            }
+            return support::make_rpgmaker_legacy_archive(entries);
+        };
+
+        const support::temporary_archive within("rpgmaker-legacy-count-limit",
+                                                build(unpackrat::archive_limits::max_entry_count));
+        c_module loaded("rpgmaker.so");
+        REQUIRE(loaded.open(within.path()));
+        REQUIRE(loaded.api().PrepareFiles(loaded.storage()) == TRUE);
+        alignas(std::max_align_t) StorageItemInfo item{};
+        REQUIRE(loaded.api().GetItem(loaded.storage(), 0, &item) == GET_ITEM_OK);
+        REQUIRE(loaded.api().GetItem(loaded.storage(), static_cast<int>(unpackrat::archive_limits::max_entry_count) - 1,
+                                     &item) == GET_ITEM_OK);
+        REQUIRE(loaded.api().GetItem(loaded.storage(), static_cast<int>(unpackrat::archive_limits::max_entry_count),
+                                     &item) == GET_ITEM_NOMOREITEMS);
+
+        const support::temporary_archive beyond("rpgmaker-legacy-count-over",
+                                                build(unpackrat::archive_limits::max_entry_count + 1));
+        c_module over_loaded("rpgmaker.so");
+        REQUIRE(over_loaded.open(beyond.path()));
+        REQUIRE(over_loaded.api().PrepareFiles(over_loaded.storage()) == FALSE);
+    }
+
+    TEST_CASE("module ABI: aligned staging preserves odd packed output buffers", "[contract]")
+    {
+        const std::string payload = "payload";
+        const std::wstring expected_path = L"data\\entry.txt";
+
+        const struct module_case
+        {
+            const char *module_name;
+            support::byte_buffer contents;
+        } cases[]{
+            {"renpy.so", support::make_renpy_archive("data\\entry.txt", payload)},
+            {"rpgmaker.so", support::make_rpgmaker_archive("data\\entry.txt", payload)},
+            {"zanzarah.so", support::make_zanzarah_archive("data\\entry.txt", payload)},
+        };
+
+        for (const auto &entry : cases) {
+            CAPTURE(entry.module_name);
+            const support::temporary_archive archive(entry.module_name, entry.contents);
+            c_module loaded(entry.module_name);
+            const auto &api = loaded.api();
+
+            const std::string sniff = read_sniff_prefix(archive.path());
+            StorageOpenParams params{
+                .StructSize = sizeof(StorageOpenParams),
+                .FilePath = archive.path().c_str(),
+                .Password = nullptr,
+                .Data = sniff.data(),
+                .DataSize = sniff.size(),
+            };
+
+            alignas(std::max_align_t) guarded_packed<StorageGeneralInfo> guarded_general{};
+            alignas(std::max_align_t) guarded_packed<StorageItemInfo> guarded_item{};
+
+            HANDLE raw_storage = nullptr;
+            const int open_status = api.OpenStorage(params, &raw_storage, &guarded_general.value);
+            const std::unique_ptr<void, CloseStorageFunc> storage(raw_storage, api.CloseStorage);
+            REQUIRE(open_status == SOR_SUCCESS);
+            REQUIRE(raw_storage != nullptr);
+
+            REQUIRE(api.PrepareFiles(storage.get()) == TRUE);
+            REQUIRE(api.GetItem(storage.get(), 0, &guarded_item.value) == GET_ITEM_OK);
+
+            REQUIRE(guarded_general.prefix == std::byte{0xA5});
+            REQUIRE(guarded_general.suffix == std::byte{0x5A});
+            REQUIRE(guarded_item.prefix == std::byte{0xA5});
+            REQUIRE(guarded_item.suffix == std::byte{0x5A});
+
+            alignas(std::max_align_t) StorageGeneralInfo general{};
+            alignas(std::max_align_t) StorageItemInfo item{};
+            std::memcpy(&general, &guarded_general.value, sizeof(general));
+            std::memcpy(&item, &guarded_item.value, sizeof(item));
+
+            REQUIRE(wcslen(general.Format) > 0);
+            REQUIRE(wcslen(general.Format) < STORAGE_FORMAT_NAME_MAX_LEN);
+            REQUIRE(general.Created.dwLowDateTime == 0);
+            REQUIRE(general.Created.dwHighDateTime == 0);
+
+            REQUIRE(std::wstring(item.Path) == expected_path);
+            REQUIRE(wcslen(item.Path) == expected_path.size());
+            REQUIRE(item.Size == static_cast<__int64>(payload.size()));
+            REQUIRE(item.PackedSize == static_cast<__int64>(payload.size()));
+            REQUIRE(item.Attributes == FILE_ATTRIBUTE_NORMAL);
+            REQUIRE(item.NumHardlinks == 0);
+            REQUIRE(item.CreationTime.dwLowDateTime == 0);
+            REQUIRE(item.CreationTime.dwHighDateTime == 0);
+            REQUIRE(item.ModificationTime.dwLowDateTime == 0);
+            REQUIRE(item.ModificationTime.dwHighDateTime == 0);
+            REQUIRE(std::all_of(std::begin(item.Owner), std::end(item.Owner),
+                                [](const wchar_t character) { return character == L'\0'; }));
+        }
     }
 } // namespace test

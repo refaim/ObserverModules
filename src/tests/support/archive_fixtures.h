@@ -36,6 +36,24 @@ namespace test::support
     [[nodiscard]] byte_buffer make_zanzarah_archive(std::string_view path, std::string_view payload);
     [[nodiscard]] byte_buffer make_zanzarah_archive_with_entries(std::size_t entry_count);
 
+    struct rpgmaker_entry final
+    {
+        std::string path;
+        std::string payload;
+    };
+
+    // Native RPG Maker XP (.rgssad) and VX (.rgss2a) archives share one legacy layout: an eight
+    // byte "RGSSAD\0\1" header followed by inline entries whose metadata and bodies are keyed from
+    // 0xDEADCAFE. Version 1 is the only legacy revision unpackrat accepts; the tool specific
+    // version 2 stays rejected while VX Ace version 3 keeps its separate table format.
+    inline constexpr std::uint8_t rpgmaker_legacy_version = 1;
+
+    [[nodiscard]] byte_buffer make_rpgmaker_legacy_header(std::uint8_t version);
+    [[nodiscard]] byte_buffer make_rpgmaker_legacy_archive(std::span<const rpgmaker_entry> entries,
+                                                           std::uint8_t version = rpgmaker_legacy_version);
+    [[nodiscard]] byte_buffer make_rpgmaker_legacy_archive(std::string_view path, std::string_view payload,
+                                                           std::uint8_t version = rpgmaker_legacy_version);
+
     class temporary_archive final
     {
       public:

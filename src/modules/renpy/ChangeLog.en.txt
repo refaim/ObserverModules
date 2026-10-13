@@ -1,3 +1,8 @@
+Version 3.1.2
+-------------
+ * Fixed misaligned access to the packed Observer output buffer written when reporting general archive information.
+ * Fixed misaligned access to the packed Observer output buffer written when listing archive entries.
+
 Version 3.1.1
 -------------
  * Fixed unaligned path access when opening archives through Observer.

@@ -48,3 +48,28 @@ TEST_CASE("rpgmaker: WarlockAndBoobs_v0.422.0.1", "[compatibility][.]")
 {
     test_external_archive("rpgmaker\\WarlockAndBoobs_v0.422.0.1.rgss3a");
 }
+
+TEST_CASE("rpgmaker: Emmerzail_v0.93a", "[compatibility][.]")
+{
+    test_external_archive("rpgmaker\\Emmerzail_v0.93a.rgss2a");
+}
+
+TEST_CASE("rpgmaker: FBSD_v1.1_EN", "[compatibility][.]")
+{
+    test_external_archive("rpgmaker\\FBSD_v1.1_EN.rgss2a");
+}
+
+TEST_CASE("rpgmaker: FBSD_v1.1_JP", "[compatibility][.]")
+{
+    test_external_archive("rpgmaker\\FBSD_v1.1_JP.rgss2a");
+}
+
+TEST_CASE("rpgmaker: FBSD_v1.1_KOR", "[compatibility][.]")
+{
+    test_external_archive("rpgmaker\\FBSD_v1.1_KOR.rgss2a");
+}
+
+TEST_CASE("rpgmaker: VitaminPlus", "[compatibility][.]")
+{
+    test_external_archive("rpgmaker\\VitaminPlus.rgss2a");
+}
