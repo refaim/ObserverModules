@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import re
+import subprocess
+import tempfile
+import textwrap
 import tomllib
 import unittest
 
@@ -105,7 +109,10 @@ class WorkflowContractTests(unittest.TestCase):
         # The release names exactly the three archives of the tagged module as literal paths and
         # publishes them in one `gh release create` with the human change log notes. There is no
         # glob, no count and no self-validation: a missing path is left to gh's own error.
-        self.assertIn("gh release create $env:GITHUB_REF_NAME --verify-tag --notes-file $notes @archives", workflow)
+        self.assertIn(
+            'gh release create $env:GITHUB_REF_NAME --verify-tag --title "$module $version" --notes-file $notes @archives',
+            workflow,
+        )
         self.assertNotIn("--generate-notes", workflow)
         self.assertIn("GH_TOKEN: ${{ github.token }}", workflow)
         self.assertEqual(workflow.count("GH_TOKEN: ${{ github.token }}"), 1)
@@ -119,6 +126,52 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertNotIn("Get-ChildItem", workflow)
         self.assertNotIn("$archives.Count", workflow)
         self.assertNotIn("VERSION", workflow)
+
+    def test_release_display_name_is_the_module_and_version_for_every_module_tag(self) -> None:
+        publish_step = self.workflow().split("      - name: Publish the module release\n", 1)[1]
+        body = re.search(r"(?m)^        run: \|\n((?: {10}.*(?:\n|$))+)", publish_step)
+        self.assertIsNotNone(body, "the publish step must contain a PowerShell run block")
+        script = (
+            "$ErrorActionPreference = 'Stop'\n"
+            "function gh {\n"
+            "  ConvertTo-Json -InputObject @($args) -Compress | "
+            "Set-Content -LiteralPath $env:GH_ARGS_FILE -Encoding utf8\n"
+            "  $global:LASTEXITCODE = 0\n"
+            "}\n"
+            + textwrap.dedent(body[1])
+        )
+        for module in ("renpy", "rpgmaker", "zanzarah"):
+            with self.subTest(module=module), tempfile.TemporaryDirectory() as temporary:
+                version = (REPOSITORY / "src/modules" / module / "VERSION").read_text(encoding="utf-8").strip()
+                runner_temp = Path(temporary)
+                script_path = runner_temp / "release.ps1"
+                script_path.write_text(script, encoding="utf-8")
+                args_path = runner_temp / "gh-args.json"
+                completed = subprocess.run(
+                    ["pwsh", "-NoLogo", "-NoProfile", "-NonInteractive", "-File", str(script_path)],
+                    cwd=REPOSITORY,
+                    env={
+                        **os.environ,
+                        "GITHUB_REF_NAME": f"{module}/v{version}",
+                        "RUNNER_TEMP": temporary,
+                        "GH_ARGS_FILE": str(args_path),
+                    },
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                )
+                self.assertEqual(completed.returncode, 0, completed.stderr or completed.stdout)
+                recorded = json.loads(args_path.read_text(encoding="utf-8-sig"))
+                self.assertEqual(
+                    recorded,
+                    [
+                        "release", "create", f"{module}/v{version}", "--verify-tag",
+                        "--title", f"{module} {version}", "--notes-file", str(runner_temp / "notes.md"),
+                        f"packages/{module}-{version}-bin-x64.zip",
+                        f"packages/{module}-{version}-bin-x86.zip",
+                        f"packages/{module}-{version}-pdb.zip",
+                    ],
+                )
 
 
 class RepositoryMetadataTests(unittest.TestCase):
@@ -196,12 +249,20 @@ class RepositoryMetadataTests(unittest.TestCase):
         self.assertIn("## Download", readme)
         self.assertLess(readme.index("## Download"), readme.index("## License"))
 
-    def test_readme_download_table_names_declared_versions_and_release_lines(self) -> None:
+    def test_readme_download_table_links_to_each_modules_published_releases(self) -> None:
         readme = self.readme
-        for module, version in (("renpy", "3.1.0"), ("rpgmaker", "1.1.0"), ("zanzarah", "2.1.0")):
+        for module in self.MODULES:
             with self.subTest(module=module):
-                self.assertIn(version, readme)
-                self.assertIn(f"https://github.com/refaim/ObserverModules/releases?q={module}%2Fv", readme)
+                self.assertIn(f"https://github.com/refaim/unpackrat/releases?q={module})", readme)
+        self.assertNotIn("refaim/ObserverModules", readme)
+        self.assertIn("| Module | Formats | Release | ChangeLog |", readme)
+        self.assertNotIn("| Version |", readme)
+        self.assertNotIn("current sources build", readme)
+        self.assertIn("newest published release", " ".join(readme.split()))
+
+    def test_readme_ci_badge_and_link_use_the_canonical_repository(self) -> None:
+        workflow_url = "https://github.com/refaim/unpackrat/actions/workflows/main.yml"
+        self.assertIn(f"[![CI]({workflow_url}/badge.svg)]({workflow_url})", self.readme)
 
     def test_readme_documents_architecture_matched_install_and_browse_flow(self) -> None:
         readme = self.readme

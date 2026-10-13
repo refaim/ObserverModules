@@ -1,7 +1,7 @@
 # unpackrat
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![CI](https://github.com/refaim/ObserverModules/actions/workflows/main.yml/badge.svg)](https://github.com/refaim/ObserverModules/actions/workflows/main.yml)
+[![CI](https://github.com/refaim/unpackrat/actions/workflows/main.yml/badge.svg)](https://github.com/refaim/unpackrat/actions/workflows/main.yml)
 
 unpackrat brings support for exotic game archives to FAR Manager. It ships as a set of Observer plugin
 modules, one per archive format, that present an archive as an ordinary folder you can browse and
@@ -13,15 +13,14 @@ external runtime DLLs to install.
 Install [FAR Manager](https://farmanager.com/download.php?l=en) and the
 [Observer](https://github.com/lazyhamster/Observer/releases) plugin host first; unpackrat adds archive
 support on top of them. Take the module ZIP whose architecture matches your FAR Manager and Observer
-build (x86 or x64), not the architecture of your operating system. Each module owns its own
-version and its own release listing; the versions below are what the current sources build, and each
-listing shows the versions that are actually published.
+build (x86 or x64), not the architecture of your operating system. Choose the newest published release
+from the module's release listing below.
 
-| Module | Version | Formats | Release | ChangeLog |
-|--------|---------|---------|---------|-----------|
-| Ren'Py | 3.1.0 | `.rpa` (RPA-2.0, RPA-3.0) | [renpy releases](https://github.com/refaim/ObserverModules/releases?q=renpy%2Fv) | [RU](src/modules/renpy/ChangeLog.ru.txt) [EN](src/modules/renpy/ChangeLog.en.txt) |
-| RPG Maker | 1.1.0 | `.rgss3a` (VX Ace, RGSS3) | [rpgmaker releases](https://github.com/refaim/ObserverModules/releases?q=rpgmaker%2Fv) | [RU](src/modules/rpgmaker/ChangeLog.ru.txt) [EN](src/modules/rpgmaker/ChangeLog.en.txt) |
-| Zanzarah | 2.1.0 | `.pak` (original, Steam) | [zanzarah releases](https://github.com/refaim/ObserverModules/releases?q=zanzarah%2Fv) | [RU](src/modules/zanzarah/ChangeLog.ru.txt) [EN](src/modules/zanzarah/ChangeLog.en.txt) |
+| Module | Formats | Release | ChangeLog |
+|--------|---------|---------|-----------|
+| Ren'Py | `.rpa` (RPA-2.0, RPA-3.0) | [renpy releases](https://github.com/refaim/unpackrat/releases?q=renpy) | [RU](src/modules/renpy/ChangeLog.ru.txt) [EN](src/modules/renpy/ChangeLog.en.txt) |
+| RPG Maker | `.rgss3a` (VX Ace, RGSS3) | [rpgmaker releases](https://github.com/refaim/unpackrat/releases?q=rpgmaker) | [RU](src/modules/rpgmaker/ChangeLog.ru.txt) [EN](src/modules/rpgmaker/ChangeLog.en.txt) |
+| Zanzarah | `.pak` (original, Steam) | [zanzarah releases](https://github.com/refaim/unpackrat/releases?q=zanzarah) | [RU](src/modules/zanzarah/ChangeLog.ru.txt) [EN](src/modules/zanzarah/ChangeLog.en.txt) |
 
 Each module ZIP carries the module DLL for one architecture, its `observer_user.ini`, both
 human-written change logs and a generated `LICENSES.txt` at the archive root.
