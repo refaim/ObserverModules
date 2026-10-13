@@ -1,0 +1,21 @@
+{
+  "library": "bcdec",
+  "description": "Single-header BC1/BC2/BC3/BC4/BC5/BC6H/BC7 block decoder (bcdec.h v0.985) used to turn Godot BC texture payloads into raw pixels.",
+  "license": "MIT OR Unlicense (dual; MIT selected for this repository)",
+  "notice": "licenses/bcdec.txt",
+  "repository": "https://github.com/iOrange/bcdec",
+  "commit": "80859ed3b7afb1c527a2a99d70c61457bea72d0c",
+  "commit_date": "2026-09-02T13:45:38Z",
+  "files": [
+    {
+      "path": "bcdec.h",
+      "url": "https://raw.githubusercontent.com/iOrange/bcdec/80859ed3b7afb1c527a2a99d70c61457bea72d0c/bcdec.h",
+      "sha256": "134520764d96f70a27db814173616c89ad85db95fbd3328417c7a8c77e7ca189"
+    },
+    {
+      "path": "README.md",
+      "url": "https://raw.githubusercontent.com/iOrange/bcdec/80859ed3b7afb1c527a2a99d70c61457bea72d0c/README.md",
+      "sha256": "bcd8de160b21eba77bf8c667b8ab3d090d473c882f039863c9afa0981fc032d0"
+    }
+  ]
+}

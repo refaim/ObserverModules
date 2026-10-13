@@ -219,7 +219,7 @@ def _build_package_repository(repo: Path) -> None:
     (repo / "LICENSE.txt").write_bytes(b"MIT license text\n")
     licenses = repo / "licenses"
     licenses.mkdir()
-    for name in ("Observer.txt", "GPL-3.0.txt", "rpatool.txt", "serde-pickle.txt", "zlib.txt"):
+    for name in ("Observer.txt", "GPL-3.0.txt", "rpatool.txt", "serde-pickle.txt", "zlib-ng.txt"):
         (licenses / name).write_bytes(name.encode() + b" notice")
     for architecture in main.ARCHITECTURES:
         stage = repo / "out" / "native" / "bin" / architecture / "Release"

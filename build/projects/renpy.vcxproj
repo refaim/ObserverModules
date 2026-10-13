@@ -14,6 +14,7 @@
   <Import Project="..\unpackrat-configuration.props" />
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <Import Project="..\unpackrat-project.props" />
+  <Import Project="..\unpackrat-third-party-link.props" />
   <Import Project="..\unpackrat-module-version.props" />
   <Import Project="$(VcpkgRoot)\scripts\buildsystems\msbuild\vcpkg.props" />
 
@@ -24,8 +25,6 @@
   <ItemDefinitionGroup>
     <Link>
       <ModuleDefinitionFile>$(RepositoryRoot)src\modules\renpy\renpy.def</ModuleDefinitionFile>
-      <AdditionalDependencies Condition="'$(UseDebugLibraries)' == 'true'">zsd.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <AdditionalDependencies Condition="'$(UseDebugLibraries)' != 'true'">zs.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>

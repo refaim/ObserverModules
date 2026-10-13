@@ -21,24 +21,36 @@ namespace archive
         return std::equal(signature.begin(), signature.end(), data.begin());
     }
 
-    extractor::archive_info archive::open(const std::filesystem::path &path, const std::span<const std::byte> &data)
+    extractor::archive_info archive::open(const std::filesystem::path &path, const std::span<const std::byte> &data,
+                                          const std::string_view password)
     {
         auto signature = extractor::extractor::get_signature();
         if (!data.empty() && !starts_with_bytes(data, signature)) {
             throw std::runtime_error("Signature mismatch");
         }
 
-        stream_ = std::make_unique<std::ifstream>(path, std::ios::binary);
-        if (!stream_->is_open()) {
+        auto source = std::make_unique<std::ifstream>(path, std::ios::binary);
+        if (!source->is_open()) {
             throw std::runtime_error("Failed to open file");
         }
-        stream_->exceptions(std::ifstream::failbit | std::ifstream::badbit);
+        source->exceptions(std::ifstream::failbit | std::ifstream::badbit);
 
-        return extractor_->get_archive_info(data);
+        // Old callbacks borrow extractor-owned state. Destroy them before releasing that
+        // state or replacing the underlying stream when this object is opened again.
+        opened_ = false;
+        files_.clear();
+        extractor_->reset_storage();
+        stream_ = std::move(source);
+        auto info = extractor_->get_archive_info(*stream_, data, path, password);
+        opened_ = true;
+        return info;
     }
 
     void archive::prepare_files()
     {
+        if (!opened_) {
+            throw read_error();
+        }
         if (!files_.empty()) {
             return;
         }
@@ -71,6 +83,33 @@ namespace archive
             throw write_error();
         }
         output.exceptions(std::ofstream::failbit | std::ofstream::badbit);
+
+        if (file.extract) {
+            // A custom handler owns the whole destination body. On any failure the
+            // partially written destination is discarded without masking the original
+            // exception; a failed output open above never removes an existing file.
+            const auto discard_partial = [&output, &path]() {
+                output.exceptions(std::ios_base::goodbit);
+                output.close();
+                std::error_code error;
+                std::filesystem::remove(path, error);
+            };
+
+            try {
+                file.extract(*stream_, output, report_progress);
+                output.close();
+            } catch (const extractor::read_error &) {
+                discard_partial();
+                throw read_error();
+            } catch (const std::ios_base::failure &) {
+                discard_partial();
+                throw write_error();
+            } catch (...) {
+                discard_partial();
+                throw;
+            }
+            return;
+        }
 
         constexpr int64_t buffer_size = 128LL * 1024;
         std::vector<char> buffer(buffer_size);

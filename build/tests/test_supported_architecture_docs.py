@@ -23,7 +23,7 @@ METHODOLOGY = REPOSITORY / "docs" / "critical-software-methodology.md"
 
 DOCUMENTS = (README, AGENTS, BUILD_SYSTEM, METHODOLOGY)
 
-MODULES = ("renpy", "rpgmaker", "zanzarah")
+MODULES = ("renpy", "rpgmaker", "zanzarah", "godot")
 LANGUAGES = ("en", "ru")
 
 # A word-start match for "arm" catches "ARM", "ARM64" and "arm64" without tripping on
@@ -74,17 +74,16 @@ class SupportedArchitectureDocumentTests(unittest.TestCase):
             "https://github.com/catchorg/Catch2",
             "https://github.com/lazyhamster/Observer",
             "https://github.com/Cyan4973/xxHash",
-            "https://zlib.net",
+            "https://github.com/zlib-ng/zlib-ng",
             "https://github.com/luxrck/rgssad",
             "https://github.com/birkenfeld/serde-pickle",
             "https://github.com/Shizmob/rpatool",
             "https://github.com/pg83/ix",
-            "https://aluigi.altervista.org/papers.htm#others-file",
         )
         for project in upstream:
             with self.subTest(project=project):
                 self.assertIn(project, readme)
-        # Six changelog links: RU and EN for each of the three modules.
+        # Bilingual changelog links for every shipped module.
         for module in MODULES:
             for language in LANGUAGES:
                 with self.subTest(module=module, language=language):
@@ -96,6 +95,7 @@ class SupportedArchitectureDocumentTests(unittest.TestCase):
         prerequisites = flat(docs[docs.index("## Prerequisites"):docs.index("## Map")])
         self.assertIn("x86, x64;", contract)
         self.assertIn("x86 and x64", prerequisites)
+        self.assertIn("godot/vX.Y.Z", contract)
 
     def test_build_system_ci_describes_the_real_stage_checks(self) -> None:
         docs = read(BUILD_SYSTEM)

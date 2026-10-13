@@ -18,9 +18,10 @@ run pass. Whatever this document does not state is derivable from the code, and 
 Release contract, non-negotiable: Windows-only native C++23 through MSVC `cl.exe`; x86, x64; MSVC
 runtime and all third-party libraries linked statically (`/MT`, static vcpkg triplets); a release
 archive carries no redistributable runtime and no non-system DLL; CMake is not part of this tree
-(vcpkg ports may use it internally); no `/clr`. Each shipped module (`renpy`, `rpgmaker`, `zanzarah`)
-owns an independent semantic version in `src/modules/<module>/VERSION` and its own `renpy/vX.Y.Z`
-release lineage; there is no repository release version.
+(vcpkg ports may use it internally); no `/clr`. Each shipped module (`renpy`, `rpgmaker`, `zanzarah`,
+`godot`) owns an independent semantic version in `src/modules/<module>/VERSION` and its own
+`<module>/vX.Y.Z` release lineage (for example, `godot/vX.Y.Z`); there is no repository release
+version.
 
 ## Prerequisites
 

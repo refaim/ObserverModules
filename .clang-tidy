@@ -8,6 +8,8 @@ Checks: >
   -bugprone-easily-swappable-parameters
 WarningsAsErrors: '*'
 HeaderFilterRegex: '.*[\\/]src[\\/].*'
+# Relative vendor includes can contain src/../third_party; keep the existing external exemption.
+ExcludeHeaderFilterRegex: '.*[\\/]third_party[\\/].*'
 SystemHeaders: false
 FormatStyle: file
 ...

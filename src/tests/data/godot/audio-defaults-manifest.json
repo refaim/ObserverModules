@@ -1,0 +1,78 @@
+{
+  "fixture": "audio-defaults.pck",
+  "provenance": "Every byte is synthetic: generic paths, locally constructed canonical QOA one-frame streams and RSRC/PCK headers. No game data or keys.",
+  "observed_fact": "Canonical Godot saver omits default mix_rate=44100 and stereo=false; the three descriptor shapes reproduce omissions observed independently in REC, After Hours and Beguiled.",
+  "canonical_defaults": {
+    "format": 0,
+    "mix_rate": 44100,
+    "stereo": false
+  },
+  "canonical_sources": [
+    "https://github.com/godotengine/godot/blob/876b290332ec6f2e6d173d08162a02aa7e6ca46d/scene/resources/audio_stream_wav.h#L118",
+    "https://github.com/godotengine/godot/blob/876b290332ec6f2e6d173d08162a02aa7e6ca46d/core/io/resource_format_binary.cpp#L2289"
+  ],
+  "format_version": 2,
+  "engine_version": [
+    4,
+    5,
+    0
+  ],
+  "file_base": 320,
+  "file_size": 1196,
+  "sha256": "8d06155632460b9ee7ae575c35ab2a88877b0822fe890e990f15d4aa730b91aa",
+  "entries": [
+    {
+      "path": "res://audio/mono-default.sample",
+      "converted_path": "audio/mono-default.wav",
+      "channels": 1,
+      "sample_rate": 44100,
+      "qoa_hex": "716f6166000000010100ac4400010020000000000000000000000000000000000000000000000000",
+      "omitted_properties": [
+        "mix_rate",
+        "stereo"
+      ],
+      "logical_size": 276,
+      "md5": "729f63caa4cb487b9b1cb3222fdb1ebd",
+      "sha256": "89d0c7e1b70311dc30ec64953e4e10f3e9acdc6afe2a3585a0ee3546c116ef4f",
+      "expected_pcm16": [
+        1
+      ],
+      "expected_output_size": 46
+    },
+    {
+      "path": "res://audio/mono-low.sample",
+      "converted_path": "audio/mono-low.wav",
+      "channels": 1,
+      "sample_rate": 22050,
+      "qoa_hex": "716f6166000000010100562200010020000000000000000000000000000000000000000000000000",
+      "omitted_properties": [
+        "stereo"
+      ],
+      "logical_size": 288,
+      "md5": "c733253fa67f3225d7300b7da71c250b",
+      "sha256": "46b59b7c7825a794cf654d660c8fa46569d2e649efd49dc4a716e3635d582ccc",
+      "expected_pcm16": [
+        1
+      ],
+      "expected_output_size": 46
+    },
+    {
+      "path": "res://audio/stereo-default.sample",
+      "converted_path": "audio/stereo-default.wav",
+      "channels": 2,
+      "sample_rate": 44100,
+      "qoa_hex": "716f6166000000010200ac4400010038000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "omitted_properties": [
+        "mix_rate"
+      ],
+      "logical_size": 312,
+      "md5": "117572ba3791a19fbbfb020cac766178",
+      "sha256": "cab4a7cda1608947f5fc499b79da895960d3610ec2f00a94f903b7107d801a26",
+      "expected_pcm16": [
+        1,
+        1
+      ],
+      "expected_output_size": 48
+    }
+  ]
+}

@@ -38,7 +38,8 @@ namespace archive
       public:
         explicit archive(std::unique_ptr<extractor::extractor> extractor);
 
-        extractor::archive_info open(const std::filesystem::path &path, const std::span<const std::byte> &data);
+        extractor::archive_info open(const std::filesystem::path &path, const std::span<const std::byte> &data,
+                                     std::string_view password = {});
 
         void prepare_files();
 
@@ -51,5 +52,6 @@ namespace archive
         std::unique_ptr<extractor::extractor> extractor_;
         std::unique_ptr<std::ifstream> stream_;
         std::vector<std::unique_ptr<extractor::file>> files_;
+        bool opened_ = false;
     };
 } // namespace archive

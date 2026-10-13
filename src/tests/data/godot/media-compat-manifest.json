@@ -1,0 +1,35 @@
+{
+  "fixture": "media-compat.pck",
+  "provenance": "Generated locally by this Python standard-library recipe; no game or third-party media bytes.",
+  "sample_note": "Godot 3 Sample main resource path local://-1 and four-frame mono IMA WAV conversion.",
+  "mp3_note": "Two leading bytes followed by four generated 417-byte MPEG-1 Layer III frames; extracted MP3 retains both bytes and decodes with ffmpeg.",
+  "format_version": 2,
+  "engine_version": [
+    4,
+    5,
+    0
+  ],
+  "file_base": 256,
+  "file_size": 2452,
+  "sha256": "1e0516da4d6a0a65c22c612ff647448375b8398170777e8a75ada7dc4c98488b",
+  "entries": [
+    {
+      "path": "res://audio/legacy-negative-main.sample",
+      "converted_path": "audio/legacy-negative-main.wav",
+      "logical_size": 335,
+      "md5": "03c7488a04d760376a000722fcdbd300",
+      "sha256": "23338307385dd4fdcd7aa114be90bd682517f146fc0874d77ababc651c54cb11",
+      "expected_output_size": 52,
+      "output_sha256": null
+    },
+    {
+      "path": "res://audio/prefixed.mp3",
+      "converted_path": "audio/prefixed.mp3",
+      "logical_size": 1861,
+      "md5": "8c6048a9740c2060b9f6f202f1640453",
+      "sha256": "210756e6f27db5c409b21bb07b6bbcd65e540717e91383691fe7817eac2e61ce",
+      "expected_output_size": 1670,
+      "output_sha256": "a42adb04fdb342e8de018d782756d75ad7263506232b624244e2ca731ea63afa"
+    }
+  ]
+}

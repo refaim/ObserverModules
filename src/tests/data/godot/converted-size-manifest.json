@@ -1,0 +1,62 @@
+{
+  "fixture": "converted-size.pck",
+  "provenance": "All paths, PNG pixel bytes and PCK/GST2 headers generated locally; no game data copied.",
+  "format_version": 2,
+  "engine_version": [
+    4,
+    2,
+    1
+  ],
+  "pack_flags": 0,
+  "file_base": 256,
+  "directory_offset": 96,
+  "file_size": 479,
+  "sha256": "c926c847a82c1aa01808d52b048cf1ed8c30436b754e2c20b366ae815c66566d",
+  "metadata_utf8": "[remap]\nimporter=\"texture\"\ntype=\"CompressedTexture2D\"\npath=\"res://.godot/imported/pixel-h.ctex\"\n\u0000",
+  "png_hex": "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d4944415478da63f8cfc0f01f00050001ff56c72f0d0000000049454e44ae426082",
+  "png_pixel_rgba": [
+    255,
+    0,
+    0,
+    255
+  ],
+  "png_bytes": 70,
+  "texture_bytes": 126,
+  "entries": [
+    {
+      "path": "res://art/pixel.png.import",
+      "stored_offset": 0,
+      "absolute_offset": 256,
+      "size": 97,
+      "flags": 0,
+      "md5": "2f0906690fc9f6dd8cf1b8aefd425b1d",
+      "sha256": "cfe21e4480846c56b54ca173fcce5bdfffe29b80bfe9c102072a85fc286ace01"
+    },
+    {
+      "path": "res://.godot/imported/pixel-h.ctex",
+      "stored_offset": 97,
+      "absolute_offset": 353,
+      "size": 126,
+      "flags": 0,
+      "md5": "61f07165d0b80ff1dfde7023bf6ada4c",
+      "sha256": "d136b978aada1850747a9a0038120d3191e4f605e4ae76fe35450c9677011566"
+    }
+  ],
+  "expected_converted": {
+    "path": "art/pixel.png",
+    "size": 126,
+    "packed_size": 126,
+    "sha256": "49e1dad481e94dfab7c9573a9a81d56aa2ca629fe15a3f7a910aa4f47601c00d",
+    "progress_bytes": 126,
+    "output_bytes": 70
+  },
+  "observed_pre_fix_abi": {
+    "open_status": 1,
+    "prepare_status": 1,
+    "converted_size": 126,
+    "converted_packed_size": 126,
+    "extracted_bytes": 70,
+    "progress_reported_bytes": 126,
+    "dll_sha256": "01ad386f0485b1c396dd142800c2fcf4b79daf0ecbf618d15f795cedd3710b45"
+  }
+}

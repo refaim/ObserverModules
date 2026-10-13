@@ -1,0 +1,6 @@
+# Windows SDK 10.0.26100.0 UCRT wchar.h:458-459 loads valid wchar_t pointers as uint64_t.
+# Only this unmodified vendor function's alignment check is exempted in UBSan builds.
+# First-party alignment and all other undefined checks stay enabled; no wildcard/file rules.
+# Revisit on SDK/LLVM changes; evidence and removal rule: docs/ubsan-sdk-wmemcmp.md.
+[alignment]
+fun:wmemcmp

@@ -282,6 +282,7 @@ class MSBuildContractsTests(unittest.TestCase):
             ("renpy", "renpy"),
             ("rpgmaker", "rpgmaker"),
             ("zanzarah", "zanzarah"),
+            ("godot", "godot"),
             ("fuzz-renpy", "renpy"),
             ("fuzz-rpgmaker", "rpgmaker"),
             ("fuzz-zanzarah", "zanzarah"),
@@ -315,12 +316,16 @@ class MSBuildContractsTests(unittest.TestCase):
         dependencies = [
             node.text for node in project.findall(f".//{MSBUILD}AdditionalDependencies")
         ]
+        imports = [node.get("Project") for node in project.findall(f"{MSBUILD}Import")]
         validation = project.find(
             f".//{MSBUILD}Target[@Name='ValidateLeakProbeConfiguration']/{MSBUILD}Error"
         )
 
         self.assertEqual(runtimes, ["MultiThreaded"])
-        self.assertEqual(dependencies, ["zs.lib;%(AdditionalDependencies)"])
+        # The release zlib is supplied by the shared compat-link props, not by a
+        # local entry in the probe itself.
+        self.assertEqual(dependencies, [])
+        self.assertIn("..\\unpackrat-third-party-link.props", imports)
         self.assertIsNotNone(validation)
         self.assertEqual(
             validation.get("Condition"),

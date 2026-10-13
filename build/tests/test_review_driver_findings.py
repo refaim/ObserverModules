@@ -163,7 +163,7 @@ class DriverCase(unittest.TestCase):
         (self.repo / "LICENSE.txt").write_bytes(b"MIT license text\n")
         licenses = self.repo / "licenses"
         licenses.mkdir(exist_ok=True)
-        for name in ("Observer.txt", "GPL-3.0.txt", "rpatool.txt", "serde-pickle.txt", "zlib.txt", "rgssad.txt"):
+        for name in ("Observer.txt", "GPL-3.0.txt", "rpatool.txt", "serde-pickle.txt", "zlib-ng.txt", "rgssad.txt"):
             (licenses / name).write_bytes(name.encode() + b" notice")
         for architecture in main.ARCHITECTURES:
             stage = self.repo / "out" / "native" / "bin" / architecture / "Release"

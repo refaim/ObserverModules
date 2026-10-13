@@ -1,10 +1,15 @@
 #include "observer.h"
 #include "../../api.h"
 #include "../../core/archive_limits.h"
+#include "../../core/godot/pck.h"
 #include "../support/archive_fixtures.h"
+#include "../support/godot_crypto_fixtures.h"
+#include "../support/godot_fixtures.h"
+#include "../support/godot_texture_fixtures.h"
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -12,16 +17,57 @@
 #include <fstream>
 #include <iterator>
 #include <memory>
+#include <new>
+#include <span>
+#include <sstream>
 #include <string>
+#include <string_view>
 #include <system_error>
 #include <thread>
 #include <vector>
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/generators/catch_generators.hpp>
 #include <windows.h>
 
 namespace test
 {
+    // Lock only an entry body. The index remains readable, making a source failure during
+    // PrepareFiles deterministic instead of racing a second thread against the parser.
+    class locked_source_range final
+    {
+      public:
+        locked_source_range(const std::filesystem::path &path, const std::uint64_t offset, const DWORD length)
+        {
+            file_ = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                                nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+            if (file_ == INVALID_HANDLE_VALUE) {
+                throw std::runtime_error("Failed to open source for a range lock");
+            }
+            overlapped_.Offset = static_cast<DWORD>(offset);
+            overlapped_.OffsetHigh = static_cast<DWORD>(offset >> 32);
+            if (!LockFileEx(file_, LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY, 0, length, 0, &overlapped_)) {
+                static_cast<void>(CloseHandle(file_));
+                throw std::runtime_error("Failed to lock source body range");
+            }
+            length_ = length;
+        }
+
+        ~locked_source_range()
+        {
+            static_cast<void>(UnlockFileEx(file_, 0, length_, 0, &overlapped_));
+            static_cast<void>(CloseHandle(file_));
+        }
+
+        locked_source_range(const locked_source_range &) = delete;
+        locked_source_range &operator=(const locked_source_range &) = delete;
+
+      private:
+        HANDLE file_ = INVALID_HANDLE_VALUE;
+        OVERLAPPED overlapped_{};
+        DWORD length_ = 0;
+    };
+
     enum class module_path_policy : std::uint8_t
     {
         loader_search,
@@ -35,8 +81,8 @@ namespace test
         {
         };
 
-        explicit c_module(const std::string &dll_name)
-            : c_module(std::filesystem::path(dll_name), module_path_policy::loader_search)
+        explicit c_module(const std::string &dll_name, const wchar_t *settings = L"DecodeResources=1\0")
+            : c_module(std::filesystem::path(dll_name), module_path_policy::loader_search, settings)
         {
         }
 
@@ -46,7 +92,8 @@ namespace test
         {
         }
 
-        c_module(const std::filesystem::path &dll_path, const module_path_policy path_policy)
+        c_module(const std::filesystem::path &dll_path, const module_path_policy path_policy,
+                 const wchar_t *settings = L"DecodeResources=1\0")
         {
             if (path_policy == module_path_policy::exact && !dll_path.is_absolute()) {
                 throw std::runtime_error("An exact module path must be absolute");
@@ -92,7 +139,7 @@ namespace test
 
                 ModuleLoadParameters load_params{};
                 load_params.StructSize = sizeof(load_params);
-                load_params.Settings = nullptr;
+                load_params.Settings = settings;
                 if (load_module_(&load_params) == FALSE) {
                     throw std::runtime_error("LoadSubModule rejected its valid package-smoke parameters");
                 }
@@ -109,7 +156,7 @@ namespace test
             release();
         }
 
-        bool open(const std::filesystem::path &path)
+        bool open(const std::filesystem::path &path, const char *password = nullptr)
         {
             REQUIRE(storage_ == nullptr);
             std::ifstream input(path, std::ios::binary);
@@ -134,7 +181,7 @@ namespace test
                 const StorageOpenParams analyze_params{
                     .StructSize = sizeof(StorageOpenParams),
                     .FilePath = path.c_str(),
-                    .Password = nullptr,
+                    .Password = password,
                     .Data = signature.c_str(),
                     .DataSize = static_cast<size_t>(input.gcount()),
                 };
@@ -153,7 +200,7 @@ namespace test
             const StorageOpenParams reopen_params{
                 .StructSize = sizeof(StorageOpenParams),
                 .FilePath = path.c_str(),
-                .Password = nullptr,
+                .Password = password,
                 .Data = nullptr,
                 .DataSize = 0,
             };
@@ -186,8 +233,8 @@ namespace test
 
                 REQUIRE(status == GET_ITEM_OK);
                 REQUIRE(item.Attributes == FILE_ATTRIBUTE_NORMAL);
-                REQUIRE(item.PackedSize > 0);
-                REQUIRE(item.Size >= item.PackedSize);
+                REQUIRE(item.Size >= 0);
+                REQUIRE(item.PackedSize >= 0);
                 REQUIRE(item.NumHardlinks == 0);
                 REQUIRE(wcslen(item.Path) > 0);
 
@@ -225,10 +272,10 @@ namespace test
         }
 
         [[nodiscard]] int extract_file_status(const int file_index, const std::filesystem::path &path,
-                                              const ExtractProgressFunc report_progress) const
+                                              const ExtractProgressFunc report_progress, HANDLE context = nullptr) const
         {
             const ExtractProcessCallbacks callbacks{
-                .signalContext = nullptr,
+                .signalContext = context,
                 .FileProgress = report_progress,
             };
 
@@ -461,6 +508,32 @@ namespace test
             REQUIRE(loaded.open(archive.path()));
             REQUIRE(loaded.api().PrepareFiles(loaded.storage()) == FALSE);
         }
+
+        constexpr const char *fixture_key_hex = "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20";
+
+        support::godot_entry_options encrypted_item(std::string path, const std::span<const std::uint8_t> plaintext)
+        {
+            support::godot_entry_options entry;
+            entry.path = std::move(path);
+            entry.stored_size = plaintext.size();
+            entry.payload = support::encrypted_envelope(plaintext);
+            entry.flags = 1;
+            return entry;
+        }
+
+        int listed_index(const std::vector<file> &files, const std::wstring_view path)
+        {
+            const auto found = std::ranges::find_if(files, [path](const file &entry) { return entry.path == path; });
+            REQUIRE(found != files.end());
+            return static_cast<int>(found - files.begin());
+        }
+
+        std::string output_text(const std::filesystem::path &path)
+        {
+            std::ifstream stream(path, std::ios::binary);
+            REQUIRE(stream.is_open());
+            return {std::istreambuf_iterator<char>(stream), std::istreambuf_iterator<char>()};
+        }
     } // namespace
 
     observer::observer()
@@ -468,6 +541,7 @@ namespace test
         modules_.push_back(std::make_unique<c_module>("renpy.so"));
         modules_.push_back(std::make_unique<c_module>("rpgmaker.so"));
         modules_.push_back(std::make_unique<c_module>("zanzarah.so"));
+        modules_.push_back(std::make_unique<c_module>("godot.so"));
     }
 
     std::vector<file> observer::list_files(const std::filesystem::path &path) const
@@ -487,7 +561,10 @@ namespace test
 
     TEST_CASE("module ABI: invalid inputs are rejected", "[contract]")
     {
-        constexpr std::array module_names{"renpy.so", "rpgmaker.so", "zanzarah.so"};
+        // The Godot adapter recognises the pack container while opening, so it rejects an
+        // invalid file one step earlier than the three shipped adapters, which accept the
+        // file at open and reject it while preparing. Both paths are part of the contract.
+        constexpr std::array module_names{"renpy.so", "rpgmaker.so", "zanzarah.so", "godot.so"};
         const auto invalid_archive_path =
             std::filesystem::temp_directory_path() /
             std::format(L"unpackrat-invalid-{}.bin", static_cast<unsigned long>(GetCurrentProcessId()));
@@ -545,34 +622,42 @@ namespace test
 
             params.Data = nullptr;
             params.FilePath = invalid_archive_path.c_str();
-            REQUIRE(api.OpenStorage(params, &storage, &info) == SOR_SUCCESS);
-            REQUIRE(storage != nullptr);
+            if (std::string_view(module_name) == "godot.so") {
+                // Godot already rejected the invalid container while opening, so no storage
+                // handle is handed back; the three shipped adapters instead return a handle
+                // that then fails to prepare.
+                REQUIRE(api.OpenStorage(params, &storage, &info) == SOR_INVALID_FILE);
+                REQUIRE(storage == nullptr);
+            } else {
+                REQUIRE(api.OpenStorage(params, &storage, &info) == SOR_SUCCESS);
+                REQUIRE(storage != nullptr);
 
-            REQUIRE(api.PrepareFiles(storage) == FALSE);
-            REQUIRE(api.GetItem(storage, -1, nullptr) == GET_ITEM_ERROR);
-            REQUIRE(api.GetItem(storage, 0, nullptr) == GET_ITEM_ERROR);
+                REQUIRE(api.PrepareFiles(storage) == FALSE);
+                REQUIRE(api.GetItem(storage, -1, nullptr) == GET_ITEM_ERROR);
+                REQUIRE(api.GetItem(storage, 0, nullptr) == GET_ITEM_ERROR);
 
-            StorageItemInfo item{};
-            REQUIRE(api.GetItem(storage, 0, &item) == GET_ITEM_NOMOREITEMS);
+                StorageItemInfo item{};
+                REQUIRE(api.GetItem(storage, 0, &item) == GET_ITEM_NOMOREITEMS);
 
-            ExtractOperationParams extract_params{
-                .ItemIndex = -1,
-                .Flags = 0,
-                .DestPath = invalid_archive_path.c_str(),
-                .Password = nullptr,
-                .Callbacks = {},
-            };
-            REQUIRE(api.ExtractItem(storage, extract_params) == SER_ERROR_SYSTEM);
-            extract_params.ItemIndex = 0;
-            extract_params.DestPath = nullptr;
-            REQUIRE(api.ExtractItem(storage, extract_params) == SER_ERROR_SYSTEM);
-            extract_params.DestPath = invalid_archive_path.c_str();
-            extract_params.Callbacks.FileProgress = [](void *, int64_t) { return TRUE; };
-            REQUIRE(api.ExtractItem(storage, extract_params) == SER_ERROR_SYSTEM);
-            extract_params.Callbacks.FileProgress = nullptr;
-            REQUIRE(api.ExtractItem(storage, extract_params) == SER_ERROR_SYSTEM);
+                ExtractOperationParams extract_params{
+                    .ItemIndex = -1,
+                    .Flags = 0,
+                    .DestPath = invalid_archive_path.c_str(),
+                    .Password = nullptr,
+                    .Callbacks = {},
+                };
+                REQUIRE(api.ExtractItem(storage, extract_params) == SER_ERROR_SYSTEM);
+                extract_params.ItemIndex = 0;
+                extract_params.DestPath = nullptr;
+                REQUIRE(api.ExtractItem(storage, extract_params) == SER_ERROR_SYSTEM);
+                extract_params.DestPath = invalid_archive_path.c_str();
+                extract_params.Callbacks.FileProgress = [](void *, int64_t) { return TRUE; };
+                REQUIRE(api.ExtractItem(storage, extract_params) == SER_ERROR_SYSTEM);
+                extract_params.Callbacks.FileProgress = nullptr;
+                REQUIRE(api.ExtractItem(storage, extract_params) == SER_ERROR_SYSTEM);
 
-            api.CloseStorage(storage);
+                api.CloseStorage(storage);
+            }
 
             const auto expect_current_file_prepare_failure = [&] {
                 StorageOpenParams corrupt_params{
@@ -733,6 +818,655 @@ namespace test
 
         std::error_code error;
         std::filesystem::remove(destination, error);
+    }
+
+    TEST_CASE("module ABI: Godot extraction cancels, cleans up and classifies faults", "[contract][godot]")
+    {
+        // The Godot module is registered by the framework loader in the implementation phase; this
+        // case states the extraction-side ABI contract it must satisfy alongside the cancellation
+        // and read/write classification already proven for the shipped adapters. It stays red until
+        // a built ``godot.so`` exists, so it must not be hidden from the normal runner.
+        test::support::godot_pck_options options;
+        options.version = 4;
+        options.engine_version = {4, 0, 0};
+        test::support::godot_entry_options payload;
+        payload.path = "res://data/payload.bin";
+        payload.payload.assign(std::size_t{256} * 1024, std::uint8_t{0x7A});
+        options.entries.push_back(std::move(payload));
+        const support::temporary_archive archive("godot-abi", test::support::build_godot_pck(options));
+
+        c_module loaded("godot.so");
+        REQUIRE(loaded.open(archive.path()));
+        // An ordinary physical source appears once in the main tree, at index 0.
+        REQUIRE(loaded.list_files().size() == 1);
+
+        const auto destination = archive.path().wstring() + L".out";
+
+        // A cancelled extraction reports a user abort and discards the partial destination.
+        REQUIRE(loaded.extract_file_status(0, destination, [](void *, int64_t) { return FALSE; }) == SER_USERABORT);
+        CHECK(!(std::filesystem::exists(destination)));
+
+        // A write fault (the destination is a directory) is classified as a write error rather than
+        // a read error, and leaves no partial output behind.
+        REQUIRE(loaded.extract_file_status(0, std::filesystem::temp_directory_path(),
+                                           [](void *, int64_t) { return TRUE; }) == SER_ERROR_WRITE);
+        CHECK(!(std::filesystem::exists(destination)));
+
+        // A clean extraction writes the exact stored bytes: every one of the 256 KiB must be the
+        // payload byte, so the whole stream is compared rather than only its length.
+        REQUIRE(loaded.extract_file_status(0, destination, [](void *, int64_t) { return TRUE; }) == SER_SUCCESS);
+        {
+            std::ifstream extracted(destination, std::ios::binary);
+            REQUIRE(extracted.is_open());
+            const std::string actual{std::istreambuf_iterator<char>(extracted), std::istreambuf_iterator<char>()};
+            CHECK(actual == std::string(std::size_t{256} * 1024, '\x7A'));
+        }
+        std::error_code error;
+        std::filesystem::remove(destination, error);
+
+        // The stable source lease prevents truncation. A read-only range lock instead produces
+        // a genuine body IO fault without violating the immutable source contract.
+        REQUIRE(loaded.list_files().size() == 1);
+        locked_source_range lock(archive.path(), std::uint64_t{64} * 1024, 4);
+        REQUIRE(loaded.extract_file_status(0, destination, [](void *, int64_t) { return TRUE; }) == SER_ERROR_READ);
+        CHECK(!(std::filesystem::exists(destination)));
+    }
+
+    TEST_CASE("module ABI: encrypted Godot extraction reports logical bytes and cancels during verification",
+              "[contract][godot][encrypted]")
+    {
+        const support::temporary_archive archive("godot-encrypted-extract", support::encrypted_pck(3, true, true));
+        c_module loaded("godot.so");
+        REQUIRE(loaded.open(archive.path(), fixture_key_hex));
+        const auto files = loaded.list_files();
+        const int index = listed_index(files, L"data.bin");
+        CHECK(files[static_cast<std::size_t>(index)].uncompressed_size == 5);
+        CHECK(files[static_cast<std::size_t>(index)].compressed_size == 56);
+        const temporary_output_file output(archive.path().wstring() + L".out");
+        struct totals
+        {
+            int64_t bytes = 0;
+            unsigned polls = 0;
+        } progress;
+        const auto callback = [](void *context, const int64_t count) {
+            auto &state = *static_cast<totals *>(context);
+            state.bytes += count;
+            if (count == 0) {
+                ++state.polls;
+            }
+            return TRUE;
+        };
+        REQUIRE(loaded.extract_file_status(index, output.path(), callback, &progress) == SER_SUCCESS);
+        CHECK(output_text(output.path()) == "hello");
+        CHECK(progress.bytes == 5);
+        CHECK(progress.polls > 0);
+        REQUIRE(loaded.extract_file_status(index, output.path(), [](void *, int64_t) { return FALSE; }) ==
+                SER_USERABORT);
+        CHECK(!(std::filesystem::exists(output.path())));
+    }
+
+    TEST_CASE("module ABI: empty encrypted Godot members extract without inventing a verified key",
+              "[contract][godot][encrypted]")
+    {
+        support::godot_pck_options options;
+        options.version = 3;
+        options.entries.push_back(encrypted_item("res://empty.bin", {}));
+        const support::temporary_archive archive("godot-encrypted-empty", support::build_godot_pck(options));
+        c_module loaded("godot.so");
+        REQUIRE(loaded.open(archive.path()));
+        const auto files = loaded.list_files();
+        const int index = listed_index(files, L"empty.bin");
+        CHECK(files[static_cast<std::size_t>(index)].uncompressed_size == 0);
+        CHECK(files[static_cast<std::size_t>(index)].compressed_size == 40);
+        const temporary_output_file output(archive.path().wstring() + L".out");
+        REQUIRE(loaded.extract_file_status(index, output.path(), [](void *, int64_t) { return TRUE; }) == SER_SUCCESS);
+        CHECK(output_text(output.path()).empty());
+    }
+
+    TEST_CASE("module ABI: encrypted import metadata restores and converts the same verified plaintext",
+              "[contract][godot][encrypted]")
+    {
+        std::string metadata = "[remap]\nimporter=\"texture\"\npath=\"res://.godot/imported/hero-h.ctex\"\n";
+        metadata.push_back('\0');
+        support::gdst_fixture fixture;
+        fixture.width = 8;
+        fixture.height = 8;
+        fixture.data_format = support::gdst_bit_png | support::gdst_bit_stream;
+        const auto png = support::png_bytes(32);
+        fixture.mips = {png};
+        support::godot_pck_options options;
+        options.version = 3;
+        options.entries.push_back(encrypted_item(
+            "res://art/hero.png.import", {reinterpret_cast<const std::uint8_t *>(metadata.data()), metadata.size()}));
+        options.entries.push_back(encrypted_item("res://.godot/imported/hero-h.ctex", support::build_gdst(fixture)));
+        const support::temporary_archive archive("godot-encrypted-import", support::build_godot_pck(options));
+        c_module loaded("godot.so");
+        REQUIRE(loaded.open(archive.path(), fixture_key_hex));
+        const auto files = loaded.list_files();
+        const int metadata_index = listed_index(files, L"art\\hero.png.import");
+        const int image_index = listed_index(files, L"art\\hero.png");
+        CHECK(std::ranges::none_of(files, [](const file &entry) { return entry.path == L"art\\hero.ctex"; }));
+        const temporary_output_file output(archive.path().wstring() + L".out");
+        loaded.extract_file(metadata_index, output.path());
+        CHECK(output_text(output.path()) == metadata);
+        loaded.extract_file(image_index, output.path());
+        CHECK(output_text(output.path()) == std::string(reinterpret_cast<const char *>(png.data()), png.size()));
+        CHECK(files[static_cast<std::size_t>(image_index)].uncompressed_size ==
+              files[static_cast<std::size_t>(image_index)].compressed_size);
+    }
+
+    TEST_CASE("module ABI: corrupted encrypted member digest fails extraction and discards output",
+              "[contract][godot][encrypted]")
+    {
+        auto bytes = support::encrypted_pck(3, true, true);
+        // The five-byte member occupies one sixteen-byte CFB block at the physical tail.
+        // Change a logical byte rather than ignored padding; the directory remains intact.
+        bytes[bytes.size() - 16] ^= 1;
+        const support::temporary_archive archive("godot-encrypted-digest", bytes);
+        c_module loaded("godot.so");
+        REQUIRE(loaded.open(archive.path(), fixture_key_hex));
+        const auto files = loaded.list_files();
+        const int index = listed_index(files, L"data.bin");
+        const temporary_output_file output(archive.path().wstring() + L".out");
+        CHECK(loaded.extract_file_status(index, output.path(), [](void *, int64_t) { return TRUE; }) == SER_ERROR_READ);
+        CHECK(!(std::filesystem::exists(output.path())));
+    }
+
+    TEST_CASE("module ABI: encrypted source IO failure stays a read error", "[contract][godot][encrypted]")
+    {
+        support::godot_pck_options options;
+        options.version = 3;
+        const auto large = encrypted_item("res://large.bin", support::godot_bytes(std::size_t{128} * 1024, 'x'));
+        const auto evidence = encrypted_item("res://evidence.bin", support::godot_bytes{'h', 'e', 'l', 'l', 'o'});
+        options.entries = {large, evidence};
+        const auto bytes = support::build_godot_pck(options);
+        const support::temporary_archive archive("godot-encrypted-io", bytes);
+        c_module loaded("godot.so", nullptr);
+        REQUIRE(loaded.open(archive.path(), fixture_key_hex));
+        const auto files = loaded.list_files();
+        const int index = listed_index(files, L"large.bin");
+        const temporary_output_file output(archive.path().wstring() + L".out");
+        const auto body_offset = bytes.size() - large.payload.size() - evidence.payload.size();
+        locked_source_range lock(archive.path(), body_offset + 40 + std::size_t{64} * 1024, 4);
+        CHECK(loaded.extract_file_status(index, output.path(), [](void *, int64_t) { return TRUE; }) == SER_ERROR_READ);
+        CHECK(!(std::filesystem::exists(output.path())));
+    }
+
+    TEST_CASE("module ABI: removal records are metadata while ordinary resources remain extractable",
+              "[contract][godot][removal]")
+    {
+        support::godot_pck_options options;
+        options.version = 3;
+        support::godot_entry_options kept;
+        kept.path = "res://keep.bin";
+        kept.payload = {'k'};
+        options.entries.push_back(kept);
+        support::godot_entry_options removed;
+        removed.path = "res://gone.bin";
+        removed.flags = 2;
+        options.entries.push_back(removed);
+        const support::temporary_archive archive("godot-removal", support::build_godot_pck(options));
+        c_module loaded("godot.so");
+        REQUIRE(loaded.open(archive.path()));
+        const auto files = loaded.list_files();
+        CHECK(std::ranges::none_of(files, [](const file &entry) { return entry.path == L"gone.bin"; }));
+        const int kept_index = listed_index(files, L"keep.bin");
+        const int removal_index = listed_index(files, L"patch-removals.tsv");
+        const temporary_output_file output(archive.path().wstring() + L".out");
+        loaded.extract_file(kept_index, output.path());
+        CHECK(output_text(output.path()) == "k");
+        loaded.extract_file(removal_index, output.path());
+        CHECK(output_text(output.path()) == "1\tgone.bin\n");
+    }
+
+    TEST_CASE("module ABI: opening validates structure size before inspecting caller pointers",
+              "[contract][godot][password]")
+    {
+        const support::temporary_archive archive("godot-open-size", support::encrypted_pck(3, false, false));
+        c_module loaded("godot.so");
+        for (const std::size_t size : {std::size_t{0}, sizeof(StorageOpenParams) - 1, sizeof(StorageOpenParams) + 1}) {
+            StorageOpenParams params{size, archive.path().c_str(), nullptr, nullptr, 0};
+            StorageGeneralInfo info{};
+            HANDLE storage = nullptr;
+            const int result = loaded.api().OpenStorage(params, &storage, &info);
+            if (storage != nullptr) {
+                loaded.api().CloseStorage(storage);
+            }
+            REQUIRE(result == SOR_INVALID_FILE);
+            storage = INVALID_HANDLE_VALUE;
+            params.FilePath = std::bit_cast<const wchar_t *>(std::uintptr_t{1});
+            params.Password = std::bit_cast<const char *>(std::uintptr_t{1});
+            params.Data = std::bit_cast<const void *>(std::uintptr_t{1});
+            params.DataSize = 100;
+            CHECK(loaded.api().OpenStorage(params, &storage, &info) == SOR_INVALID_FILE);
+            CHECK(storage == nullptr);
+        }
+    }
+
+    TEST_CASE("module ABI: module loading validates structure size before reading settings", "[contract][settings]")
+    {
+        for (const std::string module_name : {"renpy.so", "rpgmaker.so", "zanzarah.so", "godot.so"}) {
+            c_module loaded(module_name);
+            for (const std::size_t size :
+                 {std::size_t{0}, sizeof(ModuleLoadParameters) - 1, sizeof(ModuleLoadParameters) + 1}) {
+                ModuleLoadParameters invalid{};
+                invalid.StructSize = size;
+                invalid.Settings = std::bit_cast<const wchar_t *>(std::uintptr_t{1});
+                CHECK(loaded.load(&invalid) == FALSE);
+            }
+        }
+    }
+
+    TEST_CASE("module ABI: Godot snapshots DecodeResources separately for each archive", "[contract][godot][settings]")
+    {
+        support::gdst_fixture fixture;
+        fixture.width = 8;
+        fixture.height = 8;
+        fixture.data_format = support::gdst_bit_png | support::gdst_bit_stream;
+        fixture.mips = {support::png_bytes(32)};
+        support::godot_pck_options options;
+        support::godot_entry_options source;
+        source.path = "res://hero.ctex";
+        source.payload = support::build_gdst(fixture);
+        options.entries.push_back(source);
+        const support::temporary_archive archive("godot-settings", support::build_godot_pck(options));
+        c_module ordinary("godot.so", nullptr);
+        REQUIRE(ordinary.open(archive.path()));
+        {
+            c_module decoded("godot.so", L"Unrelated=1\0DecodeResources=1\0");
+            REQUIRE(decoded.open(archive.path()));
+            auto raw = ordinary.list_files();
+            REQUIRE(raw.size() == 1);
+            CHECK(raw.front().path == L"hero.ctex");
+            auto converted = decoded.list_files();
+            const auto image =
+                std::ranges::find_if(converted, [](const file &entry) { return entry.path == L"hero.png"; });
+            REQUIRE(image != converted.end());
+            CHECK(image->uncompressed_size == image->compressed_size);
+            CHECK(std::ranges::none_of(converted, [](const file &entry) { return entry.path == L"hero.ctex"; }));
+            CHECK(std::ranges::any_of(converted, [](const file &entry) { return entry.path == L"name-map.tsv"; }));
+            {
+                c_module disabled("godot.so", L"DecodeResources=0\0");
+                REQUIRE(disabled.open(archive.path()));
+                CHECK(disabled.list_files().front().path == L"hero.ctex");
+                CHECK(decoded.list_files().front().path == L"hero.png");
+            }
+            CHECK(decoded.list_files().front().path == L"hero.png");
+        }
+        CHECK(ordinary.list_files().front().path == L"hero.ctex");
+    }
+
+    TEST_CASE("module ABI: unloading Godot resets the default for subsequent archive opens",
+              "[contract][godot][settings]")
+    {
+        support::gdst_fixture fixture;
+        fixture.width = 8;
+        fixture.height = 8;
+        fixture.data_format = support::gdst_bit_png | support::gdst_bit_stream;
+        fixture.mips = {support::png_bytes(32)};
+        support::godot_pck_options options;
+        support::godot_entry_options source;
+        source.path = "res://hero.ctex";
+        source.payload = support::build_gdst(fixture);
+        options.entries.push_back(source);
+        const support::temporary_archive archive("godot-settings-reset", support::build_godot_pck(options));
+        c_module loaded("godot.so");
+        REQUIRE(loaded.open(archive.path()));
+        {
+            c_module transient("godot.so");
+            CHECK(loaded.list_files().front().path == L"hero.png");
+        }
+        CHECK(loaded.list_files().front().path == L"hero.png");
+        loaded.close_storage();
+        REQUIRE(loaded.open(archive.path()));
+        CHECK(loaded.list_files().front().path == L"hero.ctex");
+    }
+
+    TEST_CASE("module ABI: Godot requests and accepts a verified hexadecimal key before preparation",
+              "[contract][godot][password]")
+    {
+        const support::temporary_archive archive("godot-password", support::encrypted_pck(3, true, true));
+        c_module loaded("godot.so");
+        const auto &api = loaded.api();
+        StorageGeneralInfo info{};
+        HANDLE storage = INVALID_HANDLE_VALUE;
+        StorageOpenParams params{sizeof(StorageOpenParams), archive.path().c_str(), nullptr, nullptr, 0};
+        REQUIRE(api.OpenStorage(params, &storage, &info) == SOR_PASSWORD_REQUIRED);
+        CHECK(storage == nullptr);
+        CHECK(info.Format[0] == L'\0');
+        params.Password = "0000000000000000000000000000000000000000000000000000000000000000";
+        CHECK(api.OpenStorage(params, &storage, &info) == SOR_PASSWORD_REQUIRED);
+        CHECK(storage == nullptr);
+        params.Password = "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20";
+        REQUIRE(api.OpenStorage(params, &storage, &info) == SOR_SUCCESS);
+        REQUIRE(storage != nullptr);
+        CHECK(api.PrepareFiles(storage) == TRUE);
+        StorageItemInfo item{};
+        CHECK(api.GetItem(storage, 0, &item) == GET_ITEM_OK);
+        CHECK(item.Size == 5);
+        CHECK(item.PackedSize == 56);
+        api.CloseStorage(storage);
+    }
+
+    TEST_CASE("module ABI: packed item outputs accept an odd address", "[contract][packed-output]")
+    {
+        struct alignas(wchar_t) odd_item
+        {
+            std::byte prefix{std::byte{0x5a}};
+            StorageItemInfo value{};
+            std::byte suffix{std::byte{0x6b}};
+        };
+        static_assert(alignof(StorageItemInfo) == 1);
+        static_assert(offsetof(odd_item, value) == 1);
+        support::godot_pck_options options;
+        support::godot_entry_options source;
+        source.path = "res://odd.bin";
+        source.payload = {'o', 'k'};
+        options.entries.push_back(std::move(source));
+        const support::temporary_archive archive("godot-packed-output", support::build_godot_pck(options));
+        c_module loaded("godot.so");
+        REQUIRE(loaded.open(archive.path()));
+        REQUIRE(loaded.api().PrepareFiles(loaded.storage()) == TRUE);
+        odd_item item;
+        REQUIRE(loaded.api().GetItem(loaded.storage(), 0, &item.value) == GET_ITEM_OK);
+        CHECK(item.value.Size == 2);
+        CHECK(item.value.PackedSize == 2);
+        CHECK(item.value.Attributes == FILE_ATTRIBUTE_NORMAL);
+        std::array<wchar_t, 1024> path{};
+        std::memcpy(path.data(), item.value.Path, sizeof(item.value.Path));
+        CHECK(std::wstring(path.data()) == L"odd.bin");
+        CHECK(item.prefix == std::byte{0x5a});
+        CHECK(item.suffix == std::byte{0x6b});
+    }
+
+    TEST_CASE("module ABI: decoded resources advertise their packed source size", "[contract][godot][packed-view-size]")
+    {
+        const auto fixture =
+            std::filesystem::path(__FILE__).parent_path().parent_path() / "data" / "godot" / "converted-size.pck";
+        c_module loaded("godot.so");
+        REQUIRE(loaded.open(fixture));
+        const auto files = loaded.list_files();
+        const auto image =
+            std::ranges::find_if(files, [](const file &entry) { return entry.path == L"art\\pixel.png"; });
+        REQUIRE(image != files.end());
+        CHECK(image->compressed_size == 126);
+        CHECK(image->uncompressed_size == image->compressed_size);
+        struct progress_state final
+        {
+            int64_t bytes = 0;
+            int polls = 0;
+        } progress;
+        const auto callback = [](void *context, const int64_t count) {
+            auto &state = *static_cast<progress_state *>(context);
+            state.bytes += count;
+            if (count == 0)
+                ++state.polls;
+            return TRUE;
+        };
+        const temporary_output_file output(std::filesystem::temp_directory_path() /
+                                           std::format("godot-packed-progress-{}.out", GetCurrentProcessId()));
+        const int index = static_cast<int>(std::distance(files.begin(), image));
+        REQUIRE(loaded.extract_file_status(index, output.path(), callback, &progress) == SER_SUCCESS);
+        CHECK(output_text(output.path()).size() == 70);
+        CHECK(progress.bytes == image->uncompressed_size);
+        CHECK(progress.polls > 0);
+    }
+
+    TEST_CASE("module ABI: extraction allocation failure stays inside the ABI and removes output",
+              "[contract][godot][allocation-failure]")
+    {
+        const auto fixture =
+            std::filesystem::path(__FILE__).parent_path().parent_path() / "data" / "godot" / "converted-size.pck";
+        c_module loaded("godot.so");
+        REQUIRE(loaded.open(fixture));
+        const auto files = loaded.list_files();
+        const auto image =
+            std::ranges::find_if(files, [](const file &entry) { return entry.path == L"art\\pixel.png"; });
+        REQUIRE(image != files.end());
+        const int index = static_cast<int>(std::distance(files.begin(), image));
+        const temporary_output_file output(std::filesystem::temp_directory_path() /
+                                           std::format("godot-allocation-failure-{}.out", GetCurrentProcessId()));
+        // The module has a separate /MT CRT. Inject the allocation exception through the callback
+        // after the converted bytes were written, exercising the same outer ABI translation and
+        // partial-output cleanup without a production allocator test seam or process-wide OOM.
+        const auto allocation_failure = [](void *, const int64_t count) -> int {
+            if (count != 0)
+                throw std::bad_alloc{};
+            return TRUE;
+        };
+        int status = -1;
+        CHECK_NOTHROW(status = loaded.extract_file_status(index, output.path(), allocation_failure));
+        CHECK(status == SER_ERROR_SYSTEM);
+        CHECK(!(std::filesystem::exists(output.path())));
+        REQUIRE(loaded.extract_file_status(index, output.path(), [](void *, int64_t) { return TRUE; }) == SER_SUCCESS);
+        CHECK(output_text(output.path()).size() == 70);
+    }
+
+    TEST_CASE("module ABI: generated media fixtures preserve decoded bytes and raw-only originals",
+              "[contract][godot][media-fixtures]")
+    {
+        struct fixture_entry final
+        {
+            std::wstring_view original;
+            std::wstring_view converted;
+            std::size_t offset;
+            std::size_t packed;
+            std::size_t payload_offset;
+            std::size_t payload_size;
+        };
+        const unsigned fixture_number = GENERATE(0U, 1U, 2U);
+        const bool textures = fixture_number == 1;
+        const bool compatibility = fixture_number == 2;
+        const bool decode = GENERATE(false, true);
+        CAPTURE(textures, compatibility, decode);
+        const fixture_entry texture_entries[] = {
+            {L"images\\canonical-png.ctex", L"images\\canonical-png.png", 1024, 126, 56, 70},
+            {L"images\\canonical-webp.ctex", L"images\\canonical-webp.webp", 1150, 92, 56, 36},
+            {L"images\\scaled-png.scaledtex", L"images\\scaled-png.png", 1242, 128, 58, 70},
+            {L"images\\scaled-webp.scaledtex", L"images\\scaled-webp.webp", 1370, 94, 58, 36},
+            {L"images\\scaled-raw.scaledtex", L"images\\scaled-raw.png", 1464, 70, 0, 0},
+            {L"images\\normal-ra.ctex", L"images\\normal-ra.png", 1534, 68, 0, 0},
+        };
+        const fixture_entry audio_font_entries[] = {
+            {L"audio\\padded-sample.res", L"audio\\padded-sample.wav", 256, 334, 0, 0},
+            {L"fonts\\generated-font.res", L"fonts\\generated-font.otf", 590, 193, 173, 16},
+        };
+        const fixture_entry compatibility_entries[] = {
+            {L"audio\\legacy-negative-main.sample", L"audio\\legacy-negative-main.wav", 256, 335, 0, 0},
+            {L"audio\\prefixed.mp3", L"audio\\prefixed.mp3", 591, 1861, 185, 1670},
+        };
+        const std::span<const fixture_entry> entries = textures ? std::span<const fixture_entry>(texture_entries)
+                                                       : compatibility
+                                                           ? std::span<const fixture_entry>(compatibility_entries)
+                                                           : std::span<const fixture_entry>(audio_font_entries);
+        const auto fixture = std::filesystem::path(__FILE__).parent_path().parent_path() / "data" / "godot" /
+                             (textures        ? "texture-media.pck"
+                              : compatibility ? "media-compat.pck"
+                                              : "audio-font-minimal.pck");
+        const std::string packed = output_text(fixture);
+        c_module loaded("godot.so", decode ? L"DecodeResources=1\0" : L"DecodeResources=0\0");
+        REQUIRE(loaded.open(fixture));
+        const auto files = loaded.list_files();
+        REQUIRE(files.size() == entries.size() + (decode ? 1U : 0U));
+        std::string first_normal_png;
+        for (const fixture_entry &expected : entries) {
+            CAPTURE(expected.original, decode);
+            const auto view = std::ranges::find_if(files, [&](const file &item) {
+                return item.path == (decode ? expected.converted : expected.original);
+            });
+            REQUIRE(view != files.end());
+            CHECK(view->compressed_size == static_cast<int64_t>(expected.packed));
+            CHECK(view->uncompressed_size == view->compressed_size);
+            int64_t progress = 0;
+            const auto callback = [](void *context, const int64_t count) {
+                *static_cast<int64_t *>(context) += count;
+                return TRUE;
+            };
+            const temporary_output_file output(std::filesystem::temp_directory_path() /
+                                               std::format("godot-media-fixture-{}.out", GetCurrentProcessId()));
+            const int index = static_cast<int>(std::distance(files.begin(), view));
+            REQUIRE(loaded.extract_file_status(index, output.path(), callback, &progress) == SER_SUCCESS);
+            CHECK(progress == static_cast<int64_t>(expected.packed));
+            const std::string bytes = output_text(output.path());
+            if (!decode) {
+                CHECK(bytes == packed.substr(expected.offset, expected.packed));
+            } else if (expected.payload_size != 0) {
+                CHECK(bytes == packed.substr(expected.offset + expected.payload_offset, expected.payload_size));
+            } else if (textures) {
+                CHECK(bytes.starts_with("\x89PNG\r\n\x1a\n"));
+                if (first_normal_png.empty())
+                    first_normal_png = bytes;
+                else
+                    CHECK(bytes == first_normal_png);
+            } else {
+                REQUIRE(bytes.size() == 52);
+                CHECK(bytes.substr(0, 4) == "RIFF");
+                CHECK(bytes.substr(8, 8) == "WAVEfmt ");
+                CHECK(bytes.substr(36, 4) == "data");
+                CHECK(static_cast<unsigned char>(bytes.at(22)) == 1);
+                CHECK(static_cast<unsigned char>(bytes.at(24)) == 0x40);
+                CHECK(static_cast<unsigned char>(bytes.at(25)) == 0x1f);
+                CHECK(static_cast<unsigned char>(bytes.at(34)) == 16);
+                CHECK(bytes.substr(44) == std::string(8, '\0'));
+            }
+        }
+    }
+
+    TEST_CASE("module ABI: Godot holds a read lease from opening until closing", "[contract][godot][source-lease]")
+    {
+        support::godot_pck_options options;
+        support::godot_entry_options source;
+        source.path = "res://keep.bin";
+        source.payload = {'k'};
+        options.entries.push_back(std::move(source));
+        const support::temporary_archive archive("godot-read-lease", support::build_godot_pck(options));
+        {
+            c_module loaded("godot.so");
+            REQUIRE(loaded.open(archive.path()));
+            std::fstream writer(archive.path(), std::ios::in | std::ios::out | std::ios::binary);
+            CHECK(!(writer.is_open()));
+            std::error_code error;
+            std::filesystem::resize_file(archive.path(), 0, error);
+            CHECK(error);
+            REQUIRE(loaded.list_files().size() == 1);
+        }
+        std::fstream writer(archive.path(), std::ios::in | std::ios::out | std::ios::binary);
+        CHECK(writer.is_open());
+    }
+
+    TEST_CASE("module ABI: Godot preparation retains a source protected from mutation",
+              "[contract][godot][source-fault]")
+    {
+        support::godot_pck_options options;
+        support::godot_entry_options source;
+        source.path = "res://keep.bin";
+        source.payload = {'k'};
+        options.entries.push_back(std::move(source));
+        const support::temporary_archive archive("godot-changed-header", support::build_godot_pck(options));
+        c_module loaded("godot.so");
+        REQUIRE(loaded.open(archive.path()));
+
+        // Verification and later random-access reads share a stable leased file. A second
+        // writer cannot invalidate a verified directory between opening and preparation.
+        std::fstream edit(archive.path(), std::ios::in | std::ios::out | std::ios::binary);
+        CHECK(!(edit.is_open()));
+        CHECK(loaded.api().PrepareFiles(loaded.storage()) == TRUE);
+    }
+
+    TEST_CASE("module ABI: Godot preparation classifies locked metadata and resource bodies",
+              "[contract][godot][source-fault]")
+    {
+        const auto expect_body_read_error = [](const std::string_view label, const std::string_view path,
+                                               const std::vector<std::uint8_t> &payload) {
+            support::godot_pck_options options;
+            // Keep the locked target beyond the filebuf's index-read window. A nearby lock can
+            // fault while reading the index instead of exercising the metadata/probe read below.
+            support::godot_entry_options padding;
+            padding.path = "res://padding.bin";
+            padding.payload.assign(std::size_t{64} * 1024, 0);
+            options.entries.push_back(std::move(padding));
+            support::godot_entry_options source;
+            source.path = path;
+            source.payload = payload;
+            options.entries.push_back(std::move(source));
+            const support::godot_bytes bytes = support::build_godot_pck(options);
+            const support::temporary_archive archive(label, bytes);
+            c_module loaded("godot.so");
+            REQUIRE(loaded.open(archive.path()));
+            const std::uint64_t body_offset = bytes.size() - payload.size();
+            locked_source_range lock(archive.path(), body_offset, 4);
+            CHECK(loaded.api().PrepareFiles(loaded.storage()) == FALSE);
+        };
+
+        const std::string metadata = "[remap]\npath=\"res://compiled.ctex\"\n";
+        expect_body_read_error("godot-locked-metadata", "res://art/a.png.import", {metadata.begin(), metadata.end()});
+        expect_body_read_error("godot-locked-resource", "res://art/a.ctex", {'G', 'D', 'S', 'T', 0, 0, 0, 0});
+    }
+
+    TEST_CASE("module ABI: Godot converted extraction reports a locked source after listing",
+              "[contract][godot][source-fault]")
+    {
+        support::gdst_fixture fixture;
+        fixture.width = 8;
+        fixture.height = 8;
+        fixture.data_format = support::gdst_bit_png | support::gdst_bit_stream;
+        fixture.mips = {support::png_bytes(std::size_t{128} * 1024)};
+        const support::godot_bytes texture = support::build_gdst(fixture);
+        support::godot_pck_options options;
+        support::godot_entry_options source;
+        source.path = "res://compiled/hero.ctex";
+        source.payload = texture;
+        options.entries.push_back(std::move(source));
+        const support::godot_bytes bytes = support::build_godot_pck(options);
+        const support::temporary_archive archive("godot-converted-truncated", bytes);
+        c_module loaded("godot.so");
+        REQUIRE(loaded.open(archive.path()));
+        const auto listed = loaded.list_files();
+        int converted_index = -1;
+        for (std::size_t index = 0; index < listed.size(); ++index) {
+            if (listed[index].path == L"compiled\\hero.png") {
+                converted_index = static_cast<int>(index);
+            }
+        }
+        REQUIRE(converted_index >= 0);
+
+        const std::filesystem::path destination = archive.path().wstring() + L".out";
+        locked_source_range lock(archive.path(), bytes.size() - texture.size() + std::uint64_t{64} * 1024, 4);
+        CHECK(loaded.extract_file_status(converted_index, destination, [](void *, int64_t) { return TRUE; }) ==
+              SER_ERROR_READ);
+        CHECK(!(std::filesystem::exists(destination)));
+    }
+
+    TEST_CASE("module ABI: Godot raw-only tree budget exhaustion fails preparation", "[contract][godot][metadata]")
+    {
+        // The pack index is well below its own 64 MiB allowance. Each raw name is legal, but its
+        // escaped presentation name is about three times longer, so the raw-only presentation exceeds
+        // the independent tree budget even with zero optional import aliases.
+        constexpr std::size_t entries = 16'000;
+        const std::string component(240, '%');
+        support::godot_pck_options options;
+        options.entries.reserve(entries);
+        for (std::size_t index = 0; index < entries; ++index) {
+            support::godot_entry_options source;
+            source.path = "res://raw/";
+            source.path += std::to_string(index);
+            for (int part = 0; part < 4; ++part) {
+                source.path += "/";
+                source.path += component;
+            }
+            options.entries.push_back(std::move(source));
+        }
+        const support::godot_bytes bytes = support::build_godot_pck(options);
+        const std::string image(bytes.begin(), bytes.end());
+        std::istringstream check_index(image);
+        const auto location = unpackrat::godot::locate_pack(check_index);
+        REQUIRE(location.has_value());
+        REQUIRE(unpackrat::godot::read_pack(check_index, *location).entries.size() == entries);
+
+        const support::temporary_archive archive("godot-raw-tree-budget", bytes);
+        c_module loaded("godot.so");
+        REQUIRE(loaded.open(archive.path()));
+        CHECK(loaded.api().PrepareFiles(loaded.storage()) == FALSE);
     }
 
     TEST_CASE("module ABI: an item path must fit the ABI buffer", "[contract]")

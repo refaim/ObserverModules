@@ -180,7 +180,7 @@ class WorkflowContractTests(unittest.TestCase):
     def test_release_publishes_three_selected_archives_from_verified_outputs(self) -> None:
         workflow = self.main_workflow()
 
-        self.assertIn("tags: ['renpy/v*', 'rpgmaker/v*', 'zanzarah/v*']", workflow)
+        self.assertIn("tags: ['renpy/v*', 'rpgmaker/v*', 'zanzarah/v*', 'godot/v*']", workflow)
         self.assertIn("  packaging:\n", workflow)
         # Packaging waits on every real verification job directly, so a failed, skipped or
         # cancelled slice fails closed through GitHub's own `needs` instead of a bash gate.
@@ -196,6 +196,7 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn("  release:\n", workflow)
         self.assertIn("needs: packaging", workflow)
         self.assertIn("if: startsWith(github.ref, 'refs/tags/renpy/v')", workflow)
+        self.assertIn("startsWith(github.ref, 'refs/tags/godot/v')", workflow)
         self.assertEqual(workflow.count("contents: write"), 1)
 
         # Packaging consumes each verified per-architecture Release directory without rebuilding.
@@ -316,7 +317,7 @@ class WorkflowContractTests(unittest.TestCase):
             "}\n"
             + textwrap.dedent(body[1])
         )
-        for module in ("renpy", "rpgmaker", "zanzarah"):
+        for module in ("renpy", "rpgmaker", "zanzarah", "godot"):
             with self.subTest(module=module), tempfile.TemporaryDirectory() as temporary:
                 version = (REPOSITORY / "src/modules" / module / "VERSION").read_text(encoding="utf-8").strip()
                 runner_temp = Path(temporary)
@@ -382,18 +383,17 @@ class WorkflowContractTests(unittest.TestCase):
 class RepositoryMetadataTests(unittest.TestCase):
     """The repository's own manifests, readme and human ChangeLogs stay consistent."""
 
-    MODULES = ("renpy", "rpgmaker", "zanzarah")
+    MODULES = ("renpy", "rpgmaker", "zanzarah", "godot")
     UPSTREAM_PROJECT_URLS = (
         "https://github.com/nlohmann/json",
         "https://github.com/catchorg/Catch2",
         "https://github.com/lazyhamster/Observer",
         "https://github.com/Cyan4973/xxHash",
-        "https://zlib.net",
+        "https://github.com/zlib-ng/zlib-ng",
         "https://github.com/luxrck/rgssad",
         "https://github.com/birkenfeld/serde-pickle",
         "https://github.com/Shizmob/rpatool",
         "https://github.com/pg83/ix",
-        "https://aluigi.altervista.org/papers.htm#others-file",
     )
 
     def setUp(self) -> None:
@@ -414,11 +414,9 @@ class RepositoryMetadataTests(unittest.TestCase):
         self.assertIn("licenses/Observer.txt", readme)
         self.assertIn("licenses/GPL-3.0.txt", readme)
 
-    def test_readme_labels_zanzapak_as_a_format_reference_not_a_dependency(self) -> None:
-        readme = self.readme
-        self.assertIn("[GPL-2.0-or-later](licenses/zanzapak.txt)", readme)
-        self.assertNotIn("[GPL-3.0](licenses/zanzapak.txt)", readme)
-        self.assertIn("format reference", readme.lower())
+    def test_readme_omits_the_removed_format_references_section(self) -> None:
+        self.assertNotIn("### Format references", self.readme)
+        self.assertNotIn("zanzapak", self.readme.lower())
 
     def test_root_license_is_mit_and_the_gpl_is_the_companion_of_the_lgpl_header(self) -> None:
         license_text = (REPOSITORY / "LICENSE.txt").read_text(encoding="utf-8")
@@ -483,7 +481,7 @@ class RepositoryMetadataTests(unittest.TestCase):
         for project in self.UPSTREAM_PROJECT_URLS:
             with self.subTest(project=project):
                 self.assertIn(project, readme)
-        for heading in ("Third-party components", "Sources of inspiration", "Format references"):
+        for heading in ("Third-party components", "Sources of inspiration"):
             with self.subTest(heading=heading):
                 self.assertIn(heading, readme)
 

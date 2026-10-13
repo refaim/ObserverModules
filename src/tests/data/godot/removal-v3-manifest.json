@@ -1,0 +1,44 @@
+{
+  "purpose": "Synthetic reproduction of PCK v3 file-removal rejection; no game bytes or game paths.",
+  "format_version": 3,
+  "engine_version": [
+    4,
+    6,
+    2
+  ],
+  "pack_flags": 2,
+  "file_base": 112,
+  "directory_offset": 128,
+  "header_bytes": 112,
+  "body_utf8": "fixture\n",
+  "body_padding_bytes": 8,
+  "entries": [
+    {
+      "path": "res://keep.txt",
+      "stored_offset": 0,
+      "logical_size": 8,
+      "md5": "9ee93d7f7493b1d81cfe187a1b2642dc"
+    },
+    {
+      "path": "res://removed.txt",
+      "stored_offset": 16,
+      "logical_size": 0,
+      "md5": "d41d8cd98f00b204e9800998ecf8427e"
+    }
+  ],
+  "outputs": [
+    {
+      "file": "removal-v3.pck",
+      "bytes": 248,
+      "sha256": "70d3d5a0863681c158bb7ee84970ff5e938432d8be5bc808c3b7cdf37c36007f",
+      "second_entry_flags": 2
+    },
+    {
+      "file": "removal-v3-control.pck",
+      "bytes": 248,
+      "sha256": "b3e2659ba481441d1eef8952abc1002facdede784fbc91fe3414c0f5ad371e7c",
+      "second_entry_flags": 0
+    }
+  ],
+  "delta": "Only the second entry flags field differs: 2 (removal) versus 0 (ordinary empty file)."
+}

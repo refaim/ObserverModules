@@ -70,7 +70,8 @@
       <AdditionalOptions>/utf-8 /Zc:__cplusplus %(AdditionalOptions)</AdditionalOptions>
       <AdditionalOptions Condition="'$(Configuration)' == 'Coverage'">/clang:-fprofile-instr-generate /clang:-fcoverage-mapping %(AdditionalOptions)</AdditionalOptions>
       <AdditionalOptions Condition="'$(Configuration)' == 'ASan'">/fsanitize=address %(AdditionalOptions)</AdditionalOptions>
-      <AdditionalOptions Condition="'$(Configuration)' == 'UBSan'">/clang:-fsanitize=undefined /clang:-fno-sanitize-recover=all %(AdditionalOptions)</AdditionalOptions>
+      <!-- One SDK-only alignment exception; rationale and removal rule: docs/ubsan-sdk-wmemcmp.md. -->
+      <AdditionalOptions Condition="'$(Configuration)' == 'UBSan'">/clang:-fsanitize=undefined /clang:-fno-sanitize-recover=all /clang:-fsanitize-ignorelist="$(RepositoryRoot)build\ubsan-ignorelist.txt" %(AdditionalOptions)</AdditionalOptions>
       <AdditionalOptions Condition="'$(Configuration)' == 'Fuzz'">/clang:-fsanitize=fuzzer,address %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>

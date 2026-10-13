@@ -6,6 +6,7 @@
 #include <cstring>
 #include <filesystem>
 #include <memory>
+#include <new>
 #include <span>
 #include <string>
 
@@ -37,10 +38,16 @@ void copy_string(const std::wstring &source, wchar_t *destination, const std::si
 
 extern "C" int MODULE_EXPORT OpenStorage(StorageOpenParams params, HANDLE *storage, StorageGeneralInfo *info)
 {
-    if (storage == nullptr || info == nullptr || params.FilePath == nullptr)
+    if (storage != nullptr) {
+        *storage = nullptr;
+    }
+    if (info != nullptr) {
+        std::memset(info, 0, sizeof(StorageGeneralInfo));
+    }
+    if (storage == nullptr || info == nullptr || params.StructSize != sizeof(StorageOpenParams) ||
+        params.FilePath == nullptr) {
         return SOR_INVALID_FILE;
-
-    *storage = nullptr;
+    }
 
     // Copy the packed pointer into an aligned local before binding a C++ reference.
     const auto file_path = params.FilePath;
@@ -53,7 +60,10 @@ extern "C" int MODULE_EXPORT OpenStorage(StorageOpenParams params, HANDLE *stora
 
     auto archive = std::make_unique<archive::archive>(std::make_unique<extractor::extractor>());
     try {
-        auto [format, compression, comment] = archive->open(path, data);
+        auto [format, compression, comment] = archive->open(
+            path, data,
+            params.Password == nullptr ? std::string_view{}
+                                       : std::string_view(params.Password, strnlen_s(params.Password, 65)));
 
         alignas(std::max_align_t) StorageGeneralInfo local_info;
         std::memset(&local_info, 0, sizeof(StorageGeneralInfo));
@@ -65,6 +75,8 @@ extern "C" int MODULE_EXPORT OpenStorage(StorageOpenParams params, HANDLE *stora
         std::memcpy(info, &local_info, sizeof(StorageGeneralInfo));
 
         *storage = static_cast<HANDLE>(archive.release());
+    } catch (const extractor::password_required &) {
+        return SOR_PASSWORD_REQUIRED;
     } catch (std::runtime_error &) {
         return SOR_INVALID_FILE;
     }
@@ -154,6 +166,10 @@ extern "C" int MODULE_EXPORT ExtractItem(HANDLE storage, ExtractOperationParams 
         return SER_ERROR_READ;
     } catch (archive::write_error &) {
         return SER_ERROR_WRITE;
+    } catch (const std::bad_alloc &) {
+        // Allocation failure is terminal. Preserve stack unwinding and partial-output cleanup,
+        // then translate it once at the C ABI boundary without retrying or reporting success.
+        return SER_ERROR_SYSTEM;
     } catch (std::runtime_error &) {
         return SER_ERROR_SYSTEM;
     } catch (std::logic_error &) {
@@ -168,10 +184,11 @@ extern "C" int MODULE_EXPORT LoadSubModule(ModuleLoadParameters *LoadParams) noe
 #ifdef _DEBUG
     configure_debug_crt();
 #endif
-    if (LoadParams == nullptr) {
+    if (LoadParams == nullptr || LoadParams->StructSize != sizeof(ModuleLoadParameters)) {
         return FALSE;
     }
 
+    extractor::configure(LoadParams->Settings);
     const auto [id, major_version, minor_version] = extractor::get_version_info();
     const auto [id1, id2, id3, id4] = id;
     LoadParams->ModuleId = {id1, id2, id3, {id4[0], id4[1], id4[2], id4[3], id4[4], id4[5], id4[6], id4[7]}};
@@ -187,4 +204,5 @@ extern "C" int MODULE_EXPORT LoadSubModule(ModuleLoadParameters *LoadParams) noe
 
 extern "C" void MODULE_EXPORT UnloadSubModule() noexcept
 {
+    extractor::reset_settings();
 }

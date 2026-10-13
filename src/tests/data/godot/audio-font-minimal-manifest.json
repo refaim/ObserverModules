@@ -1,0 +1,35 @@
+{
+  "fixture": "audio-font-minimal.pck",
+  "provenance": "All bytes generated locally from the standard-library recipe in this repository; no game data, keys or third-party font bytes.",
+  "font_note": "The 16-byte OTTO stub is intentionally not renderable. It reproduces wrapper classification and byte-preserving extraction only; real TTF compatibility is checked separately against the external corpus.",
+  "sample_note": "Godot 3.0 binary format 2 class Sample with a Godot 2-style data dictionary; four zero IMA seed bytes precede two nibbled data bytes, yielding exactly four mono PCM frames.",
+  "format_version": 2,
+  "engine_version": [
+    4,
+    5,
+    0
+  ],
+  "file_base": 256,
+  "file_size": 783,
+  "sha256": "197015bf837eaeaca8fad94c6d0c6a02f9adc01ea8e00283eb014c402b953d2d",
+  "entries": [
+    {
+      "path": "res://audio/padded-sample.res",
+      "converted_path": "audio/padded-sample.wav",
+      "logical_size": 334,
+      "md5": "12f36166cffbd5820bc9dd77082f70a5",
+      "sha256": "401780949ec73da72acb0264cc4d76b1db0d3812e329e5138075dc1ce7ac692b",
+      "expected_output_size": 52,
+      "output_sha256": null
+    },
+    {
+      "path": "res://fonts/generated-font.res",
+      "converted_path": "fonts/generated-font.otf",
+      "logical_size": 193,
+      "md5": "41d61377debceac27aeff0d06352e5e6",
+      "sha256": "f50fb4ca4f46dd0cfe5758a7234986007d61048eeeca5cc7ab8e27e53715a258",
+      "expected_output_size": 16,
+      "output_sha256": "6a77a5ca5c0ff0c608c060bf9e10109f2563a1330f174291cbdfd4b08ac61c26"
+    }
+  ]
+}

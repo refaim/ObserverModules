@@ -1,0 +1,10 @@
+Version 1.0.0
+-------------
+ + Added the Godot module for standalone PCK archives, embedded PCKs and same-stem EXE sidecars.
+ + Encrypted directories and resources are decrypted transparently. Keys are recovered through static EXE inspection and validated with MD5; a 64-digit hexadecimal key can also be entered in Observer's password dialog.
+ + Import/remap metadata restores original resource folders. [Godot] DecodeResources=1 shows converted resources instead of their compiled originals; 0 or a missing setting keeps originals. The shipped INI enables 1. Files .import and .remap remain visible in both modes.
+ + Added StreamTexture, CompressedTexture2D, scaled texture containers and Image/ImageTexture conversion. Encoded PNG/WebP is identified by content and preserved; supported raw and block-compressed textures, including DXT5_RA_AS_RG, are written as PNG.
+ + Added Sample, AudioStreamSample/AudioStreamWAV, MP3 and Ogg Vorbis extraction, including Godot IMA-ADPCM and QOA, to WAV, MP3 or Ogg.
+ + Added FontFile extraction preserving TTF, OTF, TTC, WOFF and WOFF2 data.
+ + Added RSRC and block-compressed RSCC readers. Listing inspects metadata and stops unsupported binary classes after their header; media conversion runs only during extraction. Converted entries display their packed source size and report progress against that same size.
+ + Added PCK patch removal records in patch-removals.tsv and safe names with a name-map.tsv for unsafe or conflicting paths. Unrecognised resources are extracted without format conversion.

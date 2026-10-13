@@ -29,8 +29,13 @@ REPOSITORY = Path(__file__).resolve().parents[1]
 ARCHITECTURES = ("x86", "x64")
 PLATFORMS = {"x86": "Win32", "x64": "x64"}
 CONFIGURATIONS = ("Debug", "Release")
-MODULES = ("renpy", "rpgmaker", "zanzarah")
-MODULE_BINARIES = {"renpy": "renpy.so", "rpgmaker": "rpgmaker.so", "zanzarah": "zanzarah.so"}
+MODULES = ("renpy", "rpgmaker", "zanzarah", "godot")
+MODULE_BINARIES = {
+    "renpy": "renpy.so",
+    "rpgmaker": "rpgmaker.so",
+    "zanzarah": "zanzarah.so",
+    "godot": "godot.so",
+}
 OUT_NATIVE = "out/native"
 OUT_PACKAGES = "out/packages"
 TEST_PROJECT = "build/projects/tests.vcxproj"
@@ -39,9 +44,14 @@ VCPKG_TRIPLETS = "build/vcpkg/triplets"
 # A module ships its own MIT grant, the Observer API header's LGPLv3 notice with the full GPLv3
 # text the LGPL incorporates, and then only that module's own third-party notices.
 LICENSES = {
-    "renpy": ("Observer.txt", "GPL-3.0.txt", "rpatool.txt", "serde-pickle.txt", "zlib.txt"),
+    "renpy": ("Observer.txt", "GPL-3.0.txt", "rpatool.txt", "serde-pickle.txt", "zlib-ng.txt"),
     "rpgmaker": ("Observer.txt", "GPL-3.0.txt", "rgssad.txt"),
     "zanzarah": ("Observer.txt", "GPL-3.0.txt"),
+    "godot": (
+        "Observer.txt", "GPL-3.0.txt", "godot.txt", "libspng.txt", "libogg.txt",
+        "brotli.txt", "zstd.txt", "fastlz.txt", "zlib-ng.txt", "bcdec.txt", "dr_libs.txt",
+        "qoa.txt", "zydis.txt", "zycore.txt", "mbedcrypto.txt",
+    ),
 }
 FUZZ_TARGETS = ("pickle", "renpy", "rpgmaker", "zanzarah")
 FUZZ_MAX_LENGTH = {"pickle": 262144, "renpy": 1048576, "rpgmaker": 1048576, "zanzarah": 1048576}
@@ -59,7 +69,7 @@ _X64_ONLY_STAGES = frozenset({"ubsan", "leaks"})
 CPPCHECK_PLATFORMS = {"x86": ("win32W", "_M_IX86=600"), "x64": ("win64", "_M_X64=100")}
 COVERAGE_IGNORED = (
     r"([\\/]src[\\/](tests|fuzz)[\\/])|([\\/]vcpkg_installed[\\/])|"
-    r"([\\/]Microsoft Visual Studio[\\/])|([\\/]Windows Kits[\\/])"
+    r"([\\/]Microsoft Visual Studio[\\/])|([\\/]Windows Kits[\\/])|([\\/]third_party[\\/])"
 )
 _ASAN_CONFIGURATIONS = frozenset({"ASan", "Fuzz"})
 _ASAN_OPTIONS = "halt_on_error=1:alloc_dealloc_mismatch=1"
@@ -69,6 +79,8 @@ _LICENSE_SEPARATOR = "=" * 72
 _CPP_SUFFIXES = (".cpp", ".h")
 _PS_SUFFIXES = (".ps1", ".psm1")
 _IGNORED_DIRECTORIES = frozenset({".git", ".venv", "__pycache__", "out"})
+# Top-level vendored trees hold pinned upstream bytes; they stay out of the source/format gates.
+_IGNORED_TOP_LEVEL_DIRECTORIES = frozenset({"third_party"})
 _MACHINES = {"x86": r"14C machine \(x86\)", "x64": r"8664 machine \(x64\)"}
 _ALLOWED_DLLS = frozenset(
     {
@@ -513,7 +525,10 @@ def coverage_complete(document: object) -> bool:
 def _source_files(repository: Path, suffixes: tuple[str, ...]) -> tuple[Path, ...]:
     found: list[Path] = []
     for directory, directories, names in repository.walk():
-        directories[:] = sorted(set(directories) - _IGNORED_DIRECTORIES)
+        ignored = _IGNORED_DIRECTORIES
+        if directory == repository:
+            ignored = _IGNORED_DIRECTORIES | _IGNORED_TOP_LEVEL_DIRECTORIES
+        directories[:] = sorted(set(directories) - ignored)
         for name in names:
             if Path(name).suffix in suffixes:
                 found.append(directory / name)
@@ -531,7 +546,7 @@ def _cppcheck(
 ) -> None:
     platform, define = CPPCHECK_PLATFORMS[architecture]
     # The dependencies restored for this variant must be on the include path so the third-party
-    # headers resolve; their findings are exempted below because they are not first-party code.
+    # headers resolve. Restored and bundled third_party headers are exempt; our adapters remain checked.
     triplet_name = triplet(architecture, configuration)
     include_dir = restore_root(repository, architecture, configuration) / triplet_name / "include"
     run(
@@ -543,6 +558,7 @@ def _cppcheck(
             "--inconclusive", "--inline-suppr",
             "--suppress=missingIncludeSystem", "--suppress=uninitMemberVarNoCtor:src/api.h",
             f"--suppress=*:*\\{triplet_name}\\include\\*", "--suppress=functionStatic",
+            "--suppress=*:third_party/*",
             f"--relative-paths={repository}", "--error-exitcode=1",
         ],
         cwd=repository,
