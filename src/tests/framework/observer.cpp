@@ -11,6 +11,7 @@
 #include <format>
 #include <fstream>
 #include <iterator>
+#include <memory>
 #include <string>
 #include <system_error>
 #include <thread>
@@ -30,8 +31,18 @@ namespace test
     class c_module final : public module
     {
       public:
+        struct injected_tag final
+        {
+        };
+
         explicit c_module(const std::string &dll_name)
             : c_module(std::filesystem::path(dll_name), module_path_policy::loader_search)
+        {
+        }
+
+        // Test-only seam: binds fake callbacks so the harness lifecycle can be driven and
+        // observed without loading a module binary.
+        explicit c_module(injected_tag, const module_cbs &callbacks) : api_(callbacks)
         {
         }
 
@@ -105,28 +116,56 @@ namespace test
             REQUIRE(input.is_open());
             input.exceptions(std::ofstream::badbit);
 
-            auto len = 128 * 1024;
+            constexpr auto max_prefix_size = 128 * 1024;
             std::string signature;
-            signature.resize(len);
-            input.read(signature.data(), len);
+            signature.resize(max_prefix_size);
+            input.read(signature.data(), max_prefix_size);
 
-            StorageOpenParams open_params{
+            // Observer analyzes the archive through a temporary storage opened with the
+            // read-ahead signature, destroys that storage, and only then opens the real
+            // storage without the signature. Reproduce that two-phase lifecycle so the
+            // harness drives the same handle sequence the shipping plugin does.
+            {
+                // StorageGeneralInfo is a packed (align 1) ABI struct whose Format,
+                // Compression and Comment arrays decay to wchar_t pointers; force natural
+                // alignment so those strings are not read through a misaligned pointer.
+                alignas(std::max_align_t) StorageGeneralInfo analyze_info{};
+                HANDLE analyze_handle = nullptr;
+                const StorageOpenParams analyze_params{
+                    .StructSize = sizeof(StorageOpenParams),
+                    .FilePath = path.c_str(),
+                    .Password = nullptr,
+                    .Data = signature.c_str(),
+                    .DataSize = static_cast<size_t>(input.gcount()),
+                };
+                if (api_.OpenStorage(analyze_params, &analyze_handle, &analyze_info) != SOR_SUCCESS) {
+                    return false;
+                }
+                // The module's own CloseStorage releases the temporary analysis handle before
+                // the real open, on every exit path including a failing assertion.
+                const std::unique_ptr<void, CloseStorageFunc> analyze(analyze_handle, api_.CloseStorage);
+                REQUIRE(!std::wstring(analyze_info.Format).empty());
+                REQUIRE(!std::wstring(analyze_info.Compression).empty());
+                REQUIRE(!std::wstring(analyze_info.Comment).empty());
+            }
+
+            alignas(std::max_align_t) StorageGeneralInfo info{};
+            const StorageOpenParams reopen_params{
                 .StructSize = sizeof(StorageOpenParams),
                 .FilePath = path.c_str(),
                 .Password = nullptr,
-                .Data = signature.c_str(),
-                .DataSize = static_cast<size_t>(input.gcount()),
+                .Data = nullptr,
+                .DataSize = 0,
             };
-
-            StorageGeneralInfo info{};
-            // TODO mimic observer behavior: call OpenStorage twice with different params
-            bool success = api_.OpenStorage(open_params, &storage_, &info) == SOR_SUCCESS;
-            if (success) {
-                REQUIRE(!std::wstring(info.Format).empty());
-                REQUIRE(!std::wstring(info.Compression).empty());
-                REQUIRE(!std::wstring(info.Comment).empty());
+            HANDLE reopened = nullptr;
+            if (api_.OpenStorage(reopen_params, &reopened, &info) != SOR_SUCCESS) {
+                return false;
             }
-            return success;
+            storage_ = reopened;
+            REQUIRE(!std::wstring(info.Format).empty());
+            REQUIRE(!std::wstring(info.Compression).empty());
+            REQUIRE(!std::wstring(info.Comment).empty());
+            return true;
         }
 
         std::vector<file> list_files()
@@ -1700,6 +1739,371 @@ namespace test
             REQUIRE(item.ModificationTime.dwHighDateTime == 0);
             REQUIRE(std::all_of(std::begin(item.Owner), std::end(item.Owner),
                                 [](const wchar_t character) { return character == L'\0'; }));
+        }
+    }
+    namespace
+    {
+        struct lifecycle_call final
+        {
+            enum class action : std::uint8_t
+            {
+                open,
+                close,
+                prepare,
+                get_item,
+                extract,
+            };
+
+            action kind = action::open;
+            HANDLE handle = nullptr;
+            int item_index = 0;
+            bool has_data = false;
+            std::size_t data_size = 0;
+            std::string data;
+            bool has_password = false;
+            std::size_t struct_size = 0;
+            std::wstring path;
+        };
+
+        struct lifecycle_state final
+        {
+            std::vector<lifecycle_call> calls;
+            int analyze_status = SOR_SUCCESS;
+            int reopen_status = SOR_SUCCESS;
+            // Non-null sentinel handles that stand in for the storage handles the fake
+            // Observer module would receive. They are the addresses of fixture-owned
+            // tokens, never OS handles, so the lifecycle can compare them by identity.
+            std::byte analyze_token{};
+            std::byte reopen_token{};
+            HANDLE analyze_handle = &analyze_token;
+            HANDLE reopen_handle = &reopen_token;
+            int open_count = 0;
+
+            lifecycle_state() = default;
+            lifecycle_state(const lifecycle_state &) = delete;
+            lifecycle_state &operator=(const lifecycle_state &) = delete;
+        };
+
+        lifecycle_state *g_lifecycle = nullptr;
+
+        // This toolchain's standard library does not ship std::scope_exit (<scope>), so this
+        // tiny guard installs the fake lifecycle state on construction and clears it on scope
+        // exit, including when a failing Catch assertion unwinds the scope.
+        class lifecycle_binding final
+        {
+          public:
+            explicit lifecycle_binding(lifecycle_state &state) noexcept
+            {
+                g_lifecycle = &state;
+            }
+
+            ~lifecycle_binding()
+            {
+                g_lifecycle = nullptr;
+            }
+
+            lifecycle_binding(const lifecycle_binding &) = delete;
+            lifecycle_binding &operator=(const lifecycle_binding &) = delete;
+        };
+
+        void fill_lifecycle_info(StorageGeneralInfo *info)
+        {
+            *info = StorageGeneralInfo{};
+            wcscpy_s(info->Format, L"SNIFFED");
+            wcscpy_s(info->Compression, L"-");
+            wcscpy_s(info->Comment, L"-");
+        }
+
+        int MODULE_EXPORT lifecycle_open_storage(StorageOpenParams params, HANDLE *storage, StorageGeneralInfo *info)
+        {
+            REQUIRE(g_lifecycle != nullptr);
+            lifecycle_state &state = *g_lifecycle;
+
+            // Observer passes a null storage slot and a zeroed info buffer for the module to
+            // fill, so capture that before this fake overwrites the info.
+            REQUIRE(*storage == nullptr);
+            REQUIRE(info->Format[0] == L'\0');
+            REQUIRE(info->Compression[0] == L'\0');
+            REQUIRE(info->Comment[0] == L'\0');
+            REQUIRE(info->Created.dwLowDateTime == 0);
+            REQUIRE(info->Created.dwHighDateTime == 0);
+
+            lifecycle_call call;
+            call.kind = lifecycle_call::action::open;
+            call.has_data = params.Data != nullptr;
+            call.data_size = params.DataSize;
+            call.has_password = params.Password != nullptr;
+            call.struct_size = params.StructSize;
+            call.path = params.FilePath;
+            if (call.has_data) {
+                call.data.assign(static_cast<const char *>(params.Data), params.DataSize);
+            }
+
+            const int index = state.open_count;
+            ++state.open_count;
+            if (const int status = index == 0 ? state.analyze_status : state.reopen_status; status != SOR_SUCCESS) {
+                *storage = nullptr;
+                state.calls.push_back(call);
+                return status;
+            }
+
+            fill_lifecycle_info(info);
+            call.handle = index == 0 ? state.analyze_handle : state.reopen_handle;
+            *storage = call.handle;
+            state.calls.push_back(call);
+            return SOR_SUCCESS;
+        }
+
+        void MODULE_EXPORT lifecycle_close_storage(HANDLE storage)
+        {
+            REQUIRE(g_lifecycle != nullptr);
+            lifecycle_call call;
+            call.kind = lifecycle_call::action::close;
+            call.handle = storage;
+            g_lifecycle->calls.push_back(call);
+        }
+
+        int MODULE_EXPORT lifecycle_prepare_files(HANDLE storage)
+        {
+            REQUIRE(g_lifecycle != nullptr);
+            lifecycle_call call;
+            call.kind = lifecycle_call::action::prepare;
+            call.handle = storage;
+            g_lifecycle->calls.push_back(call);
+            return TRUE;
+        }
+
+        int MODULE_EXPORT lifecycle_get_item(HANDLE storage, int item_index, StorageItemInfo *item_info)
+        {
+            REQUIRE(g_lifecycle != nullptr);
+            lifecycle_call call;
+            call.kind = lifecycle_call::action::get_item;
+            call.handle = storage;
+            call.item_index = item_index;
+            g_lifecycle->calls.push_back(call);
+            if (item_index != 0) {
+                return GET_ITEM_NOMOREITEMS;
+            }
+
+            *item_info = StorageItemInfo{};
+            wcscpy_s(item_info->Path, L"entry.txt");
+            item_info->Attributes = FILE_ATTRIBUTE_NORMAL;
+            item_info->Size = 1;
+            item_info->PackedSize = 1;
+            return GET_ITEM_OK;
+        }
+
+        int MODULE_EXPORT lifecycle_extract_item(HANDLE storage, ExtractOperationParams params)
+        {
+            REQUIRE(g_lifecycle != nullptr);
+            lifecycle_call call;
+            call.kind = lifecycle_call::action::extract;
+            call.handle = storage;
+            call.item_index = params.ItemIndex;
+            g_lifecycle->calls.push_back(call);
+            return SER_SUCCESS;
+        }
+
+        module_cbs lifecycle_callbacks()
+        {
+            return module_cbs{
+                .OpenStorage = lifecycle_open_storage,
+                .CloseStorage = lifecycle_close_storage,
+                .GetItem = lifecycle_get_item,
+                .ExtractItem = lifecycle_extract_item,
+                .PrepareFiles = lifecycle_prepare_files,
+            };
+        }
+    } // namespace
+
+    TEST_CASE("module lifecycle: the harness analyzes the start buffer then reopens without it",
+              "[contract][lifecycle]")
+    {
+        const support::byte_buffer contents{'R', 'E', 'N', 'P', 'Y', '-', 'p', 'r', 'o', 'b', 'e'};
+        const support::temporary_archive archive("lifecycle", contents);
+        const std::string expected_prefix(contents.begin(), contents.end());
+
+        SECTION("a successful analysis reopens once without the start buffer")
+        {
+            lifecycle_state state;
+            lifecycle_binding binding{state};
+            {
+                c_module module{c_module::injected_tag{}, lifecycle_callbacks()};
+                REQUIRE(module.open(archive.path()));
+                REQUIRE(module.storage() == state.reopen_handle);
+                REQUIRE(state.open_count == 2);
+
+                REQUIRE(state.calls.size() == 3);
+                const lifecycle_call &analyze = state.calls[0];
+                REQUIRE(analyze.kind == lifecycle_call::action::open);
+                REQUIRE(analyze.has_data);
+                REQUIRE(analyze.data_size == contents.size());
+                REQUIRE(analyze.data == expected_prefix);
+                REQUIRE(analyze.path == archive.path().wstring());
+                REQUIRE(!analyze.has_password);
+                REQUIRE(analyze.struct_size == sizeof(StorageOpenParams));
+                REQUIRE(analyze.handle == state.analyze_handle);
+
+                const lifecycle_call &analyze_close = state.calls[1];
+                REQUIRE(analyze_close.kind == lifecycle_call::action::close);
+                REQUIRE(analyze_close.handle == state.analyze_handle);
+
+                const lifecycle_call &reopen = state.calls[2];
+                REQUIRE(reopen.kind == lifecycle_call::action::open);
+                REQUIRE(!reopen.has_data);
+                REQUIRE(reopen.data_size == 0);
+                REQUIRE(reopen.path == archive.path().wstring());
+                REQUIRE(!reopen.has_password);
+                REQUIRE(reopen.struct_size == sizeof(StorageOpenParams));
+                REQUIRE(reopen.handle == state.reopen_handle);
+
+                // Enumerate and extract through the module's own helpers so the fake prepare,
+                // get-item and extract callbacks are behaviorally exercised.
+                const auto files = module.list_files();
+                REQUIRE(files.size() == 1);
+                REQUIRE(files.front().path == L"entry.txt");
+                REQUIRE(files.front().uncompressed_size == 1);
+                REQUIRE(files.front().compressed_size == 1);
+
+                files.front().extract(archive.path().wstring() + L".out");
+
+                // The two prepares, the two get-item probes and the extract all ran on the
+                // reopened handle, never the analyzed one.
+                REQUIRE(state.calls.size() == 8);
+                REQUIRE(state.calls[3].kind == lifecycle_call::action::prepare);
+                REQUIRE(state.calls[4].kind == lifecycle_call::action::prepare);
+                REQUIRE(state.calls[5].kind == lifecycle_call::action::get_item);
+                REQUIRE(state.calls[5].item_index == 0);
+                REQUIRE(state.calls[6].kind == lifecycle_call::action::get_item);
+                REQUIRE(state.calls[6].item_index == 1);
+                REQUIRE(state.calls[7].kind == lifecycle_call::action::extract);
+                REQUIRE(state.calls[7].item_index == 0);
+                for (std::size_t index = 3; index < 8; ++index) {
+                    REQUIRE(state.calls[index].handle == state.reopen_handle);
+                }
+                module.close_storage();
+                REQUIRE(module.storage() == nullptr);
+                REQUIRE(state.calls.size() == 9);
+                REQUIRE(state.calls[8].kind == lifecycle_call::action::close);
+                REQUIRE(state.calls[8].handle == state.reopen_handle);
+
+                // Closing an already-closed module is idempotent.
+                module.close_storage();
+                REQUIRE(module.storage() == nullptr);
+                REQUIRE(state.calls.size() == 9);
+
+                // The analyzed handle and the reopened handle are each closed exactly once.
+                const auto closes = std::ranges::count_if(
+                    state.calls, [](const lifecycle_call &call) { return call.kind == lifecycle_call::action::close; });
+                REQUIRE(closes == 2);
+            }
+        }
+
+        SECTION("destroying the module closes the reopened handle after the analysis scope")
+        {
+            lifecycle_state state;
+            lifecycle_binding binding{state};
+            {
+                c_module module{c_module::injected_tag{}, lifecycle_callbacks()};
+                REQUIRE(module.open(archive.path()));
+                REQUIRE(state.calls.size() == 3);
+            }
+
+            // The destructor, not an explicit close, released the reopened handle, and the
+            // fake state is still installed while that destructor runs.
+            REQUIRE(g_lifecycle == &state);
+            REQUIRE(state.calls.size() == 4);
+            REQUIRE(state.calls[3].kind == lifecycle_call::action::close);
+            REQUIRE(state.calls[3].handle == state.reopen_handle);
+        }
+
+        SECTION("an empty archive sends a zero-length prefix to the analysis open")
+        {
+            const support::temporary_archive empty_archive("lifecycle-empty", support::byte_buffer{});
+            lifecycle_state state;
+            lifecycle_binding binding{state};
+            {
+                c_module module{c_module::injected_tag{}, lifecycle_callbacks()};
+                REQUIRE(module.open(empty_archive.path()));
+                REQUIRE(state.open_count == 2);
+                REQUIRE(state.calls.size() == 3);
+                REQUIRE(state.calls[0].kind == lifecycle_call::action::open);
+                REQUIRE(state.calls[0].has_data);
+                REQUIRE(state.calls[0].data_size == 0);
+                REQUIRE(state.calls[0].data.empty());
+                REQUIRE(state.calls[0].path == empty_archive.path().wstring());
+                module.close_storage();
+            }
+        }
+
+        SECTION("a prefix longer than the read-ahead window is capped")
+        {
+            constexpr std::size_t max_prefix_size = std::size_t{128} * 1024;
+            std::string long_contents(max_prefix_size + 4096, '\0');
+            for (std::size_t index = 0; index < long_contents.size(); ++index) {
+                long_contents[index] = static_cast<char>('A' + (index % 26));
+            }
+            const support::temporary_archive long_archive(
+                "lifecycle-long", support::byte_buffer(long_contents.begin(), long_contents.end()));
+            lifecycle_state state;
+            lifecycle_binding binding{state};
+            {
+                c_module module{c_module::injected_tag{}, lifecycle_callbacks()};
+                REQUIRE(module.open(long_archive.path()));
+                REQUIRE(state.open_count == 2);
+                REQUIRE(state.calls.size() == 3);
+                REQUIRE(state.calls[0].kind == lifecycle_call::action::open);
+                REQUIRE(state.calls[0].has_data);
+                REQUIRE(state.calls[0].data_size == max_prefix_size);
+                REQUIRE(state.calls[0].data == long_contents.substr(0, max_prefix_size));
+                module.close_storage();
+            }
+        }
+
+        SECTION("a failed analysis stops before any reopen")
+        {
+            lifecycle_state state;
+            state.analyze_status = SOR_INVALID_FILE;
+            lifecycle_binding binding{state};
+            {
+                c_module module{c_module::injected_tag{}, lifecycle_callbacks()};
+                REQUIRE(!module.open(archive.path()));
+                REQUIRE(module.storage() == nullptr);
+                REQUIRE(state.open_count == 1);
+                REQUIRE(state.calls.size() == 1);
+                REQUIRE(state.calls[0].kind == lifecycle_call::action::open);
+                REQUIRE(state.calls[0].has_data);
+
+                module.close_storage();
+                REQUIRE(module.storage() == nullptr);
+                REQUIRE(state.calls.size() == 1);
+            }
+        }
+
+        SECTION("a failed reopen leaves no owned storage and closes only the analyzed handle")
+        {
+            lifecycle_state state;
+            state.reopen_status = SOR_INVALID_FILE;
+            lifecycle_binding binding{state};
+            {
+                c_module module{c_module::injected_tag{}, lifecycle_callbacks()};
+                REQUIRE(!module.open(archive.path()));
+                REQUIRE(module.storage() == nullptr);
+                REQUIRE(state.open_count == 2);
+                REQUIRE(state.calls.size() == 3);
+                REQUIRE(state.calls[0].kind == lifecycle_call::action::open);
+                REQUIRE(state.calls[0].has_data);
+                REQUIRE(state.calls[1].kind == lifecycle_call::action::close);
+                REQUIRE(state.calls[1].handle == state.analyze_handle);
+                REQUIRE(state.calls[2].kind == lifecycle_call::action::open);
+                REQUIRE(!state.calls[2].has_data);
+                REQUIRE(state.calls[2].data_size == 0);
+
+                // Releasing a module with a failed reopen must not close anything again.
+                module.close_storage();
+                REQUIRE(module.storage() == nullptr);
+                REQUIRE(state.calls.size() == 3);
+            }
         }
     }
 } // namespace test
