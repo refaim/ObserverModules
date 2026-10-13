@@ -1,14 +1,7 @@
-// dr_wav is compiled into exactly this translation unit; its headers, types and error codes stay
-// private to the adapter and never appear in our public API. The writer streams into a caller
-// callback, and every sink exception is captured rather than allowed to unwind through C.
-#define DR_WAV_IMPLEMENTATION
+// The pinned drlibs overlay builds dr_wav in a static library. Its types and errors stay private
+// to the adapter, and sink exceptions are captured rather than allowed to unwind through C.
 #pragma warning(push, 0)
-// dr_wav's reader leaves ``fileSize`` assigned only through a successful onTell, so MSVC's
-// flow analysis reports a false-positive C4701 even at warning level 0. Disable exactly that
-// one diagnostic for this single vendored implementation include and restore it with the
-// matching pop below; no global or project-wide suppression is introduced.
-#pragma warning(disable : 4701)
-#include <../third_party/dr_libs/dr_wav.h>
+#include <dr_wav.h>
 #pragma warning(pop)
 
 #include "wav_codec.h"

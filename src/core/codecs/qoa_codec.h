@@ -6,13 +6,13 @@
 #include <cstdint>
 #include <span>
 
-// QOA ("Quite OK Audio") is Godot's lossy sample format. The decoder is the vendored, unmodified
-// reference header at third_party/qoa/qoa.h, pinned to Godot 4.5-stable:
+// QOA ("Quite OK Audio") is Godot's lossy sample format. The pinned overlay port builds the
+// unmodified reference header from Godot 4.5-stable as a static library:
 //   godot @ 876b290332ec6f2e6d173d08162a02aa7e6ca46d, thirdparty/misc/qoa.h
 //   sha256 ab501e91f4afd18c811e689713e5fd3956030562bf80cda784d304af17133f01
-//   MIT (c) 2023 Dominic Szablewski (licenses/qoa.txt); see third_party/qoa/PROVENANCE.json.
-// Its types and error codes stay private: qoa_reference.c compiles the C implementation in its own
-// translation unit, and qoa_codec.cpp drives the caller-owned-buffer frame API, so this adapter
+//   MIT (c) 2023 Dominic Szablewski (licenses/qoa.txt).
+// Its types and error codes stay private: qoa_codec.cpp drives the caller-owned-buffer frame API,
+// so this adapter
 // exposes only our own pcm_audio/audio_error values and never surfaces qoa_desc across the boundary.
 namespace unpackrat::codecs
 {

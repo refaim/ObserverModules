@@ -12,10 +12,10 @@
 #include <span>
 #include <vector>
 
-// The vendored reference decoder is linked from qoa_reference.c; the tests drive it directly as an
+// The pinned reference decoder is linked from the QOA overlay; the tests drive it directly as an
 // independent cross-check of the adapter's samples.
 #define QOA_NO_STDIO
-#include <../third_party/qoa/qoa.h>
+#include <qoa.h>
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -38,7 +38,7 @@ namespace
         return worst;
     }
 
-    // Independent drive of the vendored reference decoder, mirroring Godot's frame loop.
+    // Independent drive of the pinned reference decoder, mirroring Godot's frame loop.
     pcm_audio reference_decode_qoa(const std::span<const std::byte> bytes)
     {
         qoa_desc desc{};

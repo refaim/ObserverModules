@@ -24,8 +24,8 @@
   <ItemDefinitionGroup>
     <Link>
       <AdditionalLibraryDirectories>$(VcpkgInstalledDir)$(VcpkgTriplet)\$(unpackratVcpkgDebugPrefix)lib\manual-link;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies Condition="'$(UseDebugLibraries)' == 'true'">Catch2d.lib;xxhash.lib;spng_static.lib;ogg.lib;mbedcrypto.lib;Zydis.lib;Zycore.lib;fastlz.lib;zstd.lib;brotlienc.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <AdditionalDependencies Condition="'$(UseDebugLibraries)' != 'true'">Catch2.lib;xxhash.lib;spng_static.lib;ogg.lib;mbedcrypto.lib;Zydis.lib;Zycore.lib;fastlz.lib;zstd.lib;brotlienc.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies Condition="'$(UseDebugLibraries)' == 'true'">Catch2d.lib;bcdec.lib;drlibs.lib;qoa.lib;xxhash.lib;spng_static.lib;ogg.lib;mbedcrypto.lib;Zydis.lib;Zycore.lib;fastlz.lib;zstd.lib;brotlienc.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies Condition="'$(UseDebugLibraries)' != 'true'">Catch2.lib;bcdec.lib;drlibs.lib;qoa.lib;xxhash.lib;spng_static.lib;ogg.lib;mbedcrypto.lib;Zydis.lib;Zycore.lib;fastlz.lib;zstd.lib;brotlienc.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
@@ -108,7 +108,6 @@
     <ClCompile Include="$(RepositoryRoot)src\core\codecs\mp3_codec.cpp" />
     <ClCompile Include="$(RepositoryRoot)src\core\codecs\wav_codec.cpp" />
     <ClCompile Include="$(RepositoryRoot)src\core\codecs\qoa_codec.cpp" />
-    <ClCompile Include="$(RepositoryRoot)src\core\codecs\qoa_reference.c" />
     <ClCompile Include="$(RepositoryRoot)src\core\codecs\godot_ima_codec.cpp" />
     <!-- Godot module adapters that are pure library code, never the archive adapter godot.cpp. -->
     <ClCompile Include="$(RepositoryRoot)src\modules\godot\image_resource.cpp" />

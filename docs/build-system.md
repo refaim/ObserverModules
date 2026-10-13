@@ -51,6 +51,9 @@ leak step needs UMDH. A missing tool fails the run with a plain message rather t
   `measure` captures one scenario under UMDH, diffs consecutive windows and fails on repeated growth.
 - `build/projects/*.vcxproj` + `build/*.props` are MSBuild's half; `.github/workflows/main.yml` is a
   thin client that provisions the tools and calls the public entry points.
+- `build/vcpkg/ports/` contains the local zlib-ng compatibility provider and pinned bcdec, drlibs
+  and Godot-fork QOA static-library overlays. vcpkg verifies downloaded header hashes before building;
+  the decoder implementations no longer expand inside first-party adapter translation units.
 
 ## Invariants
 
@@ -107,6 +110,8 @@ holds no GitHub credentials and does no orchestration.
   coverage through `coverage_complete`, runs the ASan (x86/x64) and UBSan (x64) suites with
   `halt_on_error`, runs the bounded x86 replay and x64 timed libFuzzer gates, runs the x64 UMDH leak
   probe, and audits the shipped DLLs' machine, imports and exports with dumpbin.
+  Only x86 ASan uses four checked Catch2 shards in fresh processes, preserving every test and the
+  same sanitizer options while avoiding cumulative 32-bit address-space pressure.
 
 `ci-arch` also takes a bounded `-Stage` selection, `all` (the default), `native`, `coverage`,
 `asan`, `ubsan`, `fuzz` or `leaks`. `all` runs every stage in the fixed order native, coverage,

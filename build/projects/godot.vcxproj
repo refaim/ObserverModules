@@ -27,7 +27,7 @@
   <ItemDefinitionGroup>
     <Link>
       <ModuleDefinitionFile>$(RepositoryRoot)src\modules\godot\godot.def</ModuleDefinitionFile>
-      <AdditionalDependencies>spng_static.lib;ogg.lib;mbedcrypto.lib;Zydis.lib;Zycore.lib;zstd.lib;fastlz.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>bcdec.lib;drlibs.lib;qoa.lib;spng_static.lib;ogg.lib;mbedcrypto.lib;Zydis.lib;Zycore.lib;zstd.lib;fastlz.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
@@ -56,7 +56,6 @@
     <ClCompile Include="$(RepositoryRoot)src\core\codecs\mp3_codec.cpp" />
     <ClCompile Include="$(RepositoryRoot)src\core\codecs\wav_codec.cpp" />
     <ClCompile Include="$(RepositoryRoot)src\core\codecs\qoa_codec.cpp" />
-    <ClCompile Include="$(RepositoryRoot)src\core\codecs\qoa_reference.c" />
     <ClCompile Include="$(RepositoryRoot)src\core\codecs\godot_ima_codec.cpp" />
     <ClCompile Include="$(RepositoryRoot)src\modules\godot\godot.cpp" />
     <ClCompile Include="$(RepositoryRoot)src\modules\godot\resource_converter.cpp" />

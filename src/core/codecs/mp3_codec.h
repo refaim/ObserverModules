@@ -10,7 +10,7 @@
 namespace unpackrat::codecs
 {
     // Metadata reported for a recognized Godot ``AudioStreamMP3`` payload. The adapter exposes only
-    // its own values: the vendored dr_mp3 types and error codes never leave the implementation.
+    // its own values: the pinned dr_mp3 types and error codes never leave the implementation.
     struct mp3_stream_info
     {
         std::uint32_t sample_rate = 0;
@@ -21,7 +21,7 @@ namespace unpackrat::codecs
     // Recognize an ``AudioStreamMP3`` payload without decoding PCM: an optional ID3v2 tag followed
     // by a complete, bounded MPEG Layer III frame. Raises ``audio_error`` when the input is empty,
     // over the configured input budget, carries a malformed or oversized ID3v2 tag, is not a
-    // complete frame, or is not Layer III. The vendored dr_mp3 decoder supplies the frame metadata
+    // complete frame, or is not Layer III. The pinned dr_mp3 decoder supplies the frame metadata
     // (sample rate, channel count, layer and exact frame size) with PCM synthesis skipped, so this
     // is safe to run from the descriptor probe.
     [[nodiscard]] mp3_stream_info probe_mp3(std::span<const std::byte> input, const audio_limits &limits = {});

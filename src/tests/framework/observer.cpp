@@ -1852,11 +1852,10 @@ namespace test
 
     TEST_CASE("module ABI: RenPy rejects an index that expands beyond its metadata budget", "[contract][metadata]")
     {
-        constexpr std::size_t expanded_size = 64ULL * 1024 * 1024 + 1;
-        const support::temporary_archive archive("renpy-expanded-metadata",
-                                                 support::make_renpy_archive_with_expanded_index(expanded_size));
+        const auto fixture = std::filesystem::path(__FILE__).parent_path().parent_path() / "data" / "renpy" /
+                             "expanded-index-over-budget.rpa";
         c_module loaded("renpy.so");
-        REQUIRE(loaded.open(archive.path()));
+        REQUIRE(loaded.open(fixture));
         REQUIRE(loaded.api().PrepareFiles(loaded.storage()) == FALSE);
     }
 

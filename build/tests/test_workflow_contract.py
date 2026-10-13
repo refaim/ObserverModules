@@ -120,7 +120,11 @@ class WorkflowContractTests(unittest.TestCase):
             "${{ (inputs.stage == 'asan' || inputs.stage == 'fuzz') && 'asan' || 'standard' }}",
             key,
         )
-        self.assertIn("${{ hashFiles('vcpkg.json', 'build/vcpkg/triplets/*.cmake') }}", key)
+        # A changed overlay recipe must get a new Actions cache so its new ABI binaries can be saved.
+        self.assertIn(
+            "${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'build/vcpkg/ports/**', 'build/vcpkg/triplets/*.cmake') }}",
+            key,
+        )
 
     def test_triggers_and_concurrency_are_preserved(self) -> None:
         workflow = self.main_workflow()

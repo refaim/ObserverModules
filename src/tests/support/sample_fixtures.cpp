@@ -4,10 +4,10 @@
 #include <cstdint>
 #include <stdexcept>
 
-// The reference encoder lives in the vendored QOA header. Only the public declarations are needed
-// here; the implementation is compiled once into qoa_reference.c and linked in as the cross-check.
+// The pinned QOA overlay provides the reference encoder in its static library. Only declarations
+// are needed here, so fixtures and the adapter exercise the same decoder/encoder implementation.
 #define QOA_NO_STDIO
-#include <../third_party/qoa/qoa.h>
+#include <qoa.h>
 
 namespace test::support
 {

@@ -1,0 +1,13 @@
+{
+  "name": "bcdec",
+  "version-string": "0.985",
+  "description": "Pinned bcdec single-header block decoder used by the Godot module",
+  "homepage": "https://github.com/iOrange/bcdec",
+  "license": "MIT OR Unlicense",
+  "dependencies": [
+    {
+      "name": "vcpkg-cmake",
+      "host": true
+    }
+  ]
+}

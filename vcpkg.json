@@ -47,6 +47,15 @@
     {
       "name": "mbedtls",
       "version>=": "3.6.5"
+    },
+    {
+      "name": "bcdec"
+    },
+    {
+      "name": "drlibs"
+    },
+    {
+      "name": "qoa"
     }
   ]
 }
