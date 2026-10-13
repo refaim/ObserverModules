@@ -3,9 +3,9 @@ name: CI
 on:
   push:
     branches: [master]
-    # A module release is published by manually pushing a renpy/vX.Y.Z, rpgmaker/vX.Y.Z or
-    # zanzarah/vX.Y.Z tag. Each tag selects exactly one module's three release archives.
-    tags: ['renpy/v*', 'rpgmaker/v*', 'zanzarah/v*']
+    # A module release is published by manually pushing a renpy/vX.Y.Z, rpgmaker/vX.Y.Z,
+    # zanzarah/vX.Y.Z or godot/vX.Y.Z tag. Each tag selects one module's three archives.
+    tags: ['renpy/v*', 'rpgmaker/v*', 'zanzarah/v*', 'godot/v*']
   pull_request:
     branches: [master]
 
@@ -177,7 +177,7 @@ jobs:
   release:
     name: release
     needs: packaging
-    if: startsWith(github.ref, 'refs/tags/renpy/v') || startsWith(github.ref, 'refs/tags/rpgmaker/v') || startsWith(github.ref, 'refs/tags/zanzarah/v')
+    if: startsWith(github.ref, 'refs/tags/renpy/v') || startsWith(github.ref, 'refs/tags/rpgmaker/v') || startsWith(github.ref, 'refs/tags/zanzarah/v') || startsWith(github.ref, 'refs/tags/godot/v')
     runs-on: windows-2022
     timeout-minutes: 15
     permissions:

@@ -72,6 +72,7 @@ class LeakWorkerTests(unittest.TestCase):
         ]
 
     def test_setup_stages_binaries_and_symbols(self) -> None:
+        self.assertEqual(leaks.BINARIES[-1], "godot.so")
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             output = root / "out"
@@ -87,7 +88,7 @@ class LeakWorkerTests(unittest.TestCase):
             with self.output(output):
                 self.assertEqual(0, leak_main(("setup", *(str(path) for path in sources))))
             self.assertTrue(all((output / name).is_file() for name in leaks.BINARIES))
-            self.assertTrue(all((output / f"{index}.pdb").is_file() for index in range(4)))
+            self.assertTrue(all((output / f"{index}.pdb").is_file() for index in range(len(leaks.BINARIES))))
 
             with self.output(output), self.assertRaisesRegex(LeakError, "not found"):
                 leak_main(("setup", *(str(path) for path in (*sources[:-1], root / "missing"))))

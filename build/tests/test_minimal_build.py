@@ -51,7 +51,7 @@ LICENSE_OBSERVER = b"Fixture Observer LGPL notice.\n"
 LICENSE_GPL = b"Fixture GPLv3 text.\n"
 LICENSE_RPATOOL = b"Fixture rpatool notice.\n"
 LICENSE_SERDE = b"Fixture serde-pickle notice.\n"
-LICENSE_ZLIB = b"Fixture zlib notice.\n"
+LICENSE_ZLIB_NG = b"Fixture zlib-ng notice.\n"
 
 _PROPERTY = re.compile(r"^[-/](?:p|property):(?P<name>[^=]+)=(?P<value>.*)$")
 
@@ -173,7 +173,7 @@ class GuardedCase(unittest.TestCase):
             "GPL-3.0.txt": LICENSE_GPL,
             "rpatool.txt": LICENSE_RPATOOL,
             "serde-pickle.txt": LICENSE_SERDE,
-            "zlib.txt": LICENSE_ZLIB,
+            "zlib-ng.txt": LICENSE_ZLIB_NG,
         }.items():
             (licenses / name).write_bytes(content)
         for architecture, binary, symbol in (
@@ -332,6 +332,7 @@ class PackageTests(GuardedCase):
             self.assertTrue(licenses.strip(), "LICENSES.txt must not be empty")
             self.assertIn(LICENSE_MIT, licenses)
             self.assertIn(LICENSE_OBSERVER, licenses)
+            self.assertIn(LICENSE_ZLIB_NG, licenses)
 
     def test_package_symbol_archive_holds_both_architectures(self) -> None:
         self.package()

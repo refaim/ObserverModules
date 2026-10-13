@@ -1,0 +1,84 @@
+TEXTURE MEDIA REPRODUCTION
+
+texture-media.pck is a 1,602-byte synthetic PCK v2 with six GST2 entries.
+SHA256: 6de45a082b49e41552cc6d475e1f3eabfc5b566f3c689e67a9affe4e18e07f3d
+No game bytes, game paths, executable code or encryption keys are included.
+
+canonical-png.ctex and scaled-png.scaledtex carry the same valid 70-byte,
+one-pixel red PNG. canonical-webp.ctex and scaled-webp.scaledtex carry the
+same valid 36-byte, one-pixel lossless red WebP. The scaled layout inserts
+a uint16 value 2 after the GST2 version; it does not determine the image codec.
+Each conversion must choose its extension from the content metadata and preserve
+the encoded PNG/WebP bytes exactly.
+
+normal-ra.ctex and scaled-raw.scaledtex contain one locally constructed 4x4 BC3
+block with Godot 4 Image::Format 34 (DXT5_RA_AS_RG). The expected 16 RGBA pixels
+are recorded in texture-media-manifest.json. Godot decodes BC3 then preserves R,
+copies stored alpha into G, clears B and sets alpha to 255. The original stored
+alpha is not output opacity and no normal-map Z component is reconstructed.
+Godot 3 ordinal 34 has different semantics and remains unsupported.
+
+Official channel mapping reference (Godot 4.5 pinned commit):
+https://github.com/godotengine/godot/blob/876b290332ec6f2e6d173d08162a02aa7e6ca46d/core/io/image.cpp
+Image::convert_ra_rgba8_to_rg; modules/bcdec/image_decompress_bcdec.cpp
+routes FORMAT_DXT5_RA_AS_RG through the BC3 decoder before this mapping.
+
+With DecodeResources=1 the six converted paths in the manifest are exposed;
+the compiled source entries are substituted. Size and PackedSize both describe
+the stored source size, as required by the current presentation contract.
+Conversion and PNG encoding occur only when extracting, and progress reports
+the successfully emitted bytes. With DecodeResources=0, the six original paths
+and byte-exact GST2 bodies remain visible and are never probed or converted.
+
+Native unit regressions are tagged [texture-media]. They additionally verify
+metadata-only probing above 16 MiPixels and over a sparse 300 MiB source window,
+explicit caller limits, valid raw payload bounds, malformed scaled metadata and
+the Godot 3/4 distinction for ordinal 34. These large-window tests do not encode
+large images or allocate a 300 MiB source buffer.
+
+REGENERATION RECIPE
+Save the following as a Python file next to the manifest and execute it. It uses
+only the standard library, recreates all headers and checks the exact body and
+whole-file hashes before writing texture-media.pck. The tiny PNG/WebP and BC3
+payload bytes in the manifest are the only binary input.
+
+import hashlib, json, struct
+from pathlib import Path
+folder = Path(__file__).parent
+m = json.loads((folder / "texture-media-manifest.json").read_text(encoding="utf-8"))
+bodies = []
+for e in m["entries"]:
+    payload = bytes.fromhex(e["payload_hex"])
+    body = b"GST2" + struct.pack("<I", 1)
+    if e["scaled"]:
+        body += struct.pack("<H", e["scale_tag"])
+    body += struct.pack("<7I", e["width"], e["height"], 0, 0, 0, 0, 0)
+    body += struct.pack("<IHHII", e["data_format"], e["width"], e["height"],
+                        0, e["wire_image_format"])
+    if e["data_format"]:
+        body += struct.pack("<I", len(payload))
+    body += payload
+    assert len(body) == e["size"]
+    assert hashlib.sha256(body).hexdigest() == e["sha256"]
+    bodies.append(body)
+data = bytearray(struct.pack("<6IQ", 0x43504447, m["format_version"],
+                            *m["engine_version"], 0, m["file_base"]) + bytes(64))
+data += struct.pack("<I", len(bodies))
+for e, body in zip(m["entries"], bodies):
+    name = e["path"].encode()
+    name += bytes(-len(name) % 4)
+    data += struct.pack("<I", len(name)) + name
+    data += struct.pack("<QQ", e["stored_offset"], len(body))
+    data += hashlib.md5(body).digest() + bytes(4)
+data += bytes(m["file_base"] - len(data))
+for body in bodies:
+    data += body
+assert len(data) == m["file_size"]
+assert hashlib.sha256(data).hexdigest() == m["sha256"]
+(folder / m["fixture"]).write_bytes(data)
+
+Independent image checks may use Pillow: open the four encoded payloads from
+payload_hex, call load(), require size (1, 1), convert to RGBA and compare to
+(255, 0, 0, 255). Extracted raw-format PNGs must decode to the exact 4x4 RGBA
+array recorded in the manifest. No installed Godot engine or game execution is
+needed for either check.

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="Current" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <!-- Single static-link policy for the vcpkg-provided compression libraries the
+       archive modules consume.  zlib comes from the repository overlay port
+       build/vcpkg/ports/zlib, which builds zlib-ng 2.3.3 with ZLIB_COMPAT=ON;
+       its MSVC static artifacts are zlibstatic.lib (release) and
+       zlibstaticd.lib (debug).  Every project links zlib from here so no
+       translation unit ever pulls both zlib and zlib-ng. -->
+  <ItemDefinitionGroup>
+    <Link>
+      <AdditionalDependencies Condition="'$(UseDebugLibraries)' == 'true'">zlibstaticd.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies Condition="'$(UseDebugLibraries)' != 'true'">zlibstatic.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <!-- Brotli is linked only where a consumer opts in.  Decoding needs the
+           decoder plus the shared common runtime; the encoder is never pulled. -->
+      <AdditionalDependencies Condition="'$(unpackratEnableBrotli)' == 'true'">brotlidec.lib;brotlicommon.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+</Project>

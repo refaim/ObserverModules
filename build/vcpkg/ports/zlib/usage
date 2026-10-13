@@ -1,0 +1,5 @@
+zlib is provided by the zlib-ng compatibility overlay (version 2.3.3) and is
+compatible with built-in CMake targets:
+
+  find_package(ZLIB REQUIRED)
+  target_link_libraries(main PRIVATE ZLIB::ZLIB)

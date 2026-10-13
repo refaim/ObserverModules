@@ -1,0 +1,17 @@
+{
+  "name": "zlib",
+  "version": "2.3.3",
+  "description": "zlib-ng 2.3.3 built with ZLIB_COMPAT=ON (the classic zlib API and ABI) and published under the zlib package identity so libpng, Ren'Py and the other archive modules share one provider instead of vendoring madler zlib beside zlib-ng.",
+  "homepage": "https://github.com/zlib-ng/zlib-ng",
+  "license": "Zlib",
+  "dependencies": [
+    {
+      "name": "vcpkg-cmake",
+      "host": true
+    },
+    {
+      "name": "vcpkg-cmake-config",
+      "host": true
+    }
+  ]
+}

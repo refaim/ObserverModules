@@ -13,30 +13,77 @@
   <Import Project="..\unpackrat-configuration.props" />
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <Import Project="..\unpackrat-project.props" />
+  <Import Project="..\unpackrat-third-party-link.props" />
   <Import Project="$(VcpkgRoot)\scripts\buildsystems\msbuild\vcpkg.props" />
 
   <PropertyGroup>
     <TargetName>tests</TargetName>
     <unpackratVcpkgDebugPrefix Condition="'$(UseDebugLibraries)' == 'true'">debug\</unpackratVcpkgDebugPrefix>
+    <unpackratEnableBrotli>true</unpackratEnableBrotli>
   </PropertyGroup>
   <ItemDefinitionGroup>
     <Link>
       <AdditionalLibraryDirectories>$(VcpkgInstalledDir)$(VcpkgTriplet)\$(unpackratVcpkgDebugPrefix)lib\manual-link;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies Condition="'$(UseDebugLibraries)' == 'true'">Catch2d.lib;xxhash.lib;zsd.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <AdditionalDependencies Condition="'$(UseDebugLibraries)' != 'true'">Catch2.lib;xxhash.lib;zs.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies Condition="'$(UseDebugLibraries)' == 'true'">Catch2d.lib;xxhash.lib;spng_static.lib;ogg.lib;mbedcrypto.lib;Zydis.lib;Zycore.lib;fastlz.lib;zstd.lib;brotlienc.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies Condition="'$(UseDebugLibraries)' != 'true'">Catch2.lib;xxhash.lib;spng_static.lib;ogg.lib;mbedcrypto.lib;Zydis.lib;Zycore.lib;fastlz.lib;zstd.lib;brotlienc.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="$(RepositoryRoot)src\modules\godot\settings.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\tests\unit\godot_settings.cpp">
+      <ObjectFileName>$(IntDir)godot_settings_unit.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="$(RepositoryRoot)src\tests\support\godot_key_fixtures.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\core\codecs\crypto_codec.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\core\godot\encrypted_payload.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\core\godot\key_recovery.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\core\codecs\x86_decoder.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\modules\godot\archive_session.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\tests\unit\godot_encrypted_payload.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\tests\unit\godot_pck_encryption.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\tests\unit\godot_key_recovery.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\tests\unit\godot_archive_session.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\tests\unit\x86_decoder.cpp">
+      <ObjectFileName>$(IntDir)x86_decoder_unit.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="$(RepositoryRoot)src\tests\support\godot_crypto_fixtures.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\archive.cpp">
+      <ObjectFileName>$(IntDir)archive_core.obj</ObjectFileName>
+    </ClCompile>
     <ClCompile Include="$(RepositoryRoot)src\core\io\bounded_stream.cpp">
       <ObjectFileName>$(IntDir)bounded_stream_core.obj</ObjectFileName>
     </ClCompile>
+    <ClCompile Include="$(RepositoryRoot)src\core\codecs\png_codec.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\core\codecs\bc_codec.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\tests\unit\image_codecs.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\core\codecs\ogg_codec.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\tests\unit\ogg_codec.cpp">
+      <ObjectFileName>$(IntDir)ogg_codec_unit.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="$(RepositoryRoot)src\core\godot\binary_resource.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\tests\unit\godot_binary_resource.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\tests\support\godot_resource_fixtures.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\core\godot\pck.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\tests\unit\godot_remap.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\core\godot\import_remap.cpp" />
     <ClCompile Include="$(RepositoryRoot)src\tests\main.cpp" />
     <ClCompile Include="$(RepositoryRoot)src\core\compression\zlib_codec.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\core\codecs\resource_compression.cpp">
+      <ObjectFileName>$(IntDir)resource_compression_core.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="$(RepositoryRoot)src\core\godot\rscc.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\tests\support\compression_fixtures.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\tests\unit\resource_compression.cpp">
+      <ObjectFileName>$(IntDir)resource_compression_unit.obj</ObjectFileName>
+    </ClCompile>
     <ClCompile Include="$(RepositoryRoot)src\tests\framework\observer.cpp" />
     <ClCompile Include="$(RepositoryRoot)src\tests\framework\testcase.cpp" />
     <ClCompile Include="$(RepositoryRoot)src\tests\integration\archives.cpp" />
     <ClCompile Include="$(RepositoryRoot)src\tests\support\archive_fixtures.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\tests\support\archive_lazy_fixtures.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\tests\support\godot_fixtures.cpp" />
     <ClCompile Include="$(RepositoryRoot)src\tests\support\zlib_fixture.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\tests\unit\godot_pck.cpp" />
     <ClCompile Include="$(RepositoryRoot)src\tests\renpy.cpp" />
     <ClCompile Include="$(RepositoryRoot)src\tests\rpgmaker.cpp" />
     <ClCompile Include="$(RepositoryRoot)src\tests\zanzarah.cpp" />
@@ -47,18 +94,62 @@
     <ClCompile Include="$(RepositoryRoot)src\tests\unit\bounded_stream.cpp">
       <ObjectFileName>$(IntDir)bounded_stream_unit.obj</ObjectFileName>
     </ClCompile>
+    <ClCompile Include="$(RepositoryRoot)src\tests\unit\archive_lazy.cpp" />
     <ClCompile Include="$(RepositoryRoot)src\modules\renpy\pickle.cpp">
       <ObjectFileName>$(IntDir)pickle_parser.obj</ObjectFileName>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
+    <!-- Godot core readers and codecs exercised directly by the unit tests. -->
+    <ClCompile Include="$(RepositoryRoot)src\core\godot\texture.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\core\godot\audio_resource.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\core\godot\font_resource.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\core\codecs\audio_preflight.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\core\codecs\mp3_codec.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\core\codecs\wav_codec.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\core\codecs\qoa_codec.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\core\codecs\qoa_reference.c" />
+    <ClCompile Include="$(RepositoryRoot)src\core\codecs\godot_ima_codec.cpp" />
+    <!-- Godot module adapters that are pure library code, never the archive adapter godot.cpp. -->
+    <ClCompile Include="$(RepositoryRoot)src\modules\godot\image_resource.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\modules\godot\resource_converter.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\modules\godot\virtual_tree.cpp" />
+    <!-- New Godot unit and integration translation units and their fixtures. -->
+    <ClCompile Include="$(RepositoryRoot)src\tests\unit\audio_io.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\tests\unit\godot_audio_resource.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\tests\unit\godot_font_resource.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\tests\unit\byte_source.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\tests\unit\godot_image_resource.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\tests\unit\godot_resource_converter.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\tests\unit\godot_texture.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\tests\unit\godot_virtual_tree.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\tests\unit\sample_codecs.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\tests\support\audio_fixtures.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\tests\support\godot_texture_fixtures.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\tests\support\sample_fixtures.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\tests\integration\godot.cpp" />
+  </ItemGroup>
+  <ItemGroup>
     <ClInclude Include="$(RepositoryRoot)src\api.h" />
     <ClInclude Include="$(RepositoryRoot)src\archive.h" />
     <ClInclude Include="$(RepositoryRoot)src\core\io\bounded_stream.h" />
+    <ClInclude Include="$(RepositoryRoot)src\core\codecs\image_types.h" />
+    <ClInclude Include="$(RepositoryRoot)src\core\codecs\png_codec.h" />
+    <ClInclude Include="$(RepositoryRoot)src\core\codecs\bc_codec.h" />
+    <ClInclude Include="$(RepositoryRoot)src\core\codecs\ogg_codec.h" />
+    <ClInclude Include="$(RepositoryRoot)src\core\godot\binary_resource.h" />
+    <ClInclude Include="$(RepositoryRoot)src\tests\support\godot_resource_fixtures.h" />
+    <ClInclude Include="$(RepositoryRoot)src\core\godot\pck.h" />
+    <ClInclude Include="$(RepositoryRoot)src\core\godot\import_remap.h" />
     <ClInclude Include="$(RepositoryRoot)src\tests\framework\observer.h" />
     <ClInclude Include="$(RepositoryRoot)src\core\compression\zlib_codec.h" />
+    <ClInclude Include="$(RepositoryRoot)src\core\codecs\resource_compression.h" />
+    <ClInclude Include="$(RepositoryRoot)src\core\godot\rscc.h" />
+    <ClInclude Include="$(RepositoryRoot)src\tests\support\compression_fixtures.h" />
     <ClInclude Include="$(RepositoryRoot)src\tests\framework\testcase.h" />
     <ClInclude Include="$(RepositoryRoot)src\tests\support\archive_fixtures.h" />
+    <ClInclude Include="$(RepositoryRoot)src\tests\support\archive_lazy_fixtures.h" />
+    <ClInclude Include="$(RepositoryRoot)src\tests\support\godot_fixtures.h" />
     <ClInclude Include="$(RepositoryRoot)src\tests\support\zlib_fixture.h" />
     <ClInclude Include="$(RepositoryRoot)src\modules\extractor.h" />
     <ClInclude Include="$(RepositoryRoot)src\modules\renpy\pickle.h" />
@@ -79,6 +170,11 @@
     </ProjectReference>
     <ProjectReference Include="zanzarah.vcxproj">
       <Project>{B313D87B-B15E-4E0E-92F9-DA04231CC41A}</Project>
+      <LinkLibraryDependencies>false</LinkLibraryDependencies>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="godot.vcxproj">
+      <Project>{9C2F5E4A-7B31-4D58-8E27-1A6C4F0B9D34}</Project>
       <LinkLibraryDependencies>false</LinkLibraryDependencies>
       <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
     </ProjectReference>

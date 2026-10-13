@@ -55,7 +55,7 @@ TEST_CASE("pickle: scalar values")
 
     const auto false_value = load(std::array<std::uint8_t, 4>{0x80, 0x04, 0x89, '.'});
     REQUIRE(false_value->get_type() == pickle::value::type::bool_);
-    REQUIRE_FALSE(false_value->as_bool());
+    REQUIRE(!(false_value->as_bool()));
 
     const auto integer = load(std::array<std::uint8_t, 3>{'K', 42, '.'});
     REQUIRE(integer->get_type() == pickle::value::type::int64);

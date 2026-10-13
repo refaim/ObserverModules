@@ -160,7 +160,7 @@ class MainCliCase(unittest.TestCase):
         (self.repo / "LICENSE.txt").write_bytes(b"MIT license text\n")
         licenses = self.repo / "licenses"
         licenses.mkdir(exist_ok=True)
-        for name in ("Observer.txt", "GPL-3.0.txt", "rpatool.txt", "serde-pickle.txt", "zlib.txt", "rgssad.txt", "zanzapak.txt"):
+        for name in ("Observer.txt", "GPL-3.0.txt", "rpatool.txt", "serde-pickle.txt", "zlib.txt", "zlib-ng.txt", "rgssad.txt", "zanzapak.txt"):
             (licenses / name).write_bytes(name.encode() + b" notice")
         for architecture in main.ARCHITECTURES:
             stage = self.repo / "out" / "native" / "bin" / architecture / "Release"
@@ -366,6 +366,12 @@ class MainCliCase(unittest.TestCase):
         self.assertFalse(main._license_section("t", b"body\n").endswith(b"body\n\n"))
         self.assertTrue(main._license_section("t", b"body").endswith(b"body\n"))
 
+    def test_renpy_packages_the_linked_zlib_ng_notice(self) -> None:
+        self.make_module("renpy")
+        document = main._licenses_document(self.repo, "renpy")
+        self.assertIn(b"zlib-ng.txt notice", document)
+        self.assertNotIn(b"zlib.txt notice", document)
+
     def test_write_zip_round_trips(self) -> None:
         path = self.root / "a.zip"
         main._write_zip(path, {"b": b"2", "a": b"1"})
@@ -444,6 +450,7 @@ class MainCliCase(unittest.TestCase):
         self.assertIn("--suppress=uninitMemberVarNoCtor:src/api.h", command)
         self.assertIn(f"--suppress=*:*\\{triplet}\\include\\*", command)
         self.assertIn("--suppress=functionStatic", command)
+        self.assertIn("--suppress=*:third_party/*", command)
         self.assertIn(f"--relative-paths={resolved}", command)
         self.assertIn("--error-exitcode=1", command)
 

@@ -1,0 +1,82 @@
+{
+  "fixture": "probe-budget-starvation.pck",
+  "provenance": "All bytes generated locally. No game data copied. Header-valid RSCC trigger intentionally has zero-sized invalid compressed blocks and must remain raw without materializing the declared payload.",
+  "format_version": 2,
+  "engine_version": [
+    4,
+    2,
+    1
+  ],
+  "pack_flags": 0,
+  "file_base": 320,
+  "directory_offset": 96,
+  "file_size": 583,
+  "sha256": "572da6569ec456999efdc3310f73179a6a208f0e8c163d34633256575a663269",
+  "rscc_declared_logical_bytes": 67108865,
+  "rscc_block_bytes": 16777216,
+  "rscc_block_count": 5,
+  "rscc_mode": 1,
+  "rscc_compressed_block_sizes": [
+    0,
+    0,
+    0,
+    0,
+    0
+  ],
+  "rscc_hex": "52534343010000000000000101000004000000000000000000000000000000000000000052534343",
+  "texture_bytes": 126,
+  "metadata_utf8": "[remap]\nimporter=\"texture\"\ntype=\"CompressedTexture2D\"\npath=\"res://.godot/imported/pixel-h.ctex\"\n\u0000",
+  "png_hex": "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d4944415478da63f8cfc0f01f00050001ff56c72f0d0000000049454e44ae426082",
+  "png_bytes": 70,
+  "png_pixel_rgba": [
+    255,
+    0,
+    0,
+    255
+  ],
+  "entries": [
+    {
+      "path": "res://budget/large.res",
+      "stored_offset": 0,
+      "absolute_offset": 320,
+      "size": 40,
+      "flags": 0,
+      "md5": "4ff0b7a89534be9e452f190e94a9755e",
+      "sha256": "3855c749836379456216457e98942ff0da3b857d0641b3402c08fb76740d698e"
+    },
+    {
+      "path": "res://.godot/imported/pixel-h.ctex",
+      "stored_offset": 40,
+      "absolute_offset": 360,
+      "size": 126,
+      "flags": 0,
+      "md5": "61f07165d0b80ff1dfde7023bf6ada4c",
+      "sha256": "d136b978aada1850747a9a0038120d3191e4f605e4ae76fe35450c9677011566"
+    },
+    {
+      "path": "res://art/pixel.png.import",
+      "stored_offset": 166,
+      "absolute_offset": 486,
+      "size": 97,
+      "flags": 0,
+      "md5": "2f0906690fc9f6dd8cf1b8aefd425b1d",
+      "sha256": "cfe21e4480846c56b54ca173fcce5bdfffe29b80bfe9c102072a85fc286ace01"
+    }
+  ],
+  "expected_converted": {
+    "path": "art/pixel.png",
+    "size": 126,
+    "packed_size": 126,
+    "sha256": "49e1dad481e94dfab7c9573a9a81d56aa2ca629fe15a3f7a910aa4f47601c00d",
+    "progress_bytes": 126,
+    "output_bytes": 70
+  },
+  "expected_raw_trigger": {
+    "path": "budget/large.res",
+    "size": 40
+  },
+  "expected_visible_metadata": {
+    "path": "art/pixel.png.import",
+    "size": 97
+  }
+}

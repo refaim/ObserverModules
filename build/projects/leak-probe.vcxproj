@@ -13,6 +13,7 @@
   <Import Project="..\unpackrat-configuration.props" />
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <Import Project="..\unpackrat-project.props" />
+  <Import Project="..\unpackrat-third-party-link.props" />
   <Import Project="$(VcpkgRoot)\scripts\buildsystems\msbuild\vcpkg.props" />
 
   <PropertyGroup>
@@ -22,9 +23,6 @@
     <ClCompile>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
     </ClCompile>
-    <Link>
-      <AdditionalDependencies>zs.lib;%(AdditionalDependencies)</AdditionalDependencies>
-    </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="$(RepositoryRoot)src\core\io\bounded_stream.cpp" />

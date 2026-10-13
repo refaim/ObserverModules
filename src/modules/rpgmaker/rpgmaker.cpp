@@ -132,6 +132,12 @@ namespace extractor
             return files;
         }
     } // namespace
+    void configure([[maybe_unused]] const wchar_t *settings) noexcept
+    {
+    }
+    void reset_settings() noexcept
+    {
+    }
 
     version_info get_version_info() noexcept
     {
@@ -148,7 +154,8 @@ namespace extractor
     }
 
     archive_info extractor::get_archive_info(
-        const std::span<const std::byte> &data) // NOLINT(*-convert-member-functions-to-static)
+        std::istream &, const std::span<const std::byte> &data, [[maybe_unused]] const std::filesystem::path &path,
+        [[maybe_unused]] const std::string_view password) // NOLINT(*-convert-member-functions-to-static)
     {
         if (data.empty()) {
             return archive_info{L"RPG Maker", L"-", L"RPG Maker archive"};

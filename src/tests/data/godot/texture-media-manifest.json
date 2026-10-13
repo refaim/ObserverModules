@@ -1,0 +1,364 @@
+{
+  "fixture": "texture-media.pck",
+  "provenance": "All paths and PCK/GST2 headers generated locally. PNG is one generated red pixel; WebP is one losslessly encoded generated red pixel; BC3 block is locally constructed. No game bytes or keys.",
+  "format_version": 2,
+  "engine_version": [
+    4,
+    5,
+    0
+  ],
+  "file_base": 1024,
+  "file_size": 1602,
+  "sha256": "6de45a082b49e41552cc6d475e1f3eabfc5b566f3c689e67a9affe4e18e07f3d",
+  "normalmap_semantics": "Godot Image::convert_ra_rgba8_to_rg preserves R, copies A into G, sets B=0 and A=255; no Z reconstruction.",
+  "entries": [
+    {
+      "path": "images/canonical-png.ctex",
+      "scaled": false,
+      "scale_tag": null,
+      "data_format": 1,
+      "wire_image_format": 5,
+      "width": 1,
+      "height": 1,
+      "stored_offset": 0,
+      "absolute_offset": 1024,
+      "size": 126,
+      "md5": "61f07165d0b80ff1dfde7023bf6ada4c",
+      "sha256": "d136b978aada1850747a9a0038120d3191e4f605e4ae76fe35450c9677011566",
+      "payload_offset": 56,
+      "payload_hex": "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d4944415478da63f8cfc0f01f00050001ff56c72f0d0000000049454e44ae426082",
+      "converted_path": "images/canonical-png.png",
+      "expected_item_size": 126,
+      "expected_packed_size": 126,
+      "expected_encoded_sha256": "49e1dad481e94dfab7c9573a9a81d56aa2ca629fe15a3f7a910aa4f47601c00d",
+      "expected_rgba": [
+        [
+          255,
+          0,
+          0,
+          255
+        ]
+      ]
+    },
+    {
+      "path": "images/canonical-webp.ctex",
+      "scaled": false,
+      "scale_tag": null,
+      "data_format": 2,
+      "wire_image_format": 5,
+      "width": 1,
+      "height": 1,
+      "stored_offset": 126,
+      "absolute_offset": 1150,
+      "size": 92,
+      "md5": "5df14abf4a8453e4caa4d70aee2a1426",
+      "sha256": "dcb9a7c180d3c0e609de576ed8a3e4c7866b510abf2948d6a7ae42fff0d4273f",
+      "payload_offset": 56,
+      "payload_hex": "524946461c000000574542505650384c0f0000002f000000000710fd8ffe0722a2ff0100",
+      "converted_path": "images/canonical-webp.webp",
+      "expected_item_size": 92,
+      "expected_packed_size": 92,
+      "expected_encoded_sha256": "882e5be149e09bb13b740230d48f462be51f3b4f8c4bcc051506e7bc419520ac",
+      "expected_rgba": [
+        [
+          255,
+          0,
+          0,
+          255
+        ]
+      ]
+    },
+    {
+      "path": "images/scaled-png.scaledtex",
+      "scaled": true,
+      "scale_tag": 2,
+      "data_format": 1,
+      "wire_image_format": 5,
+      "width": 1,
+      "height": 1,
+      "stored_offset": 218,
+      "absolute_offset": 1242,
+      "size": 128,
+      "md5": "acbad0833c56a80790a6967eaacc4c35",
+      "sha256": "b86aed25d1e74383cbaa55b9e6459c7ce0462c47629da5f7baaed8b7d5b7bbf1",
+      "payload_offset": 58,
+      "payload_hex": "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d4944415478da63f8cfc0f01f00050001ff56c72f0d0000000049454e44ae426082",
+      "converted_path": "images/scaled-png.png",
+      "expected_item_size": 128,
+      "expected_packed_size": 128,
+      "expected_encoded_sha256": "49e1dad481e94dfab7c9573a9a81d56aa2ca629fe15a3f7a910aa4f47601c00d",
+      "expected_rgba": [
+        [
+          255,
+          0,
+          0,
+          255
+        ]
+      ]
+    },
+    {
+      "path": "images/scaled-webp.scaledtex",
+      "scaled": true,
+      "scale_tag": 2,
+      "data_format": 2,
+      "wire_image_format": 5,
+      "width": 1,
+      "height": 1,
+      "stored_offset": 346,
+      "absolute_offset": 1370,
+      "size": 94,
+      "md5": "e98cb20ca5ac0a6228fa53285b155227",
+      "sha256": "a2384b1d891dd182794b66b9455c1312eb4f7962151478d7b537673fcaa69846",
+      "payload_offset": 58,
+      "payload_hex": "524946461c000000574542505650384c0f0000002f000000000710fd8ffe0722a2ff0100",
+      "converted_path": "images/scaled-webp.webp",
+      "expected_item_size": 94,
+      "expected_packed_size": 94,
+      "expected_encoded_sha256": "882e5be149e09bb13b740230d48f462be51f3b4f8c4bcc051506e7bc419520ac",
+      "expected_rgba": [
+        [
+          255,
+          0,
+          0,
+          255
+        ]
+      ]
+    },
+    {
+      "path": "images/scaled-raw.scaledtex",
+      "scaled": true,
+      "scale_tag": 2,
+      "data_format": 0,
+      "wire_image_format": 34,
+      "width": 4,
+      "height": 4,
+      "stored_offset": 440,
+      "absolute_offset": 1464,
+      "size": 70,
+      "md5": "d82a926c62701ee9b30c0885b7734b7b",
+      "sha256": "a9f243e0b7a15d936b22d36a9a9ea633c50a658e73cd961dd3d10a930239768b",
+      "payload_offset": 54,
+      "payload_hex": "00ff88c6fa00000000f8000000000000",
+      "converted_path": "images/scaled-raw.png",
+      "expected_item_size": 70,
+      "expected_packed_size": 70,
+      "expected_encoded_sha256": null,
+      "expected_rgba": [
+        [
+          255,
+          0,
+          0,
+          255
+        ],
+        [
+          255,
+          255,
+          0,
+          255
+        ],
+        [
+          255,
+          51,
+          0,
+          255
+        ],
+        [
+          255,
+          102,
+          0,
+          255
+        ],
+        [
+          255,
+          153,
+          0,
+          255
+        ],
+        [
+          255,
+          204,
+          0,
+          255
+        ],
+        [
+          255,
+          0,
+          0,
+          255
+        ],
+        [
+          255,
+          255,
+          0,
+          255
+        ],
+        [
+          255,
+          0,
+          0,
+          255
+        ],
+        [
+          255,
+          0,
+          0,
+          255
+        ],
+        [
+          255,
+          0,
+          0,
+          255
+        ],
+        [
+          255,
+          0,
+          0,
+          255
+        ],
+        [
+          255,
+          0,
+          0,
+          255
+        ],
+        [
+          255,
+          0,
+          0,
+          255
+        ],
+        [
+          255,
+          0,
+          0,
+          255
+        ],
+        [
+          255,
+          0,
+          0,
+          255
+        ]
+      ]
+    },
+    {
+      "path": "images/normal-ra.ctex",
+      "scaled": false,
+      "scale_tag": null,
+      "data_format": 0,
+      "wire_image_format": 34,
+      "width": 4,
+      "height": 4,
+      "stored_offset": 510,
+      "absolute_offset": 1534,
+      "size": 68,
+      "md5": "552dafad6a98e157fe1c94272d07d44b",
+      "sha256": "86310acb8bfcd483baf85028f7229a5cde8a254351ca1cc394f8d61f962593d9",
+      "payload_offset": 52,
+      "payload_hex": "00ff88c6fa00000000f8000000000000",
+      "converted_path": "images/normal-ra.png",
+      "expected_item_size": 68,
+      "expected_packed_size": 68,
+      "expected_encoded_sha256": null,
+      "expected_rgba": [
+        [
+          255,
+          0,
+          0,
+          255
+        ],
+        [
+          255,
+          255,
+          0,
+          255
+        ],
+        [
+          255,
+          51,
+          0,
+          255
+        ],
+        [
+          255,
+          102,
+          0,
+          255
+        ],
+        [
+          255,
+          153,
+          0,
+          255
+        ],
+        [
+          255,
+          204,
+          0,
+          255
+        ],
+        [
+          255,
+          0,
+          0,
+          255
+        ],
+        [
+          255,
+          255,
+          0,
+          255
+        ],
+        [
+          255,
+          0,
+          0,
+          255
+        ],
+        [
+          255,
+          0,
+          0,
+          255
+        ],
+        [
+          255,
+          0,
+          0,
+          255
+        ],
+        [
+          255,
+          0,
+          0,
+          255
+        ],
+        [
+          255,
+          0,
+          0,
+          255
+        ],
+        [
+          255,
+          0,
+          0,
+          255
+        ],
+        [
+          255,
+          0,
+          0,
+          255
+        ],
+        [
+          255,
+          0,
+          0,
+          255
+        ]
+      ]
+    }
+  ]
+}

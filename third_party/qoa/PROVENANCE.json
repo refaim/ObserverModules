@@ -1,0 +1,19 @@
+{
+  "library": "qoa",
+  "description": "Quite OK Audio reference decoder (qoa.h) used for the Godot 4 QOA audio format.",
+  "license": "MIT",
+  "notice": "licenses/qoa.txt",
+  "upstream": "https://github.com/phoboslab/qoa",
+  "repository": "https://github.com/godotengine/godot",
+  "ref": "4.5-stable",
+  "commit": "876b290332ec6f2e6d173d08162a02aa7e6ca46d",
+  "commit_date": "2025-09-15T01:30:02Z",
+  "files": [
+    {
+      "path": "qoa.h",
+      "path_in_repository": "thirdparty/misc/qoa.h",
+      "url": "https://raw.githubusercontent.com/godotengine/godot/876b290332ec6f2e6d173d08162a02aa7e6ca46d/thirdparty/misc/qoa.h",
+      "sha256": "ab501e91f4afd18c811e689713e5fd3956030562bf80cda784d304af17133f01"
+    }
+  ]
+}

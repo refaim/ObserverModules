@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="Current" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Import Project="..\unpackrat-project-configurations.props" />
+  <PropertyGroup Label="Globals">
+    <VCProjectVersion>17.0</VCProjectVersion>
+    <ProjectGuid>{9C2F5E4A-7B31-4D58-8E27-1A6C4F0B9D34}</ProjectGuid>
+    <Keyword>Win32Proj</Keyword>
+    <RootNamespace>godot</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+    <unpackratConfigurationType>DynamicLibrary</unpackratConfigurationType>
+    <unpackratModuleName>godot</unpackratModuleName>
+    <!-- The Godot adapter consumes the Brotli decoder through the shared link policy. -->
+    <unpackratEnableBrotli>true</unpackratEnableBrotli>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <Import Project="..\unpackrat-configuration.props" />
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <Import Project="..\unpackrat-project.props" />
+  <Import Project="..\unpackrat-third-party-link.props" />
+  <Import Project="..\unpackrat-module-version.props" />
+  <Import Project="$(VcpkgRoot)\scripts\buildsystems\msbuild\vcpkg.props" />
+
+  <PropertyGroup>
+    <TargetName>godot</TargetName>
+    <TargetExt>.so</TargetExt>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <Link>
+      <ModuleDefinitionFile>$(RepositoryRoot)src\modules\godot\godot.def</ModuleDefinitionFile>
+      <AdditionalDependencies>spng_static.lib;ogg.lib;mbedcrypto.lib;Zydis.lib;Zycore.lib;zstd.lib;fastlz.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="$(RepositoryRoot)src\modules\godot\settings.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\core\codecs\crypto_codec.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\core\godot\encrypted_payload.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\core\godot\key_recovery.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\core\codecs\x86_decoder.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\modules\godot\archive_session.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\core\io\bounded_stream.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\dll.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\archive.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\core\compression\zlib_codec.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\core\godot\pck.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\core\godot\import_remap.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\core\godot\binary_resource.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\core\godot\rscc.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\core\godot\texture.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\core\godot\audio_resource.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\core\godot\font_resource.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\core\codecs\audio_preflight.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\core\codecs\png_codec.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\core\codecs\bc_codec.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\core\codecs\ogg_codec.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\core\codecs\resource_compression.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\core\codecs\mp3_codec.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\core\codecs\wav_codec.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\core\codecs\qoa_codec.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\core\codecs\qoa_reference.c" />
+    <ClCompile Include="$(RepositoryRoot)src\core\codecs\godot_ima_codec.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\modules\godot\godot.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\modules\godot\resource_converter.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\modules\godot\image_resource.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\modules\godot\virtual_tree.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="$(RepositoryRoot)src\api.h" />
+    <ClInclude Include="$(RepositoryRoot)src\archive.h" />
+    <ClInclude Include="$(RepositoryRoot)src\core\io\bounded_stream.h" />
+    <ClInclude Include="$(RepositoryRoot)src\core\compression\zlib_codec.h" />
+    <ClInclude Include="$(RepositoryRoot)src\core\godot\pck.h" />
+    <ClInclude Include="$(RepositoryRoot)src\core\godot\import_remap.h" />
+    <ClInclude Include="$(RepositoryRoot)src\core\godot\binary_resource.h" />
+    <ClInclude Include="$(RepositoryRoot)src\core\godot\rscc.h" />
+    <ClInclude Include="$(RepositoryRoot)src\core\godot\texture.h" />
+    <ClInclude Include="$(RepositoryRoot)src\core\godot\audio_resource.h" />
+    <ClInclude Include="$(RepositoryRoot)src\core\codecs\image_types.h" />
+    <ClInclude Include="$(RepositoryRoot)src\core\codecs\audio_types.h" />
+    <ClInclude Include="$(RepositoryRoot)src\core\codecs\audio_preflight.h" />
+    <ClInclude Include="$(RepositoryRoot)src\core\codecs\png_codec.h" />
+    <ClInclude Include="$(RepositoryRoot)src\core\codecs\bc_codec.h" />
+    <ClInclude Include="$(RepositoryRoot)src\core\codecs\ogg_codec.h" />
+    <ClInclude Include="$(RepositoryRoot)src\core\codecs\qoa_codec.h" />
+    <ClInclude Include="$(RepositoryRoot)src\core\codecs\wav_codec.h" />
+    <ClInclude Include="$(RepositoryRoot)src\core\codecs\mp3_codec.h" />
+    <ClInclude Include="$(RepositoryRoot)src\core\codecs\godot_ima_codec.h" />
+    <ClInclude Include="$(RepositoryRoot)src\modules\extractor.h" />
+    <ClInclude Include="$(RepositoryRoot)src\modules\godot\image_resource.h" />
+    <ClInclude Include="$(RepositoryRoot)src\modules\godot\resource_converter.h" />
+    <ClInclude Include="$(RepositoryRoot)src\modules\godot\virtual_tree.h" />
+  </ItemGroup>
+
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <Import Project="$(VcpkgRoot)\scripts\buildsystems\msbuild\vcpkg.targets" />
+</Project>

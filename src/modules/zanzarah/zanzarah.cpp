@@ -10,6 +10,13 @@
 
 namespace extractor
 {
+    void configure([[maybe_unused]] const wchar_t *settings) noexcept
+    {
+    }
+    void reset_settings() noexcept
+    {
+    }
+
     version_info get_version_info() noexcept
     {
         return {
@@ -25,7 +32,8 @@ namespace extractor
     }
 
     archive_info extractor::get_archive_info(
-        const std::span<const std::byte> &data) // NOLINT(*-convert-member-functions-to-static)
+        std::istream &, const std::span<const std::byte> &data, [[maybe_unused]] const std::filesystem::path &path,
+        [[maybe_unused]] const std::string_view password) // NOLINT(*-convert-member-functions-to-static)
     {
         static_cast<void>(data);
         return archive_info{L"Zanzarah", L"", L""};

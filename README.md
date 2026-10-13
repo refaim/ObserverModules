@@ -21,6 +21,23 @@ from the module's release listing below.
 | Ren'Py | `.rpa` (RPA-2.0, RPA-3.0) | [renpy releases](https://github.com/refaim/unpackrat/releases?q=renpy) | [RU](src/modules/renpy/ChangeLog.ru.txt) [EN](src/modules/renpy/ChangeLog.en.txt) |
 | RPG Maker | `.rgssad` (XP, RGSS1), `.rgss2a` (VX, RGSS2), `.rgss3a` (VX Ace, RGSS3) | [rpgmaker releases](https://github.com/refaim/unpackrat/releases?q=rpgmaker) | [RU](src/modules/rpgmaker/ChangeLog.ru.txt) [EN](src/modules/rpgmaker/ChangeLog.en.txt) |
 | Zanzarah | `.pak` (original, Steam) | [zanzarah releases](https://github.com/refaim/unpackrat/releases?q=zanzarah) | [RU](src/modules/zanzarah/ChangeLog.ru.txt) [EN](src/modules/zanzarah/ChangeLog.en.txt) |
+| Godot | `.pck`, embedded PCK and same-stem EXE sidecars | [godot releases](https://github.com/refaim/unpackrat/releases?q=godot) | [RU](src/modules/godot/ChangeLog.ru.txt) [EN](src/modules/godot/ChangeLog.en.txt) |
+
+Godot restores imported assets to their original folders. In `[Godot]`, `DecodeResources=1`
+shows a converted file in place of its compiled original, such as `art/hero.png` in place of
+`art/hero.ctex`; unsupported resources keep their originals. The shipped INI enables this mode.
+`DecodeResources=0`, or a missing setting, shows originals and skips resource conversion. Import
+metadata remains visible in both modes; renamed paths are recorded in `name-map.tsv`.
+
+Media decoding and encoding run during extraction. Converted entries display the packed source
+size; converted extraction progress uses that same packed size. Texture containers are recognised by
+content and can hold PNG, WebP or raw/GPU image data. FontFile payloads retain their original font
+format. Conversion has no aggregate work quota or default image pixel/byte ceiling.
+
+Encrypted packs use keys recovered by static inspection of neighbouring EXEs, with complete
+plaintext MD5 verification. Games are never launched. If recovery cannot find a valid key, enter
+its 64 hexadecimal digits in Observer's password dialog. An EXE without an embedded pack can open
+its same-stem sibling `.pck`. Encrypted resources are decrypted in either presentation mode.
 
 Each module ZIP carries the module DLL for one architecture, its `observer_user.ini`, both
 human-written change logs and a generated `LICENSES.txt` at the archive root.
@@ -46,33 +63,34 @@ module.
 
 ### Third-party components
 
-| Project | License |
-|---------|---------|
-| [nlohmann/json](https://github.com/nlohmann/json) | [MIT](licenses/json.txt) |
-| [catchorg/Catch2](https://github.com/catchorg/Catch2) | [BSL-1.0](licenses/Catch2.txt) |
-| [lazyhamster/Observer](https://github.com/lazyhamster/Observer) | [LGPL-3.0](licenses/Observer.txt) plus [GPL-3.0](licenses/GPL-3.0.txt) |
-| [Cyan4973/xxHash](https://github.com/Cyan4973/xxHash) | [BSD-2-Clause](licenses/xxHash.txt) |
-| [zlib](https://zlib.net) | [zlib](licenses/zlib.txt) |
+| Project | License | Modules |
+|---------|---------|---------|
+| [nlohmann/json](https://github.com/nlohmann/json) | [MIT](licenses/json.txt) | Tests only |
+| [catchorg/Catch2](https://github.com/catchorg/Catch2) | [BSL-1.0](licenses/Catch2.txt) | Tests only |
+| [lazyhamster/Observer](https://github.com/lazyhamster/Observer) | [LGPL-3.0](licenses/Observer.txt) plus [GPL-3.0](licenses/GPL-3.0.txt) | Ren'Py, RPG Maker, Zanzarah, Godot |
+| [Cyan4973/xxHash](https://github.com/Cyan4973/xxHash) | [BSD-2-Clause](licenses/xxHash.txt) | Tests only |
+| [zlib-ng](https://github.com/zlib-ng/zlib-ng) | [Zlib](licenses/zlib-ng.txt) | Ren'Py, Godot |
+| [godotengine/godot](https://github.com/godotengine/godot) | [MIT](licenses/godot.txt) | Godot |
+| [iOrange/bcdec](https://github.com/iOrange/bcdec) | [MIT](licenses/bcdec.txt) | Godot |
+| [mackron/dr_libs](https://github.com/mackron/dr_libs) | [Unlicense OR MIT-0](licenses/dr_libs.txt) | Godot |
+| [phoboslab/qoa](https://github.com/phoboslab/qoa) | [MIT](licenses/qoa.txt) | Godot |
+| [randy408/libspng](https://github.com/randy408/libspng) | [BSD-2-Clause](licenses/libspng.txt) | Godot |
+| [xiph/ogg](https://github.com/xiph/ogg) | [BSD-3-Clause](licenses/libogg.txt) | Godot |
+| [ariya/FastLZ](https://github.com/ariya/FastLZ) | [MIT](licenses/fastlz.txt) | Godot |
+| [facebook/zstd](https://github.com/facebook/zstd) | [BSD-3-Clause](licenses/zstd.txt) | Godot |
+| [google/brotli](https://github.com/google/brotli) | [MIT](licenses/brotli.txt) | Godot |
+| [Zydis](https://github.com/zyantific/zydis) | [MIT](licenses/zydis.txt) | Godot |
+| [Zycore](https://github.com/zyantific/zycore-c) | [MIT](licenses/zycore.txt) | Godot |
+| [Mbed TLS](https://github.com/Mbed-TLS/mbedtls) (mbedcrypto only) | [Apache-2.0](licenses/mbedcrypto.txt) | Godot |
 
 ### Sources of inspiration
 
-| Project | License |
-|---------|---------|
-| [luxrck/rgssad](https://github.com/luxrck/rgssad) | [MIT](licenses/rgssad.txt) |
-| [birkenfeld/serde-pickle](https://github.com/birkenfeld/serde-pickle) | [MIT](licenses/serde-pickle.txt) |
-| [Shizmob/rpatool](https://github.com/Shizmob/rpatool) | [WTFPL](licenses/rpatool.txt) |
-| [pg83/ix](https://github.com/pg83/ix/tree/66726a904152246fbef8b27e26e878840f6d7fb7) | [MIT](licenses/IX.txt) |
-
-### Format references
-
-The project below describes or decodes a file format. It is a format reference that informed an
-independent implementation, not a shipped-code dependency: no code from it is compiled into any
-unpackrat module, so its license does not apply to this project and is not reproduced in the packaged
-`LICENSES.txt` as a shipped notice.
-
-| Project | License |
-|---------|---------|
-| [zanzapak](https://aluigi.altervista.org/papers.htm#others-file) | [GPL-2.0-or-later](licenses/zanzapak.txt) |
+| Project | License | Modules |
+|---------|---------|---------|
+| [luxrck/rgssad](https://github.com/luxrck/rgssad) | [MIT](licenses/rgssad.txt) | RPG Maker |
+| [birkenfeld/serde-pickle](https://github.com/birkenfeld/serde-pickle) | [MIT](licenses/serde-pickle.txt) | Ren'Py |
+| [Shizmob/rpatool](https://github.com/Shizmob/rpatool) | [WTFPL](licenses/rpatool.txt) | Ren'Py |
+| [pg83/ix](https://github.com/pg83/ix/tree/66726a904152246fbef8b27e26e878840f6d7fb7) | [MIT](licenses/IX.txt) | Historical build tooling |
 
 ## Building
 
