@@ -5,6 +5,8 @@ dependencies and incremental state under ``out/native``, and every other operati
 short function that runs one real tool and lets that tool's exit code be the verdict.
 The public surface is ``build``, ``test``, ``package``, ``coverage_complete``, ``run`` and
 ``main``; the CLI exposes ``build``, ``test``, ``ci-source``, ``ci-arch`` and ``package``.
+``ci-arch`` takes a ``-Stage`` selection so CI can split the per-architecture work into
+independent jobs while the local default still runs every stage in sequence.
 """
 
 from __future__ import annotations
@@ -50,6 +52,10 @@ LEAK_SCENARIOS = (
     "large-metadata", "sparse-metadata",
 )
 LEAK_PROBE = "leak-probe.exe"
+# ``all`` keeps the local pipeline whole; the rest let CI run one independent slice per job.
+CI_STAGES = ("all", "native", "coverage", "asan", "ubsan", "fuzz", "leaks")
+# The sanitizer and leak-probe steps are x64 specialists and refuse any other selection.
+_X64_ONLY_STAGES = frozenset({"ubsan", "leaks"})
 CPPCHECK_PLATFORMS = {"x86": ("win32W", "_M_IX86=600"), "x64": ("win64", "_M_X64=100")}
 COVERAGE_IGNORED = (
     r"([\\/]src[\\/](tests|fuzz)[\\/])|([\\/]vcpkg_installed[\\/])|"
@@ -569,6 +575,15 @@ def _python_coverage(repository: Path) -> None:
          "-m", "unittest", "discover", "-s", "tests", "-p", "test_*.py"],
         cwd=build_root,
     )
+    # The Cobertura XML is written before the report gate: ``coverage xml`` inherits the
+    # configured ``fail_under = 100``, so it still emits the report and then fails the run.
+    report = artifacts_root(repository) / "coverage" / "python" / "coverage.xml"
+    report.parent.mkdir(parents=True, exist_ok=True)
+    run(
+        [sys.executable, "-m", "coverage", "xml", "--rcfile", str(build_root / "pyproject.toml"),
+         "-o", str(report)],
+        cwd=build_root,
+    )
     run(
         [sys.executable, "-m", "coverage", "report", "--rcfile", str(build_root / "pyproject.toml"),
          "--fail-under=100"],
@@ -593,7 +608,9 @@ def ci_source(*, repository: Path | str = REPOSITORY, jobs: int | None = None) -
     return repository
 
 
-def _coverage_export(repository: Path, architecture: str, profile: Path, llvm: Llvm) -> tuple[str, ...]:
+def _coverage_export_arguments(
+    repository: Path, architecture: str, profile: Path, llvm: Llvm
+) -> list[str]:
     stage = bin_directory(repository, architecture, "Coverage")
     command = [
         str(llvm.cov), "export", str(stage / "tests.exe"),
@@ -602,7 +619,22 @@ def _coverage_export(repository: Path, architecture: str, profile: Path, llvm: L
     ]
     for module in MODULES:
         command += ["--object", str(stage / MODULE_BINARIES[module])]
+    return command
+
+
+def _coverage_export(repository: Path, architecture: str, profile: Path, llvm: Llvm) -> tuple[str, ...]:
+    """The authoritative summary JSON export; ``--summary-only`` never appears on the LCOV export."""
+
+    command = _coverage_export_arguments(repository, architecture, profile, llvm)
     command.append("--summary-only")
+    return tuple(command)
+
+
+def _coverage_lcov_export(repository: Path, architecture: str, profile: Path, llvm: Llvm) -> tuple[str, ...]:
+    """The full LCOV export carrying both line and branch records over the same objects."""
+
+    command = _coverage_export_arguments(repository, architecture, profile, llvm)
+    command.append("--format=lcov")
     return tuple(command)
 
 
@@ -639,9 +671,12 @@ def _coverage(
     profile = profiles / "coverage.profdata"
     run([str(llvm.profdata), "merge", "-sparse", *(str(path) for path in raw), "-o", str(profile)])
     document = json.loads(run(_coverage_export(repository, architecture, profile, llvm), capture=True).stdout)
-    coverage_complete(document)
+    lcov = run(_coverage_lcov_export(repository, architecture, profile, llvm), capture=True).stdout
+    # Write both reports before the gate so incomplete coverage stays reviewable when the run fails.
     summary = profiles / "coverage.json"
     summary.write_text(json.dumps(document), encoding="utf-8")
+    (profiles / "coverage.lcov").write_text(lcov, encoding="utf-8")
+    coverage_complete(document)
     return summary
 
 
@@ -714,14 +749,41 @@ def _fuzz(
     return artifacts_root(repository) / "fuzz" / architecture
 
 
-def _leaks(repository: Path, msbuild: Path, vcpkg: Path, *, jobs: int | None = None) -> Path:
+def _prepare_leak_probe(repository: Path, msbuild: Path, vcpkg: Path, *, jobs: int | None = None) -> Path:
+    """Build the x64 Release UMDH probe once, sharing the Release build's own analysis flags."""
+
     _restore(repository, "x64", "Release", vcpkg)
-    run(_msbuild_command(repository, repository / TEST_PROJECT, "x64", "Release", jobs, msbuild, vcpkg), cwd=repository)
     run(
         _msbuild_command(repository, repository / LEAK_PROBE_PROJECT, "x64", "Release", jobs, msbuild, vcpkg),
         cwd=repository,
     )
+    return bin_directory(repository, "x64", "Release") / LEAK_PROBE
+
+
+def _leak_sources(repository: Path) -> tuple[Path, ...]:
+    """Return the ready x64 Release leak binaries and their symbols, or fail closed."""
+
     stage = bin_directory(repository, "x64", "Release")
+    binaries = (stage / LEAK_PROBE, *(stage / MODULE_BINARIES[module] for module in MODULES))
+    missing = [path for path in binaries if not path.is_file()]
+    if missing:
+        raise BuildError("the leak stage needs the x64 Release binaries: " + ", ".join(str(path) for path in missing))
+    symbols = [path.with_suffix(".pdb") for path in binaries]
+    missing = [path for path in symbols if not path.is_file()]
+    if missing:
+        raise BuildError("the leak stage needs the x64 Release symbols: " + ", ".join(str(path) for path in missing))
+    return binaries
+
+
+def _leak_measure(repository: Path) -> Path:
+    """Stage the ready x64 Release binaries and run every UMDH mode/scenario measurement.
+
+    This stage measures an already-built tree: it never restores vcpkg, invokes MSBuild,
+    runs BinSkim or resolves LLVM.  Only the preinstalled UMDH tool and the Python worker
+    are needed.
+    """
+
+    binaries = _leak_sources(repository)
     output = artifacts_root(repository) / "leaks"
     build_root = repository / "build"
     umdh = str(_find_umdh())
@@ -731,7 +793,7 @@ def _leaks(repository: Path, msbuild: Path, vcpkg: Path, *, jobs: int | None = N
         directory.mkdir(parents=True, exist_ok=True)
         run([sys.executable, "-m", "leaks", *arguments], cwd=build_root, env={"UNPACKRAT_OUT_DIR": str(directory)})
 
-    leak(["setup", str(stage / LEAK_PROBE), *(str(stage / MODULE_BINARIES[module]) for module in MODULES)], "setup")
+    leak(["setup", *(str(path) for path in binaries)], "setup")
     prepared = str(output / "setup")
     for mode in LEAK_MODES:
         for scenario in LEAK_SCENARIOS:
@@ -823,31 +885,85 @@ def _binskim(repository: Path, architecture: str) -> None:
     require_clean_binskim(json.loads(report.read_text(encoding="utf-8")))
 
 
-def ci_arch(
-    architectures: Sequence[str], *, repository: Path | str = REPOSITORY,
-    corpus: Path | str | None = None, jobs: int | None = None,
-) -> Path:
-    """Run the real per-architecture CI: tests, coverage, sanitizers, fuzz, leaks and audit."""
+def _native(
+    repository: Path, architectures: Sequence[str], msbuild: Path, vcpkg: Path,
+    corpus: Path | str | None, jobs: int | None,
+) -> None:
+    """The Debug and Release suites, the x64 leak probe, then the dumpbin and BinSkim audits."""
 
-    repository = Path(repository).resolve()
-    msbuild, vcpkg = _native_tools()
-    llvm = {architecture: _llvm(architecture) for architecture in architectures}
     for architecture in architectures:
         test(architecture, "Debug", repository=repository, corpus=corpus, jobs=jobs)
         test(architecture, "Release", repository=repository, corpus=corpus, jobs=jobs)
-    for architecture in architectures:
-        _coverage(repository, architecture, msbuild, vcpkg, llvm[architecture], corpus=corpus, jobs=jobs)
-    for architecture in architectures:
-        _sanitizer(repository, "asan", architecture, msbuild, vcpkg, llvm[architecture], jobs=jobs)
     if "x64" in architectures:
-        _sanitizer(repository, "ubsan", "x64", msbuild, vcpkg, llvm["x64"], jobs=jobs)
-    for architecture in architectures:
-        _fuzz(repository, architecture, msbuild, vcpkg, llvm[architecture], jobs=jobs)
-    if "x64" in architectures:
-        _leaks(repository, msbuild, vcpkg, jobs=jobs)
+        _prepare_leak_probe(repository, msbuild, vcpkg, jobs=jobs)
     for architecture in architectures:
         _audit(repository, architecture)
         _binskim(repository, architecture)
+
+
+def _runtime(llvm: dict[str, Llvm], architecture: str) -> Llvm:
+    """Resolve an architecture's LLVM tool-chain once and remember it for the whole run."""
+
+    if architecture not in llvm:
+        llvm[architecture] = _llvm(architecture)
+    return llvm[architecture]
+
+
+def _dispatch(
+    stage: str, repository: Path, architectures: Sequence[str], corpus: Path | str | None, jobs: int | None,
+    llvm: dict[str, Llvm],
+) -> None:
+    """Run one CI stage by plain dispatch; there is no dependency graph to evaluate.
+
+    ``llvm`` is the run-wide cache of resolved LLVM tool-chains, so each architecture's runtime
+    is resolved once and forwarded unchanged to every stage that needs it.
+    """
+
+    if stage == "leaks":
+        _leak_measure(repository)
+        return
+    msbuild, vcpkg = _native_tools()
+    if stage == "native":
+        _native(repository, architectures, msbuild, vcpkg, corpus, jobs)
+        return
+    if stage == "coverage":
+        for architecture in architectures:
+            _coverage(repository, architecture, msbuild, vcpkg, _runtime(llvm, architecture), corpus=corpus, jobs=jobs)
+    elif stage == "asan":
+        for architecture in architectures:
+            _sanitizer(repository, "asan", architecture, msbuild, vcpkg, _runtime(llvm, architecture), jobs=jobs)
+    elif stage == "ubsan":
+        _sanitizer(repository, "ubsan", "x64", msbuild, vcpkg, _runtime(llvm, "x64"), jobs=jobs)
+    else:
+        for architecture in architectures:
+            _fuzz(repository, architecture, msbuild, vcpkg, _runtime(llvm, architecture), jobs=jobs)
+
+
+def ci_arch(
+    architectures: Sequence[str], *, stage: str = "all", repository: Path | str = REPOSITORY,
+    corpus: Path | str | None = None, jobs: int | None = None,
+) -> Path:
+    """Run the real per-architecture CI, split into independent stages.
+
+    ``all`` (the default) runs every stage in the fixed order native, coverage, asan, ubsan,
+    fuzz and leaks, preparing the Release tree and the leak probe once.  A single stage runs
+    only itself; the ``ubsan`` and ``leaks`` stages are the x64 specialists and refuse any
+    other selection up front.
+    """
+
+    repository = Path(repository).resolve()
+    _job_count(jobs)
+    if stage not in CI_STAGES:
+        raise BuildError(f"unknown CI stage: {stage}")
+    selected = tuple(architectures)
+    if stage in _X64_ONLY_STAGES and selected != ("x64",):
+        raise BuildError(f"the {stage} stage is x64 only")
+    names = CI_STAGES[1:] if stage == "all" else (stage,)
+    llvm: dict[str, Llvm] = {}
+    for name in names:
+        if name in _X64_ONLY_STAGES and "x64" not in selected:
+            continue
+        _dispatch(name, repository, selected, corpus, jobs, llvm)
     return repository
 
 
@@ -883,6 +999,7 @@ def _parser() -> argparse.ArgumentParser:
         command.add_argument("-Jobs", "--jobs", type=int, default=None)
     for command in (build_parser, test_parser, arch_parser):
         command.add_argument("-Arch", "--arch", dest="architecture", type=_selection(ARCHITECTURES), default=("x64",))
+    arch_parser.add_argument("-Stage", "--stage", dest="stage", choices=CI_STAGES, default="all")
     for command in (build_parser, test_parser):
         command.add_argument("-Config", "--config", dest="configuration", type=_selection(CONFIGURATIONS), default=("Debug",))
     for command in (test_parser, arch_parser):
@@ -908,7 +1025,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     elif args.command == "ci-source":
         ci_source(repository=args.repository, jobs=args.jobs)
     elif args.command == "ci-arch":
-        ci_arch(args.architecture, repository=args.repository, corpus=args.corpus, jobs=args.jobs)
+        ci_arch(
+            args.architecture, stage=args.stage,
+            repository=args.repository, corpus=args.corpus, jobs=args.jobs,
+        )
     else:
         package(repository=args.repository, output=args.output, modules=args.module)
     return 0

@@ -37,6 +37,18 @@ FULL_COVERAGE = {
 }
 
 
+# The full-LCOV export must return real LCOV records, distinct from the JSON summary.
+FULL_LCOV = (
+    "SF:src/marker.cpp\n"
+    "DA:7,1\n"
+    "DA:8,0\n"
+    "BRDA:9,0,0,1\n"
+    "BRF:1\n"
+    "BRH:1\n"
+    "end_of_record\n"
+)
+
+
 def _dumpbin(argv) -> str:
     flag = argv[1]
     if flag == "/headers":
@@ -78,6 +90,8 @@ class PipelineRun:
             if name == "dumpbin.exe" and self._dumpbin is not None:
                 return subprocess.CompletedProcess(list(recorded), 0, self._dumpbin(recorded))
             if "llvm-cov" in name:
+                if any("--format=lcov" in item for item in recorded):
+                    return subprocess.CompletedProcess(list(recorded), 0, FULL_LCOV)
                 return subprocess.CompletedProcess(list(recorded), 0, json.dumps(FULL_COVERAGE))
             return subprocess.CompletedProcess(list(recorded), 0, "")
         if env and "LLVM_PROFILE_FILE" in env:
@@ -154,8 +168,9 @@ class DriverCase(unittest.TestCase):
         for architecture in main.ARCHITECTURES:
             stage = self.repo / "out" / "native" / "bin" / architecture / "Release"
             stage.mkdir(parents=True, exist_ok=True)
-            (stage / f"{module}.so").write_bytes(b"binary")
-            (stage / f"{module}.pdb").write_bytes(b"symbols")
+            for name in (*main.MODULE_BINARIES.values(), main.LEAK_PROBE):
+                (stage / name).write_bytes(b"binary")
+                (stage / name).with_suffix(".pdb").write_bytes(b"symbols")
         for target in main.FUZZ_TARGETS:
             seeds = self.repo / "src" / "fuzz" / "corpus" / target
             seeds.mkdir(parents=True, exist_ok=True)

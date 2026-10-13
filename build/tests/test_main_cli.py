@@ -39,6 +39,22 @@ _FULL_COVERAGE = {
 }
 
 
+# A minimal LCOV record with distinct line and branch markers, so a JSON payload written under
+# the ``.lcov`` name is rejected rather than mistaken for real LCOV.
+_LCOV = (
+    "SF:src/marker.cpp\n"
+    "DA:10,1\n"
+    "DA:11,0\n"
+    "BRDA:12,0,0,1\n"
+    "BRDA:13,0,1,-\n"
+    "LF:2\n"
+    "LH:1\n"
+    "BRF:2\n"
+    "BRH:1\n"
+    "end_of_record\n"
+)
+
+
 # A BinSkim SARIF with no findings; the analysis gate must accept it.
 _CLEAN_BINSKIM = {"version": "2.1.0", "runs": []}
 
@@ -79,6 +95,8 @@ class FakeRun:
             if name == "dumpbin.exe" and self._dumpbin is not None:
                 return subprocess.CompletedProcess(list(argv), 0, self._dumpbin(argv))
             if "llvm-cov" in name:
+                if any("--format=lcov" in item for item in argv):
+                    return subprocess.CompletedProcess(list(argv), 0, _LCOV)
                 return subprocess.CompletedProcess(list(argv), 0, self._llvm_export)
             return subprocess.CompletedProcess(list(argv), 0, "")
         if self._profraw and env and "LLVM_PROFILE_FILE" in env:
@@ -147,8 +165,10 @@ class MainCliCase(unittest.TestCase):
         for architecture in main.ARCHITECTURES:
             stage = self.repo / "out" / "native" / "bin" / architecture / "Release"
             stage.mkdir(parents=True, exist_ok=True)
-            (stage / f"{module}.so").write_bytes(b"binary")
-            (stage / f"{module}.pdb").write_bytes(b"symbols")
+            # A completed Release tree carries every module plus the leak probe and its symbols.
+            for name in (*main.MODULE_BINARIES.values(), main.LEAK_PROBE):
+                (stage / name).write_bytes(b"binary")
+                (stage / name).with_suffix(".pdb").write_bytes(b"symbols")
         for target in main.FUZZ_TARGETS:
             seeds = self.repo / "src" / "fuzz" / "corpus" / target
             seeds.mkdir(parents=True, exist_ok=True)
@@ -481,6 +501,55 @@ class MainCliCase(unittest.TestCase):
         self.assertEqual(command.count("--object"), len(main.MODULES))
         self.assertEqual(command[-1], "--summary-only")
 
+    def test_coverage_writes_distinct_lcov_beside_the_summary(self) -> None:
+        run = FakeRun()
+        with self.tools(run):
+            summary = main._coverage(self.repo, "x64", self.root / "MSBuild.exe", self.root / "vcpkg.exe", self.llvm)
+        self.assertEqual(json.loads(summary.read_text(encoding="utf-8")), _FULL_COVERAGE)
+        lcov = main.artifacts_root(self.repo) / "coverage" / "x64" / "coverage.lcov"
+        self.assertTrue(lcov.is_file(), "the native coverage must export a full LCOV beside the summary")
+        text = lcov.read_text(encoding="utf-8")
+        self.assertIn("DA:10,1", text)
+        self.assertIn("DA:11,0", text)
+        self.assertIn("BRDA:12,0,0,1", text)
+        with self.assertRaises(json.JSONDecodeError):
+            json.loads(text)
+
+    def test_coverage_lcov_export_is_full_and_never_summary_only(self) -> None:
+        command = main._coverage_lcov_export(self.repo, "x64", self.root / "p.profdata", self.llvm)
+        self.assertEqual(command.count("--object"), len(main.MODULES))
+        self.assertIn("--format=lcov", command)
+        self.assertNotIn("--summary-only", command)
+
+    def test_coverage_saves_both_reports_before_the_gate_fails(self) -> None:
+        incomplete = {
+            "data": [{"totals": {"lines": {"count": 10, "covered": 9}, "branches": {"count": 4, "covered": 4}}}]
+        }
+        run = FakeRun(llvm_export=incomplete)
+        with self.tools(run), self.assertRaises(ValueError):
+            main._coverage(self.repo, "x64", self.root / "MSBuild.exe", self.root / "vcpkg.exe", self.llvm)
+        coverage = main.artifacts_root(self.repo) / "coverage" / "x64"
+        self.assertTrue((coverage / "coverage.json").is_file(), "the summary must be saved before the gate")
+        self.assertIn("BRDA:", (coverage / "coverage.lcov").read_text(encoding="utf-8"))
+
+    def test_coverage_propagates_the_lcov_export_failure(self) -> None:
+        run = FakeRun(fail_when=lambda argv: "--format=lcov" in argv)
+        with self.tools(run), self.assertRaises(subprocess.CalledProcessError):
+            main._coverage(self.repo, "x64", self.root / "MSBuild.exe", self.root / "vcpkg.exe", self.llvm)
+
+    def test_python_coverage_exports_xml_before_the_report_gate(self) -> None:
+        run = FakeRun()
+        with mock.patch.object(main, "run", run):
+            main._python_coverage(self.repo)
+        commands = [call.argv for call in run.calls if "coverage" in call.argv]
+        xml = next(command for command in commands if "xml" in command)
+        report = next(command for command in commands if "report" in command)
+        self.assertLess(commands.index(xml), commands.index(report), "the XML must be written before the gate")
+        destination = Path(xml[xml.index("-o") + 1])
+        self.assertEqual(destination, main.artifacts_root(self.repo) / "coverage" / "python" / "coverage.xml")
+        self.assertTrue(destination.parent.is_dir(), "the XML output directory must exist")
+        self.assertIn("--fail-under=100", report)
+
     def test_coverage_complete_rejects_malformed_metrics(self) -> None:
         with self.assertRaises(ValueError):
             main.coverage_complete({"data": [{"totals": {"lines": {"count": "x", "covered": 1}, "branches": {"count": 1, "covered": 1}}}]})
@@ -529,13 +598,44 @@ class MainCliCase(unittest.TestCase):
 
     # ----- leaks --------------------------------------------------------------------------
 
-    def test_leaks_stage_and_measure_every_scenario(self) -> None:
+    def test_prepare_leak_probe_builds_the_probe_with_release_analysis(self) -> None:
         run = FakeRun()
         with self.tools(run):
-            main._leaks(self.repo, self.root / "MSBuild.exe", self.root / "vcpkg.exe")
+            probe = main._prepare_leak_probe(self.repo, self.root / "MSBuild.exe", self.root / "vcpkg.exe")
+        self.assertEqual(probe.name, main.LEAK_PROBE)
+        command = next(
+            call.argv for call in run.calls
+            if any("leak-probe.vcxproj" in item for item in call.argv)
+        )
+        self.assertIn("/p:RunCodeAnalysis=true", command)
+        self.assertIn("/p:Configuration=Release", command)
+
+    def test_leak_measure_stages_and_measures_every_scenario(self) -> None:
+        self.make_module()
+        run = FakeRun()
+        with self.tools(run):
+            main._leak_measure(self.repo)
         leak_calls = [call for call in run.calls if call.argv[1:3] == ("-m", "leaks")]
         self.assertEqual(len(leak_calls), 1 + len(main.LEAK_MODES) * len(main.LEAK_SCENARIOS))
         self.assertEqual(leak_calls[0].argv[3], "setup")
+        # The measurement never reaches a build tool; it only measures the ready tree.
+        self.assertNotIn("vcpkg.exe", run.tools())
+        self.assertNotIn("msbuild.exe", run.tools())
+
+    def test_leak_measure_fails_closed_without_the_ready_binaries(self) -> None:
+        run = FakeRun()
+        with self.tools(run), self.assertRaises(main.BuildError):
+            main._leak_measure(self.repo)
+        self.assertEqual(run.calls, [])
+
+    def test_leak_measure_fails_closed_without_the_symbols(self) -> None:
+        self.make_module()
+        for name in main.MODULE_BINARIES.values():
+            (self.repo / "out" / "native" / "bin" / "x64" / "Release" / name).with_suffix(".pdb").unlink()
+        run = FakeRun()
+        with self.tools(run), self.assertRaises(main.BuildError):
+            main._leak_measure(self.repo)
+        self.assertEqual(run.calls, [])
 
     # ----- audit --------------------------------------------------------------------------
 
@@ -582,6 +682,39 @@ class MainCliCase(unittest.TestCase):
             main.ci_arch(["x86"], repository=self.repo)
         self.assertFalse(any(call.argv[1:3] == ("-m", "leaks") for call in run.calls))
 
+    def test_ci_arch_runs_every_stage_in_order_by_default(self) -> None:
+        seen: list[str] = []
+        with mock.patch.object(main, "_dispatch", side_effect=lambda name, *_args: seen.append(name)):
+            main.ci_arch(["x64"], repository=self.repo)
+        self.assertEqual(seen, ["native", "coverage", "asan", "ubsan", "fuzz", "leaks"])
+
+    def test_ci_arch_single_stage_runs_only_that_stage(self) -> None:
+        seen: list[str] = []
+        with mock.patch.object(main, "_dispatch", side_effect=lambda name, *_args: seen.append(name)):
+            main.ci_arch(["x64"], stage="fuzz", repository=self.repo)
+        self.assertEqual(seen, ["fuzz"])
+
+    def test_ci_arch_rejects_an_unknown_stage(self) -> None:
+        with self.assertRaises(main.BuildError):
+            main.ci_arch(["x64"], stage="bogus", repository=self.repo)
+
+    def test_ci_arch_rejects_non_x64_selections_for_the_x64_specialists(self) -> None:
+        cases = (("ubsan", ("x86",)), ("leaks", ("x86",)), ("leaks", ("x86", "x64")))
+        for stage, architectures in cases:
+            with self.subTest(stage=stage, architectures=architectures), self.assertRaises(main.BuildError):
+                main.ci_arch(list(architectures), stage=stage, repository=self.repo)
+
+    def test_leaks_stage_measures_without_any_build_tool(self) -> None:
+        self.make_module()
+        run = FakeRun()
+        with self.tools(run):
+            main.ci_arch(["x64"], stage="leaks", repository=self.repo)
+        names = run.tools()
+        self.assertNotIn("msbuild.exe", names)
+        self.assertNotIn("vcpkg.exe", names)
+        self.assertNotIn("binskim.exe", names)
+        self.assertTrue(any(call.argv[1:3] == ("-m", "leaks") for call in run.calls))
+
     # ----- CLI ----------------------------------------------------------------------------
 
     def test_selection_parses_lists_all_and_rejects_bad_input(self) -> None:
@@ -599,6 +732,10 @@ class MainCliCase(unittest.TestCase):
         with mock.patch.object(main, "ci_arch", return_value=self.repo) as handler:
             self.assertEqual(main.main(["ci-arch", "-Arch", "x64"]), 0)
         self.assertEqual(handler.call_args.args[0], ("x64",))
+        self.assertEqual(handler.call_args.kwargs["stage"], "all")
+        with mock.patch.object(main, "ci_arch", return_value=self.repo) as handler:
+            self.assertEqual(main.main(["ci-arch", "-Arch", "x64", "-Stage", "coverage"]), 0)
+        self.assertEqual(handler.call_args.kwargs["stage"], "coverage")
 
     def test_main_dispatches_build_and_test_over_lists(self) -> None:
         with mock.patch.object(main, "build", return_value=self.repo) as handler:

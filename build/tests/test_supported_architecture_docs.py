@@ -3,7 +3,7 @@
 The Observer plugin host ships no ARM64 build that could load an unpackrat module, so the
 project supports exactly x86 and x64. These tests pin the user-facing documents to that
 target set: only x86 and x64 may be advertised, no ARM prerequisite, deferral or release
-claim may survive, the CI narrative must describe ``source`` plus ``x86`` and ``x64``, and
+claim may survive, the CI narrative must describe the real per-stage required checks, and
 the per-module symbol bundle must describe one PDB per supported architecture.
 """
 
@@ -97,13 +97,18 @@ class SupportedArchitectureDocumentTests(unittest.TestCase):
         self.assertIn("x86, x64;", contract)
         self.assertIn("x86 and x64", prerequisites)
 
-    def test_build_system_ci_describes_source_x86_and_x64(self) -> None:
+    def test_build_system_ci_describes_the_real_stage_checks(self) -> None:
         docs = read(BUILD_SYSTEM)
         ci = flat(docs[docs.index("## CI"):docs.index("## Open gaps")])
-        self.assertIn("Three verification jobs", ci)
-        self.assertIn("`source`", ci)
-        self.assertIn("`x86`/`x64`", ci)
+        # No aggregate gate survives: the required check names are the real per-stage jobs, so the
+        # narrative must name them directly instead of collapsing them behind `source`/`x86`/`x64`.
+        self.assertNotIn("aggregate", ci.lower())
+        self.assertNotIn("Three verification jobs", ci)
         self.assertNotIn("Four verification jobs", ci)
+        self.assertIn("required check", ci)
+        for name in ("source-checks", "native-x86", "native-x64"):
+            with self.subTest(name=name):
+                self.assertIn(name, ci)
 
     def test_build_system_pdb_bundle_describes_one_pdb_per_supported_architecture(self) -> None:
         docs = read(BUILD_SYSTEM)
