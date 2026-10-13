@@ -1,3 +1,8 @@
+Version 1.1.1
+-------------
+ * Fixed unaligned path access when opening archives through Observer.
+ * Fixed unaligned destination path access when extracting archives through Observer.
+
 Version 1.1.0
 -------------
  + Added self-contained builds that need no extra runtime installation.

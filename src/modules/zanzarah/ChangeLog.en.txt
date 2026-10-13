@@ -1,3 +1,10 @@
+Version 2.1.1
+-------------
+ * Framed PAK extraction no longer appends a four-byte footer to the extracted file.
+ * Sizes and extraction progress for framed archives are now correct.
+ * Archives that do not match the framed layout retain the previous extraction behavior.
+ * Fixed unaligned path access when opening and extracting archives through Observer.
+
 Version 2.1.0
 -------------
  + Added self-contained builds that need no extra runtime installation.

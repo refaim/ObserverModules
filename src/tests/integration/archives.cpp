@@ -66,3 +66,19 @@ TEST_CASE("archives: Zanzarah preserves an already-relative path", "[integration
     const test::support::temporary_archive archive("zanzarah-relative", contents);
     test::test_archive(archive.path(), {{L"data\\direct.txt", "direct payload"}});
 }
+
+TEST_CASE("archives: Zanzarah strips frame bytes from payload", "[integration][hermetic][zanzarah-framing]")
+{
+    auto contents = test::support::make_zanzarah_archive("a", "hello");
+    contents[17] = 13;
+    contents[21] = 1;
+    contents[22] = 1;
+    contents[23] = 0;
+    contents[24] = 0;
+    contents.push_back(2);
+    contents.push_back(2);
+    contents.push_back(0);
+    contents.push_back(0);
+    const test::support::temporary_archive archive("zanzarah-framing", contents);
+    test::test_archive(archive.path(), {{L"a", "hello"}});
+}

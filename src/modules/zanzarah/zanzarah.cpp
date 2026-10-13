@@ -107,6 +107,35 @@ namespace extractor
             }
         }
 
+        constexpr std::int64_t framing_marker_size = 4;
+        constexpr std::uint32_t framing_prefix_marker = 0x101U;
+        constexpr std::uint32_t framing_suffix_marker = 0x202U;
+
+        // Framed archives bracket each block body with a literal prefix and suffix marker.
+        // When every entry carries both markers the framing is canonical and the trailing
+        // suffix is removed from the exposed extents. Archives which do not match the
+        // canonical framing fall back to their prefix-only (zanzapak) extents; the format
+        // notes describe the coincidental suffix ambiguity that this fallback accepts.
+        const auto has_canonical_framing = [&input](const std::unique_ptr<file> &entry) {
+            if (entry->compressed_body_size_in_bytes < framing_marker_size) {
+                return false;
+            }
+            input.seek_absolute(static_cast<std::streamoff>(entry->offset - framing_marker_size));
+            if (input.read_trivial<std::uint32_t>() != framing_prefix_marker) {
+                return false;
+            }
+            input.seek_absolute(static_cast<std::streamoff>(entry->offset + entry->compressed_body_size_in_bytes -
+                                                            framing_marker_size));
+            return input.read_trivial<std::uint32_t>() == framing_suffix_marker;
+        };
+
+        if (std::ranges::all_of(files, has_canonical_framing)) {
+            for (const auto &entry : files) {
+                entry->compressed_body_size_in_bytes -= framing_marker_size;
+                entry->uncompressed_body_size_in_bytes -= framing_marker_size;
+            }
+        }
+
         return files;
     }
 
