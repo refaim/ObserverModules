@@ -40,7 +40,9 @@ extern "C" int MODULE_EXPORT OpenStorage(StorageOpenParams params, HANDLE *stora
 
     *storage = nullptr;
 
-    const std::filesystem::path path(params.FilePath);
+    // Copy the packed pointer into an aligned local before binding a C++ reference.
+    const auto file_path = params.FilePath;
+    const std::filesystem::path path(file_path);
 
     std::span<const std::byte> data;
     if (params.Data != nullptr && params.DataSize > 0) {
@@ -135,7 +137,9 @@ extern "C" int MODULE_EXPORT ExtractItem(HANDLE storage, ExtractOperationParams 
 
     const auto *archive = static_cast<archive::archive *>(storage);
     try {
-        archive->extract_file(params.ItemIndex, params.DestPath, report_progress);
+        // Copy the packed pointer into an aligned local before binding a C++ reference.
+        const auto destination = params.DestPath;
+        archive->extract_file(params.ItemIndex, destination, report_progress);
     } catch (archive::user_interrupt &) {
         return SER_USERABORT;
     } catch (archive::read_error &) {

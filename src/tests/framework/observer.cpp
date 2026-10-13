@@ -2,12 +2,15 @@
 #include "../../api.h"
 #include "../support/archive_fixtures.h"
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <format>
 #include <fstream>
 #include <iterator>
+#include <string>
 #include <thread>
+#include <vector>
 
 #include <catch2/catch_test_macros.hpp>
 #include <windows.h>
@@ -255,6 +258,153 @@ namespace test
       private:
         std::filesystem::path path_;
     };
+
+    namespace
+    {
+        constexpr std::uint32_t canonical_prefix = 0x00000101U;
+        constexpr std::uint32_t canonical_suffix = 0x00000202U;
+        constexpr std::uint32_t legacy_marker = 0x12345678U;
+
+        void append_u32(support::byte_buffer &out, const std::uint32_t value)
+        {
+            out.push_back(static_cast<std::uint8_t>(value & 0xffU));
+            out.push_back(static_cast<std::uint8_t>((value >> 8U) & 0xffU));
+            out.push_back(static_cast<std::uint8_t>((value >> 16U) & 0xffU));
+            out.push_back(static_cast<std::uint8_t>((value >> 24U) & 0xffU));
+        }
+
+        void append_bytes(support::byte_buffer &out, const std::string_view text)
+        {
+            out.insert(out.end(), text.begin(), text.end());
+        }
+
+        void append_bytes(support::byte_buffer &out, const support::byte_buffer &bytes)
+        {
+            out.insert(out.end(), bytes.begin(), bytes.end());
+        }
+
+        void set_u32(support::byte_buffer &out, const std::size_t position, const std::uint32_t value)
+        {
+            out[position] = static_cast<std::uint8_t>(value & 0xffU);
+            out[position + 1] = static_cast<std::uint8_t>((value >> 8U) & 0xffU);
+            out[position + 2] = static_cast<std::uint8_t>((value >> 16U) & 0xffU);
+            out[position + 3] = static_cast<std::uint8_t>((value >> 24U) & 0xffU);
+        }
+
+        support::byte_buffer make_canonical_block(const std::string_view payload)
+        {
+            support::byte_buffer block;
+            append_u32(block, canonical_prefix);
+            append_bytes(block, payload);
+            append_u32(block, canonical_suffix);
+            return block;
+        }
+
+        support::byte_buffer make_legacy_block(const std::string_view payload,
+                                               const std::uint32_t marker = legacy_marker)
+        {
+            support::byte_buffer block;
+            append_u32(block, marker);
+            append_bytes(block, payload);
+            return block;
+        }
+
+        struct built_pak final
+        {
+            support::byte_buffer bytes;
+            std::vector<std::size_t> offset_fields;
+            std::vector<std::size_t> size_fields;
+        };
+
+        // Builds a PAK from explicit per-entry physical blocks. Each entry keeps a
+        // one-character name, a cumulative physical offset and the block size; the
+        // returned field positions let tests mutate the metadata without guessing.
+        built_pak build_zanzarah_pak(const std::vector<std::string> &names,
+                                     const std::vector<support::byte_buffer> &blocks)
+        {
+            REQUIRE(names.size() == blocks.size());
+            built_pak pak;
+            append_u32(pak.bytes, 0);
+            append_u32(pak.bytes, static_cast<std::uint32_t>(names.size()));
+            std::uint32_t offset = 0;
+            for (std::size_t index = 0; index < names.size(); ++index) {
+                append_u32(pak.bytes, static_cast<std::uint32_t>(names[index].size()));
+                append_bytes(pak.bytes, names[index]);
+                pak.offset_fields.push_back(pak.bytes.size());
+                append_u32(pak.bytes, offset);
+                pak.size_fields.push_back(pak.bytes.size());
+                append_u32(pak.bytes, static_cast<std::uint32_t>(blocks[index].size()));
+                offset += static_cast<std::uint32_t>(blocks[index].size());
+            }
+            for (const auto &block : blocks) {
+                append_bytes(pak.bytes, block);
+            }
+            return pak;
+        }
+
+        std::wstring widen(const std::string_view ascii)
+        {
+            return std::wstring(ascii.begin(), ascii.end());
+        }
+
+        struct progress_state final
+        {
+            std::int64_t bytes = 0;
+            int calls = 0;
+        };
+
+        struct extraction_record final
+        {
+            std::int64_t declared_size = 0;
+            std::int64_t declared_packed_size = 0;
+            std::string bytes;
+            std::int64_t progress_bytes = 0;
+            int progress_calls = 0;
+        };
+
+        extraction_record extract_zanzarah_entry(c_module &loaded, const std::filesystem::path &archive_path,
+                                                 const int index, const std::string_view expected_name)
+        {
+            StorageItemInfo item{};
+            REQUIRE(loaded.api().GetItem(loaded.storage(), index, &item) == GET_ITEM_OK);
+            REQUIRE(item.Size == item.PackedSize);
+            REQUIRE(std::wstring(item.Path) == widen(expected_name));
+
+            progress_state state;
+            const temporary_output_file destination(archive_path.wstring() + L".out");
+            const ExtractProcessCallbacks callbacks{
+                .signalContext = &state,
+                .FileProgress =
+                    [](HANDLE handle, int64_t chunk) {
+                        auto &captured = *static_cast<progress_state *>(handle);
+                        captured.bytes += chunk;
+                        captured.calls += 1;
+                        return TRUE;
+                    },
+            };
+            const ExtractOperationParams params{
+                .ItemIndex = index,
+                .Flags = 0,
+                .DestPath = destination.path().c_str(),
+                .Password = nullptr,
+                .Callbacks = callbacks,
+            };
+            REQUIRE(loaded.api().ExtractItem(loaded.storage(), params) == SER_SUCCESS);
+
+            std::ifstream extracted(destination.path(), std::ios::binary);
+            REQUIRE(extracted.is_open());
+            std::string bytes{std::istreambuf_iterator<char>(extracted), std::istreambuf_iterator<char>()};
+            return {item.Size, item.PackedSize, std::move(bytes), state.bytes, state.calls};
+        }
+
+        void require_zanzarah_rejected(const std::string_view label, const support::byte_buffer &contents)
+        {
+            const support::temporary_archive archive(label, contents);
+            c_module loaded("zanzarah.so");
+            REQUIRE(loaded.open(archive.path()));
+            REQUIRE(loaded.api().PrepareFiles(loaded.storage()) == FALSE);
+        }
+    } // namespace
 
     observer::observer()
     {
@@ -559,6 +709,354 @@ namespace test
 
         StorageItemInfo item{};
         REQUIRE(loaded.api().GetItem(loaded.storage(), static_cast<int>(entry_count), &item) == GET_ITEM_NOMOREITEMS);
+    }
+
+    TEST_CASE("module ABI: Zanzarah canonical framing trims the prefix and footer", "[contract][zanzarah-framing]")
+    {
+        const std::string suffix_bytes("\x02\x02\x00\x00", 4);
+
+        SECTION("empty canonical payload exposes a zero-length item")
+        {
+            const auto pak = build_zanzarah_pak({"a"}, {make_canonical_block("")});
+            const support::temporary_archive archive("zanzarah-frame-empty", pak.bytes);
+            c_module loaded("zanzarah.so");
+            REQUIRE(loaded.open(archive.path()));
+            REQUIRE(loaded.api().PrepareFiles(loaded.storage()) == TRUE);
+
+            const auto record = extract_zanzarah_entry(loaded, archive.path(), 0, "a");
+            REQUIRE(record.declared_size == 0);
+            REQUIRE(record.declared_packed_size == 0);
+            REQUIRE(record.bytes.empty());
+            REQUIRE(record.progress_bytes == 0);
+            REQUIRE(record.progress_calls == 0);
+
+            StorageItemInfo extra{};
+            REQUIRE(loaded.api().GetItem(loaded.storage(), 1, &extra) == GET_ITEM_NOMOREITEMS);
+        }
+
+        SECTION("small canonical payload is trimmed to the payload only")
+        {
+            const std::string payload = "hello";
+            const auto pak = build_zanzarah_pak({"a"}, {make_canonical_block(payload)});
+            const support::temporary_archive archive("zanzarah-frame-small", pak.bytes);
+            c_module loaded("zanzarah.so");
+            REQUIRE(loaded.open(archive.path()));
+            REQUIRE(loaded.api().PrepareFiles(loaded.storage()) == TRUE);
+
+            const auto record = extract_zanzarah_entry(loaded, archive.path(), 0, "a");
+            REQUIRE(record.declared_size == static_cast<std::int64_t>(payload.size()));
+            REQUIRE(record.declared_packed_size == static_cast<std::int64_t>(payload.size()));
+            REQUIRE(record.bytes == payload);
+            REQUIRE(record.progress_bytes == static_cast<std::int64_t>(payload.size()));
+        }
+
+        SECTION("a payload larger than one extraction chunk is trimmed once")
+        {
+            std::string payload(131'073, '\0');
+            for (std::size_t index = 0; index < payload.size(); ++index) {
+                payload[index] = static_cast<char>(index % 251);
+            }
+            const auto pak = build_zanzarah_pak({"a"}, {make_canonical_block(payload)});
+            const support::temporary_archive archive("zanzarah-frame-large", pak.bytes);
+            c_module loaded("zanzarah.so");
+            REQUIRE(loaded.open(archive.path()));
+            REQUIRE(loaded.api().PrepareFiles(loaded.storage()) == TRUE);
+
+            const auto record = extract_zanzarah_entry(loaded, archive.path(), 0, "a");
+            REQUIRE(record.declared_size == 131'073);
+            REQUIRE(record.declared_packed_size == 131'073);
+            REQUIRE(record.bytes.size() == 131'073);
+            REQUIRE(record.bytes == payload);
+            REQUIRE(record.progress_bytes == 131'073);
+            REQUIRE(record.progress_calls == 2);
+        }
+
+        SECTION("payload bytes that resemble the suffix marker are retained")
+        {
+            std::string payload = "data";
+            payload.append(suffix_bytes);
+            const auto pak = build_zanzarah_pak({"a"}, {make_canonical_block(payload)});
+            const support::temporary_archive archive("zanzarah-frame-suffixlike", pak.bytes);
+            c_module loaded("zanzarah.so");
+            REQUIRE(loaded.open(archive.path()));
+            REQUIRE(loaded.api().PrepareFiles(loaded.storage()) == TRUE);
+
+            const auto record = extract_zanzarah_entry(loaded, archive.path(), 0, "a");
+            REQUIRE(record.bytes == payload);
+            REQUIRE(record.declared_size == static_cast<std::int64_t>(payload.size()));
+        }
+
+        SECTION("payload containing suffix and prefix markers is retained")
+        {
+            std::string payload;
+            payload.append(suffix_bytes);
+            payload.append("\x01\x01\x00\x00", 4);
+            const auto pak = build_zanzarah_pak({"a"}, {make_canonical_block(payload)});
+            const support::temporary_archive archive("zanzarah-frame-bothmarkers", pak.bytes);
+            c_module loaded("zanzarah.so");
+            REQUIRE(loaded.open(archive.path()));
+            REQUIRE(loaded.api().PrepareFiles(loaded.storage()) == TRUE);
+
+            const auto record = extract_zanzarah_entry(loaded, archive.path(), 0, "a");
+            REQUIRE(record.bytes == payload);
+            REQUIRE(record.declared_size == static_cast<std::int64_t>(payload.size()));
+        }
+
+        SECTION("middle markers inside the payload are retained")
+        {
+            std::string payload = "A";
+            payload.append(suffix_bytes);
+            payload.append("B");
+            payload.append("\x01\x01\x00\x00", 4);
+            payload.append("C");
+            const auto pak = build_zanzarah_pak({"a"}, {make_canonical_block(payload)});
+            const support::temporary_archive archive("zanzarah-frame-middle", pak.bytes);
+            c_module loaded("zanzarah.so");
+            REQUIRE(loaded.open(archive.path()));
+            REQUIRE(loaded.api().PrepareFiles(loaded.storage()) == TRUE);
+
+            const auto record = extract_zanzarah_entry(loaded, archive.path(), 0, "a");
+            REQUIRE(record.bytes == payload);
+            REQUIRE(record.declared_size == static_cast<std::int64_t>(payload.size()));
+        }
+    }
+
+    TEST_CASE("module ABI: Zanzarah framing falls back per archive when any block is non-canonical",
+              "[contract][zanzarah-framing]")
+    {
+        const std::string suffix_bytes("\x02\x02\x00\x00", 4);
+
+        SECTION("every canonical entry is trimmed to its payload")
+        {
+            const std::string first = "alpha";
+            const std::string second = "bravo!!";
+            const auto pak = build_zanzarah_pak(
+                {"a", "b", "c"}, {make_canonical_block(first), make_canonical_block(second), make_canonical_block("")});
+            const support::temporary_archive archive("zanzarah-frame-all-canonical", pak.bytes);
+            c_module loaded("zanzarah.so");
+            REQUIRE(loaded.open(archive.path()));
+            REQUIRE(loaded.api().PrepareFiles(loaded.storage()) == TRUE);
+
+            const auto first_record = extract_zanzarah_entry(loaded, archive.path(), 0, "a");
+            REQUIRE(first_record.bytes == first);
+            REQUIRE(first_record.declared_size == static_cast<std::int64_t>(first.size()));
+            const auto second_record = extract_zanzarah_entry(loaded, archive.path(), 1, "b");
+            REQUIRE(second_record.bytes == second);
+            REQUIRE(second_record.declared_size == static_cast<std::int64_t>(second.size()));
+            const auto empty_record = extract_zanzarah_entry(loaded, archive.path(), 2, "c");
+            REQUIRE(empty_record.bytes.empty());
+            REQUIRE(empty_record.declared_size == 0);
+        }
+
+        SECTION("canonical entries are addressed out of physical order")
+        {
+            // The builder writes the TOC and the bodies in the same physical order, so swap
+            // the first two TOC rows to make the TOC order differ from the body order. An
+            // 8-byte header precedes rows of a 4-byte length, a one-character name, a
+            // 4-byte offset and a 4-byte size, giving this synthetic archive a 13-byte row
+            // width. The TOC then reads b, a, c while the bodies stay in order a, b, c.
+            auto pak =
+                build_zanzarah_pak({"a", "b", "c"}, {make_canonical_block("alpha"), make_canonical_block("bravo"),
+                                                     make_canonical_block("charlie")});
+            constexpr std::size_t toc_header_size = 8;
+            constexpr std::size_t toc_row_size = 13;
+            std::rotate(pak.bytes.begin() + toc_header_size, pak.bytes.begin() + toc_header_size + toc_row_size,
+                        pak.bytes.begin() + toc_header_size + 2 * toc_row_size);
+            const support::temporary_archive archive("zanzarah-frame-order", pak.bytes);
+            c_module loaded("zanzarah.so");
+            REQUIRE(loaded.open(archive.path()));
+            REQUIRE(loaded.api().PrepareFiles(loaded.storage()) == TRUE);
+
+            REQUIRE(extract_zanzarah_entry(loaded, archive.path(), 0, "b").bytes == "bravo");
+            REQUIRE(extract_zanzarah_entry(loaded, archive.path(), 1, "a").bytes == "alpha");
+            REQUIRE(extract_zanzarah_entry(loaded, archive.path(), 2, "c").bytes == "charlie");
+        }
+
+        SECTION("a late prefix mismatch reverts the whole archive to legacy sizing")
+        {
+            const std::string first = "alpha";
+            support::byte_buffer second;
+            append_u32(second, 0xdeadbeefU);
+            append_bytes(second, "bravo");
+            append_u32(second, canonical_suffix);
+            const auto pak = build_zanzarah_pak({"a", "b"}, {make_canonical_block(first), second});
+            const support::temporary_archive archive("zanzarah-frame-late-prefix", pak.bytes);
+            c_module loaded("zanzarah.so");
+            REQUIRE(loaded.open(archive.path()));
+            REQUIRE(loaded.api().PrepareFiles(loaded.storage()) == TRUE);
+
+            const auto first_record = extract_zanzarah_entry(loaded, archive.path(), 0, "a");
+            REQUIRE(first_record.bytes == first + suffix_bytes);
+            const auto second_record = extract_zanzarah_entry(loaded, archive.path(), 1, "b");
+            REQUIRE(second_record.bytes == std::string("bravo") + suffix_bytes);
+        }
+
+        SECTION("a late footer mismatch reverts the whole archive to legacy sizing")
+        {
+            const std::string first = "alpha";
+            support::byte_buffer second;
+            append_u32(second, canonical_prefix);
+            append_bytes(second, "bravo");
+            append_u32(second, 0xffffffffU);
+            const auto pak = build_zanzarah_pak({"a", "b"}, {make_canonical_block(first), second});
+            const support::temporary_archive archive("zanzarah-frame-late-footer", pak.bytes);
+            c_module loaded("zanzarah.so");
+            REQUIRE(loaded.open(archive.path()));
+            REQUIRE(loaded.api().PrepareFiles(loaded.storage()) == TRUE);
+
+            const auto first_record = extract_zanzarah_entry(loaded, archive.path(), 0, "a");
+            REQUIRE(first_record.bytes == first + suffix_bytes);
+            const auto second_record = extract_zanzarah_entry(loaded, archive.path(), 1, "b");
+            REQUIRE(second_record.bytes == std::string("bravo") + std::string("\xff\xff\xff\xff", 4));
+        }
+
+        SECTION("late short blocks revert the whole archive to legacy sizing")
+        {
+            for (std::uint32_t short_size = 4; short_size <= 7; ++short_size) {
+                CAPTURE(short_size);
+                const std::string first = "alpha";
+                support::byte_buffer second{0x01, 0x01, 0x00, 0x00};
+                while (second.size() < short_size) {
+                    second.push_back(static_cast<std::uint8_t>('x'));
+                }
+                REQUIRE(second.size() == short_size);
+                const auto pak = build_zanzarah_pak({"a", "b"}, {make_canonical_block(first), second});
+                const support::temporary_archive archive(std::format("zanzarah-frame-short-{}", short_size), pak.bytes);
+                c_module loaded("zanzarah.so");
+                REQUIRE(loaded.open(archive.path()));
+                REQUIRE(loaded.api().PrepareFiles(loaded.storage()) == TRUE);
+
+                const auto first_record = extract_zanzarah_entry(loaded, archive.path(), 0, "a");
+                REQUIRE(first_record.bytes == first + suffix_bytes);
+                const auto second_record = extract_zanzarah_entry(loaded, archive.path(), 1, "b");
+                REQUIRE(static_cast<std::size_t>(second_record.declared_size) == short_size - 4);
+            }
+        }
+
+        SECTION("a first prefix mismatch also reverts the whole archive to legacy sizing")
+        {
+            const std::string first = "alpha";
+            support::byte_buffer first_block;
+            append_u32(first_block, 0xdeadbeefU);
+            append_bytes(first_block, first);
+            append_u32(first_block, canonical_suffix);
+            const std::string second = "bravo";
+            const auto pak = build_zanzarah_pak({"a", "b"}, {first_block, make_canonical_block(second)});
+            const support::temporary_archive archive("zanzarah-frame-first-prefix", pak.bytes);
+            c_module loaded("zanzarah.so");
+            REQUIRE(loaded.open(archive.path()));
+            REQUIRE(loaded.api().PrepareFiles(loaded.storage()) == TRUE);
+
+            const auto first_record = extract_zanzarah_entry(loaded, archive.path(), 0, "a");
+            REQUIRE(first_record.bytes == first + suffix_bytes);
+            const auto second_record = extract_zanzarah_entry(loaded, archive.path(), 1, "b");
+            REQUIRE(second_record.bytes == second + suffix_bytes);
+        }
+
+        SECTION("a legacy block that ends with suffix-like bytes keeps them")
+        {
+            std::string payload = "legacy";
+            payload.append(suffix_bytes);
+            const auto pak = build_zanzarah_pak({"a"}, {make_legacy_block(payload)});
+            const support::temporary_archive archive("zanzarah-frame-legacy-202", pak.bytes);
+            c_module loaded("zanzarah.so");
+            REQUIRE(loaded.open(archive.path()));
+            REQUIRE(loaded.api().PrepareFiles(loaded.storage()) == TRUE);
+
+            const auto record = extract_zanzarah_entry(loaded, archive.path(), 0, "a");
+            REQUIRE(record.bytes == payload);
+            REQUIRE(record.declared_size == static_cast<std::int64_t>(payload.size()));
+        }
+
+        SECTION("a canonical prefix with a wrong footer is preserved as legacy")
+        {
+            support::byte_buffer block;
+            append_u32(block, canonical_prefix);
+            append_bytes(block, "bravo");
+            append_u32(block, 0xffffffffU);
+            const auto pak = build_zanzarah_pak({"a"}, {block});
+            const support::temporary_archive archive("zanzarah-frame-prefix-wrong-footer", pak.bytes);
+            c_module loaded("zanzarah.so");
+            REQUIRE(loaded.open(archive.path()));
+            REQUIRE(loaded.api().PrepareFiles(loaded.storage()) == TRUE);
+
+            const auto record = extract_zanzarah_entry(loaded, archive.path(), 0, "a");
+            REQUIRE(record.bytes == std::string("bravo") + std::string("\xff\xff\xff\xff", 4));
+            REQUIRE(record.declared_size == 9);
+        }
+    }
+
+    TEST_CASE("module ABI: Zanzarah rejects framing-invalid blocks even after a valid first block",
+              "[contract][zanzarah-framing]")
+    {
+        SECTION("stored sizes below the framing floor are rejected")
+        {
+            for (std::uint32_t stored_size = 0; stored_size < 4; ++stored_size) {
+                CAPTURE(stored_size);
+                const auto pak = build_zanzarah_pak({"a"}, {support::byte_buffer(8, 0x00)});
+                auto bytes = pak.bytes;
+                set_u32(bytes, pak.size_fields.front(), stored_size);
+                require_zanzarah_rejected("zanzarah-frame-size-small", bytes);
+            }
+        }
+
+        SECTION("negative stored sizes and offsets are rejected")
+        {
+            {
+                const auto pak = build_zanzarah_pak({"a"}, {support::byte_buffer(8, 0x00)});
+                auto bytes = pak.bytes;
+                set_u32(bytes, pak.size_fields.front(), 0xffffffffU);
+                require_zanzarah_rejected("zanzarah-frame-size-negative", bytes);
+            }
+            {
+                const auto pak = build_zanzarah_pak({"a"}, {support::byte_buffer(8, 0x00)});
+                auto bytes = pak.bytes;
+                set_u32(bytes, pak.offset_fields.front(), 0xffffffffU);
+                require_zanzarah_rejected("zanzarah-frame-offset-negative", bytes);
+            }
+        }
+
+        SECTION("block ranges outside the archive bounds are rejected")
+        {
+            {
+                const auto pak = build_zanzarah_pak({"a"}, {support::byte_buffer(8, 0x00)});
+                auto bytes = pak.bytes;
+                set_u32(bytes, pak.offset_fields.front(), static_cast<std::uint32_t>(bytes.size()));
+                require_zanzarah_rejected("zanzarah-frame-offset-start", bytes);
+            }
+            {
+                const auto pak = build_zanzarah_pak({"a"}, {support::byte_buffer(8, 0x00)});
+                auto bytes = pak.bytes;
+                set_u32(bytes, pak.size_fields.front(), 100U);
+                require_zanzarah_rejected("zanzarah-frame-size-range", bytes);
+            }
+        }
+
+        SECTION("a truncated full block is rejected")
+        {
+            const auto pak = build_zanzarah_pak({"a"}, {make_canonical_block("alpha")});
+            auto bytes = pak.bytes;
+            bytes.resize(bytes.size() - 4);
+            require_zanzarah_rejected("zanzarah-frame-truncated", bytes);
+        }
+
+        SECTION("an invalid late range is rejected after an earlier non-canonical block")
+        {
+            const auto pak =
+                build_zanzarah_pak({"a", "b"}, {make_legacy_block("alpha"), make_canonical_block("bravo")});
+
+            auto late_offset = pak.bytes;
+            set_u32(late_offset, pak.offset_fields[1], 0xffffffffU);
+            require_zanzarah_rejected("zanzarah-frame-late-offset", late_offset);
+
+            auto late_size = pak.bytes;
+            set_u32(late_size, pak.size_fields[1], 0xffffffffU);
+            require_zanzarah_rejected("zanzarah-frame-late-size", late_size);
+
+            auto late_truncated = pak.bytes;
+            late_truncated.resize(late_truncated.size() - 2);
+            require_zanzarah_rejected("zanzarah-frame-late-truncated", late_truncated);
+        }
     }
 
     TEST_CASE("module ABI: RenPy rejects an index that expands beyond its metadata budget", "[contract][metadata]")
