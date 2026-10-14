@@ -1,9 +1,10 @@
 name: CI check
 
 # One maintained, reusable job per (stage, architecture) slice.  Every provisioning step is
-# gated to the stage that needs it, so a leaks measurement never restores vcpkg or runs MSBuild
-# and the source-only tools are never installed for a native build.  The caller keeps the
-# required check names; this file only owns the shared setup and the uploads.
+# gated to the stage that needs it, so a leaks measurement never restores vcpkg or runs MSBuild,
+# the source-only tools are never installed for a native build, and the standalone LLVM 23
+# analyzer/formatter is never provisioned for the MSVC build or analysis slices.  The caller
+# keeps the required check names; this file only owns the shared setup and the uploads.
 
 on:
   workflow_call:
@@ -13,7 +14,7 @@ on:
         required: true
         type: string
       stage:
-        description: The driver stage to run (source, native, coverage, asan, ubsan, fuzz, leaks).
+        description: The driver stage to run (source, native-debug, native-release, msvc-analysis, clang-tidy, coverage, asan, ubsan, fuzz, leaks).
         required: true
         type: string
 
@@ -24,17 +25,116 @@ env:
 jobs:
   check:
     name: ${{ inputs.stage }}-${{ inputs.arch }}
-    runs-on: windows-2022
+    runs-on: windows-2025-vs2026
     timeout-minutes: 120
 
     steps:
       - name: Check out the repository
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
+      # The hosted VS2026 image does not guarantee the legacy v143 14.44 toolset or the
+      # Spectre-mitigated libraries the ordinary Release build needs, and the newer v145 tools are
+      # not yet a substitute. Inspect the selected host instance through the installed vswhere
+      # and, only for the component IDs that are actually missing, run the installed VS
+      # Installer's setup.exe to modify that instance. The step fails closed: a reboot-only result
+      # and any component still absent after the modify both stop the run, because the toolset is
+      # not ready to build with yet. The source stage shares this preflight: ci_source selects the
+      # legacy 14.44 compiler for the vcpkg compiler hash and runs the dependency restore before
+      # any source gate, so it must not reach a clean runner without this toolset either.
+      - name: Verify the legacy MSVC toolset and Spectre libraries
+        if: contains(fromJSON('["source","native-debug","native-release","msvc-analysis","clang-tidy","coverage","asan","ubsan","fuzz"]'), inputs.stage)
+        id: msvc-toolset
+        shell: pwsh
+        env:
+          UNPACKRAT_REQUIRE_SPECTRE: ${{ inputs.stage == 'native-release' }}
+        run: |
+          $installerRoot = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer'
+          $vswhere = Join-Path $installerRoot 'vswhere.exe'
+          if (-not (Test-Path -LiteralPath $vswhere -PathType Leaf)) {
+            throw "vswhere.exe was not found: $vswhere"
+          }
+          # Only the stages that link the Spectre-mitigated static runtime need its component and
+          # libraries, so a Debug or instrumented job never pays the extra install time for them.
+          $requiresSpectre = $env:UNPACKRAT_REQUIRE_SPECTRE -eq 'true'
+          $selected = @(& $vswhere -latest -products '*' `
+            -requires 'Microsoft.Component.MSBuild' `
+            -requires 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64' `
+            -property 'installationPath' | Where-Object { $_ -and $_.Trim() })
+          if ($selected.Count -eq 0) {
+            throw 'vswhere did not report a Visual Studio installation.'
+          }
+          $installation = $selected[0].Trim()
+          # The legacy v143 14.44 toolset for x86 and x64 is always required; its matching Spectre
+          # component is added only when the stage actually links the Spectre-mitigated runtime.
+          $required = @('Microsoft.VisualStudio.Component.VC.14.44.17.14.x86.x64')
+          if ($requiresSpectre) {
+            $required += 'Microsoft.VisualStudio.Component.VC.14.44.17.14.x86.x64.Spectre'
+          }
+          $missing = [System.Collections.Generic.List[string]]::new()
+          foreach ($component in $required) {
+            $owners = @(& $vswhere -products '*' -requires $component -property 'installationPath' |
+              Where-Object { $_ -and $_.Trim() } | ForEach-Object { $_.Trim() })
+            if ($owners -notcontains $installation) {
+              [void] $missing.Add($component)
+            }
+          }
+          if ($missing.Count -gt 0) {
+            $setup = Join-Path $installerRoot 'setup.exe'
+            if (-not (Test-Path -LiteralPath $setup -PathType Leaf)) {
+              throw "Visual Studio Installer setup.exe was not found: $setup"
+            }
+            Write-Host "Adding missing Visual Studio components: $($missing -join ', ')"
+            # PowerShell joins the -ArgumentList array with single spaces, so the install path
+            # carries its own quotes; otherwise a Visual Studio under "C:\Program Files\..."
+            # would hand setup.exe only "C:\Program" as the --installPath value.
+            $arguments = @('modify', '--installPath', "`"$installation`"", '--quiet', '--norestart')
+            foreach ($component in $missing) {
+              $arguments += @('--add', $component)
+            }
+            $process = Start-Process -FilePath $setup -ArgumentList $arguments `
+              -WindowStyle Hidden -Wait -PassThru
+            # A reboot-only result is not a ready toolset, so only a clean exit is accepted.
+            if ($process.ExitCode -ne 0) {
+              throw "Visual Studio component installation failed with exit code $($process.ExitCode)."
+            }
+          }
+          # The selected instance must now own every required component ID.
+          foreach ($component in $required) {
+            $owners = @(& $vswhere -products '*' -requires $component -property 'installationPath' |
+              Where-Object { $_ -and $_.Trim() } | ForEach-Object { $_.Trim() })
+            if ($owners -notcontains $installation) {
+              throw "Visual Studio component $component is still missing after setup."
+            }
+          }
+          # And the Spectre-mitigated static libraries must exist on disk for both architectures.
+          # The installed legacy layout is VC\Tools\MSVC\<version>\lib\spectre\<arch>\libcmt.lib,
+          # not ...\lib\<arch>\spectre.  Both architectures must come from the one numeric-maximum
+          # 14.44 servicing directory the build driver forwards, so a stale or mixed-version
+          # x86/x64 pair can never pass.  This physical probe is the other half of the conditional
+          # component: a stage that does not link the Spectre runtime still needs the numeric
+          # toolset directory, but not these libraries.
+          $toolsetRoot = Join-Path $installation 'VC\Tools\MSVC'
+          $toolsets = @(Get-ChildItem -Path $toolsetRoot -Directory -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -match '^14\.44(?:\.\d+)+$' } |
+            Sort-Object -Property @{ Expression = { [version] $_.Name } })
+          if ($toolsets.Count -eq 0) {
+            throw "No legacy 14.44 MSVC toolset below $toolsetRoot."
+          }
+          $toolset = $toolsets[-1].FullName
+          "version=$($toolsets[-1].Name)" | Add-Content -Path $env:GITHUB_OUTPUT
+          if ($requiresSpectre) {
+            foreach ($architecture in @('x86', 'x64')) {
+              $library = Join-Path $toolset "lib\spectre\$architecture\libcmt.lib"
+              if (-not (Test-Path -LiteralPath $library -PathType Leaf)) {
+                throw "Missing Spectre-mitigated $architecture library: $library"
+              }
+            }
+          }
+
       - name: Set up uv
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           version: "0.13.0"
           enable-cache: true
@@ -56,14 +156,16 @@ jobs:
 
       - name: Cache vcpkg binaries
         if: inputs.stage != 'leaks'
-        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
           key: vcpkg-${{ steps.runner-image.outputs.identity }}-${{ inputs.arch == 'none' && 'x64' || inputs.arch }}-${{ (inputs.stage == 'asan' || inputs.stage == 'fuzz') && 'asan' || 'standard' }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'build/vcpkg/ports/**', 'build/vcpkg/triplets/*.cmake') }}
 
-      - name: Bootstrap the pinned vcpkg baseline
+      - name: Provision the pinned vcpkg tool
         if: inputs.stage != 'leaks'
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           New-Item -ItemType Directory -Force -Path $env:VCPKG_DEFAULT_BINARY_CACHE | Out-Null
           $baseline = (Get-Content -Raw -LiteralPath 'vcpkg.json' | ConvertFrom-Json).'builtin-baseline'
@@ -82,10 +184,22 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             throw "Unable to check out vcpkg baseline $baseline."
           }
-          & (Join-Path $env:VCPKG_ROOT 'bootstrap-vcpkg.bat') -disableMetrics
+          # The vcpkg tool is a pinned prebuilt binary from the official release, not something
+          # this job rebuilds from the checked-out tree. Fetch it with gh, verify the exact
+          # SHA-256, then overwrite the tool binary only. The in-tree bootstrap script must not
+          # run, because it would rebuild and replace this verified tool with the tree's own build.
+          $toolDir = Join-Path $env:RUNNER_TEMP 'vcpkg-tool-2026-09-26'
+          New-Item -ItemType Directory -Force -Path $toolDir | Out-Null
+          gh release download 2026-09-26 --repo microsoft/vcpkg-tool --pattern 'vcpkg.exe' --dir $toolDir
           if ($LASTEXITCODE -ne 0) {
-            throw "Unable to bootstrap vcpkg baseline $baseline."
+            throw 'Unable to download the pinned vcpkg tool.'
           }
+          $tool = Join-Path $toolDir 'vcpkg.exe'
+          $expected = '2a4ae1467b9e797964c60c919d057b9e5dc1ec03f4b9632c1150026db25201f2'
+          if ((Get-FileHash -LiteralPath $tool -Algorithm SHA256).Hash -ne $expected) {
+            throw 'Pinned vcpkg tool SHA-256 validation failed.'
+          }
+          Copy-Item -LiteralPath $tool -Destination (Join-Path $env:VCPKG_ROOT 'vcpkg.exe') -Force
 
       - name: Prepare the pinned Python environment
         shell: pwsh
@@ -94,20 +208,586 @@ jobs:
           "TMP=$env:RUNNER_TEMP" | Add-Content -Path $env:GITHUB_ENV
           uv sync --project build --frozen
 
+      # The instrumentation stages need the matched LLVM 19.1.5 toolchain that the separate
+      # instrumentation-tools job publishes. They download only this run's artifact and select it
+      # through a dedicated variable, never by overriding the standalone clang-tidy/format pin.
+      # Only coverage, UBSan and fuzz consume the LLVM toolchain; ASan is the MSVC 14.44 dynamic
+      # ASan build and needs no LLVM 19 preflight.
+      - name: Collect the instrumentation toolchain
+        if: contains(fromJSON('["coverage","ubsan","fuzz"]'), inputs.stage)
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: llvm-instrumentation-19.1.5
+          path: ${{ runner.temp }}/unpackrat/tools/llvm/19.1.5
+
+      - name: Select the instrumentation toolchain
+        if: contains(fromJSON('["coverage","ubsan","fuzz"]'), inputs.stage)
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP 'unpackrat/tools/llvm/19.1.5'
+          $llvmCompilerHome = Join-Path $root 'x64'
+          foreach ($tool in @('clang-cl', 'llvm-cov', 'llvm-profdata')) {
+            $exe = Join-Path $llvmCompilerHome "bin/$tool.exe"
+            if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) {
+              throw "Missing LLVM instrumentation tool: $exe"
+            }
+            $version = & $exe --version | Out-String
+            if ($LASTEXITCODE -ne 0 -or $version -notmatch '19\.1\.5') {
+              throw "Unexpected $tool version: $version"
+            }
+          }
+          if (-not (Test-Path -LiteralPath (Join-Path $llvmCompilerHome 'lib/clang/19/include/stddef.h') -PathType Leaf)) {
+            throw 'Missing LLVM 19.1.5 headers.'
+          }
+          "UNPACKRAT_LLVM_INSTRUMENTATION=$root" | Add-Content -Path $env:GITHUB_ENV
+
       - name: Provision source-check tools
         if: inputs.stage == 'source'
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          choco install cppcheck --version=2.19.0 --yes --no-progress
-          $cppcheck = 'C:\Program Files\Cppcheck\cppcheck.exe'
+          # Cppcheck is the official x64 2.22.0 MSI, downloaded through gh and hash-verified
+          # before it is installed for the source gates.
+          $installer = Join-Path $env:RUNNER_TEMP 'cppcheck-2.22.0-x64-Setup.msi'
+          gh release download 2.22.0 --repo cppcheck-opensource/cppcheck `
+            --pattern 'cppcheck-2.22.0-x64-Setup.msi' --dir $env:RUNNER_TEMP
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Unable to download the pinned Cppcheck installer.'
+          }
+          $expected = '3929162bab7e71d1b9b18708ec054fb0188bfc8ea1660979ed95837f5a9f547b'
+          if ((Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash -ne $expected) {
+            throw 'Pinned Cppcheck installer SHA-256 validation failed.'
+          }
+          $process = Start-Process -FilePath "$env:SystemRoot\System32\msiexec.exe" `
+            -ArgumentList @('/i', $installer, '/qn', '/norestart') `
+            -WindowStyle Hidden -Wait -PassThru
+          if ($process.ExitCode -notin @(0, 3010)) {
+            throw "Cppcheck installation failed with exit code $($process.ExitCode)."
+          }
+          $cppcheck = Join-Path $env:ProgramFiles 'Cppcheck\cppcheck.exe'
           if (-not (Test-Path -LiteralPath $cppcheck -PathType Leaf)) {
             throw "Cppcheck was not found after installation: $cppcheck"
+          }
+          # The version regex is anchored to the exact tested CLI line, so a longer version such
+          # as 2.22.00 can never satisfy it.
+          $version = & $cppcheck --version | Out-String
+          if ($LASTEXITCODE -ne 0 -or $version -notmatch '(?m)^Cppcheck 2\.22\.0\s*$') {
+            throw "Unexpected Cppcheck version: $version"
           }
           (Split-Path -Parent $cppcheck) | Add-Content -Path $env:GITHUB_PATH
           Install-Module PSScriptAnalyzer -RequiredVersion 1.25.0 -Repository PSGallery -Scope CurrentUser -Force
 
+      # The standalone clang-format and clang-tidy come from one pinned, hash-verified LLVM
+      # 23.1.3 x64 archive: clang-format feeds the source format gate and clang-tidy feeds the
+      # clang-tidy analysis slice. The MSVC build and analysis slices never provision or resolve
+      # this tree. The archive ships no 32-bit runtime, so the VS-bundled compiler, coverage and
+      # profile tools remain the ones the build uses.
+      - name: Restore the pinned LLVM tools
+        if: inputs.stage == 'clang-tidy' || inputs.stage == 'source'
+        id: llvm-tools
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/unpackrat/tools/llvm/23.1.3
+          key: llvm-23.1.3-windows-x64-parallel-cache-v2-9ee6a2192fbb30c776415af529927f76ca6b5d1d55699bb1315f9878e610b5b8
+
+      - name: Provision the pinned LLVM 23.1.3 tools
+        if: (inputs.stage == 'clang-tidy' || inputs.stage == 'source') && steps.llvm-tools.outputs.cache-hit != 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $archiveDir = Join-Path $env:RUNNER_TEMP 'llvm-archive'
+          New-Item -ItemType Directory -Force -Path $archiveDir | Out-Null
+          $asset = 'clang+llvm-23.1.3-x86_64-pc-windows-msvc.tar.xz'
+          gh release download llvmorg-23.1.3 --repo llvm/llvm-project --pattern $asset --dir $archiveDir
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Unable to download the pinned LLVM release asset.'
+          }
+          $archive = Join-Path $archiveDir $asset
+          $expected = '9ee6a2192fbb30c776415af529927f76ca6b5d1d55699bb1315f9878e610b5b8'
+          if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash -ne $expected) {
+            throw 'Pinned LLVM archive SHA-256 validation failed.'
+          }
+          $env:UNPACKRAT_LLVM_ARCHIVE = $archive
+          $env:UNPACKRAT_LLVM_ROOT = Join-Path $env:RUNNER_TEMP 'unpackrat/tools/llvm/23.1.3'
+          $python = Join-Path $env:GITHUB_WORKSPACE 'build/.venv/Scripts/python.exe'
+          @'
+          import os
+          from pathlib import Path
+          import shutil
+          import tarfile
+
+          prefix = 'clang+llvm-23.1.3-x86_64-pc-windows-msvc/'
+          wanted = ('bin/clang-tidy.exe', 'bin/clang-format.exe', 'bin/clang-cl.exe',
+                    'bin/run-clang-tidy')
+          root = Path(os.environ['UNPACKRAT_LLVM_ROOT']).resolve()
+          count = 0
+          with tarfile.open(os.environ['UNPACKRAT_LLVM_ARCHIVE'], mode='r|xz') as archive:
+              for member in archive:
+                  if not member.isfile() or not member.name.startswith(prefix):
+                      continue
+                  relative = member.name[len(prefix):]
+                  if relative not in wanted and not relative.startswith('lib/clang/23/include/'):
+                      continue
+                  target = (root / relative).resolve()
+                  if not target.is_relative_to(root):
+                      raise ValueError(f'Unsafe LLVM archive member: {member.name}')
+                  target.parent.mkdir(parents=True, exist_ok=True)
+                  with archive.extractfile(member) as source, target.open('wb') as output:
+                      shutil.copyfileobj(source, output)
+                  count += 1
+          if (count < 12 or not (root / 'bin/clang-tidy.exe').is_file() or
+                  not (root / 'bin/clang-format.exe').is_file() or
+                  not (root / 'bin/clang-cl.exe').is_file() or
+                  not (root / 'bin/run-clang-tidy').is_file()):
+              raise ValueError(f'Incomplete LLVM extraction: {count} files')
+          '@ | & $python -
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Pinned LLVM extraction failed.'
+          }
+
+      - name: Verify pinned clang-tidy and system-header skipping
+        if: inputs.stage == 'clang-tidy' || inputs.stage == 'source'
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP 'unpackrat/tools/llvm/23.1.3'
+          $tool = Join-Path $root 'bin/clang-tidy.exe'
+          $format = Join-Path $root 'bin/clang-format.exe'
+          $clangCl = Join-Path $root 'bin/clang-cl.exe'
+          $runner = Join-Path $root 'bin/run-clang-tidy'
+          if (-not (Test-Path -LiteralPath $tool -PathType Leaf) -or
+              -not (Test-Path -LiteralPath $format -PathType Leaf) -or
+              -not (Test-Path -LiteralPath $clangCl -PathType Leaf) -or
+              -not (Test-Path -LiteralPath $runner -PathType Leaf) -or
+              -not (Test-Path -LiteralPath (Join-Path $root 'lib/clang/23/include/stddef.h') -PathType Leaf)) {
+            throw 'Pinned LLVM tool cache is incomplete.'
+          }
+          $version = & $tool --version | Out-String
+          if ($LASTEXITCODE -ne 0 -or $version -notmatch '(?m)^\s*LLVM version 23\.1\.3\s*$') {
+            throw "Unexpected clang-tidy version: $version"
+          }
+          $formatVersion = & $format --version | Out-String
+          if ($LASTEXITCODE -ne 0 -or $formatVersion -notmatch 'clang-format version 23\.1\.3') {
+            throw "Unexpected clang-format version: $formatVersion"
+          }
+          $clangClVersion = & $clangCl --version | Out-String
+          if ($LASTEXITCODE -ne 0 -or $clangClVersion -notmatch 'clang version 23\.1\.3') {
+            throw "Unexpected clang-cl version: $clangClVersion"
+          }
+          # The Release analysis marks restored vcpkg headers with the cl driver's -imsvc.
+          # Model that exact cl classification: own.h is an ordinary /I entry, while the same
+          # foreign directory is also passed as a compile-db /I and as a clang-cl system
+          # include so the analyzer skips its AST matchers there.
+          $probe = Join-Path $env:RUNNER_TEMP 'clang-tidy-header-scope'
+          $foreign = Join-Path $probe 'foreign headers'
+          New-Item -ItemType Directory -Force -Path $foreign | Out-Null
+          'inline unsigned own_literal() { return sizeof(42); }' | Set-Content -LiteralPath (Join-Path $probe 'own.h')
+          'inline unsigned foreign_literal() { return sizeof(42); }' | Set-Content -LiteralPath (Join-Path $foreign 'foreign.h')
+          '#include "own.h"' + "`n" + '#include <foreign.h>' + "`n" +
+            'int main() { return 0; }' |
+            Set-Content -LiteralPath (Join-Path $probe 'main.cpp')
+          $output = & $tool (Join-Path $probe 'main.cpp') '-checks=-*,bugprone-sizeof-expression' `
+            '-header-filter=.*' '-system-headers=false' -- '--driver-mode=cl' '/std:c++17' `
+            '-Qunused-arguments' '/c' "/I$probe" "/I$foreign" "-imsvc$foreign" 2>&1 | Out-String
+          if ($LASTEXITCODE -ne 0 -or $output -notmatch 'own.h:1:' -or
+              $output -match 'foreign.h:1:' -or
+              $output -match 'Suppressed \d+ warnings? \(\d+ in non-user code\)') {
+            throw "clang-tidy did not skip foreign AST checks while checking our header: $output"
+          }
+          $visible = & $tool (Join-Path $probe 'main.cpp') '-checks=-*,bugprone-sizeof-expression' `
+            '-header-filter=.*' '-system-headers=true' -- '--driver-mode=cl' '/std:c++17' `
+            '-Qunused-arguments' '/c' "/I$probe" "/I$foreign" "-imsvc$foreign" 2>&1 | Out-String
+          if ($LASTEXITCODE -ne 0 -or $visible -notmatch 'own.h:1:' -or
+              $visible -notmatch 'foreign.h:1:') {
+            throw "clang-tidy scope probe failed to recognize the foreign diagnostic: $visible"
+          }
+          "UNPACKRAT_CLANG_TIDY=$tool" | Add-Content -Path $env:GITHUB_ENV
+          "UNPACKRAT_CLANG_FORMAT=$format" | Add-Content -Path $env:GITHUB_ENV
+
+      # The verified tools are cached before any build gate runs, so a later gate failure still
+      # leaves a complete, hash-verified tool cache for the next run.
+      - name: Save the pinned LLVM tools
+        if: (inputs.stage == 'clang-tidy' || inputs.stage == 'source') && steps.llvm-tools.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/unpackrat/tools/llvm/23.1.3
+          key: llvm-23.1.3-windows-x64-parallel-cache-v2-9ee6a2192fbb30c776415af529927f76ca6b5d1d55699bb1315f9878e610b5b8
+
+      # The same pinned SARIF Multitool combines PREfast reports and verifies the clang-tidy
+      # converter's smoke fixture before either analyzer gate runs.
+      - name: Prepare the pinned SARIF merger
+        if: inputs.stage == 'msvc-analysis' || inputs.stage == 'clang-tidy'
+        shell: pwsh
+        run: |
+          $toolPath = Join-Path $env:RUNNER_TEMP 'sarif-tools'
+          dotnet tool install --tool-path $toolPath Sarif.Multitool --version 5.8.0
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Unable to prepare the pinned SARIF merger.'
+          }
+
+      # The report converter is separate from the build's pinned Python 3.15 environment.
+      # Cache only this CI report tool tree; the analyzer's LLVM cache is unchanged.
+      - name: Restore the pinned clang report tools
+        if: inputs.stage == 'clang-tidy'
+        id: clang-report-tools
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/clang-report-tools
+          key: clang-report-cache-v3-2d666fd9333e69a0c48b5d31a64bd360d5984c20-2da736ff05ef065cb2894ac6892e47b5eac2c3c0-857b14271d3ded5511c2e6a60f2dc20c1e4b5680-py3.14.8-lxml6.1.3-pyyaml6.0.3-sariftools3.0.5-jsonpath1.10.1
+
+      - name: Provision the pinned clang report tools
+        if: inputs.stage == 'clang-tidy' && steps.clang-report-tools.outputs.cache-hit != 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP 'clang-report-tools'
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+          $env:UV_PYTHON_INSTALL_DIR = Join-Path $root 'python'
+          uv python install 3.14.8
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned Python 3.14.8 preparation failed.' }
+          $venv = Join-Path $root 'venv'
+          uv venv --python 3.14.8 --python-preference only-managed $venv
+          if ($LASTEXITCODE -ne 0) { throw 'Clang report environment creation failed.' }
+          $python = Join-Path $venv 'Scripts/python.exe'
+          uv pip install --python $python --no-deps 'lxml==6.1.3' 'PyYAML==6.0.3' `
+            'sarif-tools==3.0.5' 'jsonpath-ng==1.10.1'
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned clang report dependency preparation failed.' }
+          $env:UNPACKRAT_REPORT_TOOLS = $root
+          @'
+          import os
+          from pathlib import Path
+          import subprocess
+          import tarfile
+
+          root = Path(os.environ['UNPACKRAT_REPORT_TOOLS'])
+          archive = root / 'codechecker-2d666fd9333e69a0c48b5d31a64bd360d5984c20.tar.gz'
+          cache_archive = root / 'ctcache-857b14271d3ded5511c2e6a60f2dc20c1e4b5680.tar.gz'
+          source = root / 'filter_sarif.py'
+          globber = root / 'globber.py'
+          requests = (
+              (archive, 'repos/Ericsson/codechecker/tarball/2d666fd9333e69a0c48b5d31a64bd360d5984c20', None),
+              (source, 'repos/advanced-security/filter-sarif/contents/filter_sarif.py?ref=2da736ff05ef065cb2894ac6892e47b5eac2c3c0', 'application/vnd.github.raw+json'),
+              (globber, 'repos/advanced-security/filter-sarif/contents/globber.py?ref=2da736ff05ef065cb2894ac6892e47b5eac2c3c0', 'application/vnd.github.raw+json'),
+              (cache_archive, 'repos/matus-chochlik/ctcache/tarball/857b14271d3ded5511c2e6a60f2dc20c1e4b5680', None),
+          )
+          for destination, endpoint, accept in requests:
+              argv = ['gh', 'api']
+              if accept:
+                  argv += ['-H', f'Accept: {accept}']
+              argv.append(endpoint)
+              with destination.open('wb') as output:
+                  subprocess.run(argv, stdout=output, check=True)
+          with tarfile.open(archive, mode='r:gz') as bundle:
+              members = (member for member in bundle if
+                         member.name.partition('/')[2].startswith('tools/report-converter/'))
+              bundle.extractall(root / 'source', members=members, filter='data')
+          with tarfile.open(cache_archive, mode='r:gz') as bundle:
+              bundle.extractall(root / 'ctcache-source', filter='data')
+          setups = list((root / 'source').rglob('tools/report-converter/setup.py'))
+          cache_packages = [path.parent for path in (root / 'ctcache-source').rglob('pyproject.toml')
+                            if (path.parent / 'src/ctcache/clang_tidy_cache.py').is_file()]
+          if len(setups) != 1 or not source.is_file() or not globber.is_file():
+              raise ValueError('Pinned report converter source is incomplete')
+          if len(cache_packages) != 1:
+              raise ValueError('Pinned ctcache source is incomplete')
+          (root / 'package-path.txt').write_text(str(setups[0].parent), encoding='utf-8')
+          (root / 'ctcache-package-path.txt').write_text(str(cache_packages[0]), encoding='utf-8')
+          '@ | & $python -
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned report converter source preparation failed.' }
+          $package = Get-Content -LiteralPath (Join-Path $root 'package-path.txt') -Raw
+          uv pip install --python $python --no-deps $package.Trim()
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned report converter installation failed.' }
+          $env:SETUPTOOLS_SCM_PRETEND_VERSION_FOR_CTCACHE = '1.2.0+g857b142'
+          $cachePackage = Get-Content -LiteralPath (Join-Path $root 'ctcache-package-path.txt') -Raw
+          uv pip install --python $python --no-deps $cachePackage.Trim()
+          Remove-Item Env:SETUPTOOLS_SCM_PRETEND_VERSION_FOR_CTCACHE -ErrorAction SilentlyContinue
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned ctcache installation failed.' }
+
+      - name: Verify the cached clang report tools
+        if: inputs.stage == 'clang-tidy'
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP 'clang-report-tools'
+          $python = Join-Path $root 'venv/Scripts/python.exe'
+          $converter = Join-Path $root 'venv/Scripts/report-converter.exe'
+          $cache = Join-Path $root 'venv/Scripts/clang-tidy-cache.exe'
+          $filter = Join-Path $root 'filter_sarif.py'
+          $globber = Join-Path $root 'globber.py'
+          if (-not (Test-Path -LiteralPath $python -PathType Leaf) -or
+              -not (Test-Path -LiteralPath $converter -PathType Leaf) -or
+              -not (Test-Path -LiteralPath $cache -PathType Leaf) -or
+              -not (Test-Path -LiteralPath $filter -PathType Leaf) -or
+              -not (Test-Path -LiteralPath $globber -PathType Leaf)) {
+            throw 'Pinned clang report tool cache is incomplete.'
+          }
+          $version = & $python --version | Out-String
+          if ($LASTEXITCODE -ne 0 -or $version -notmatch 'Python 3\.14\.8') {
+            throw "Unexpected report Python version: $version"
+          }
+          Remove-Item Env:CC_DATA_FILES_DIR -ErrorAction SilentlyContinue
+          @'
+          from importlib.metadata import version
+          from codechecker_report_converter.report.parser.sarif import Parser
+
+          required = {'lxml': '6.1.3', 'PyYAML': '6.0.3', 'sarif-tools': '3.0.5',
+                      'jsonpath-ng': '1.10.1', 'ctcache': '1.2.0+g857b142'}
+          for package, expected in required.items():
+              if version(package) != expected:
+                  raise ValueError(f'Wrong {package} version')
+          document = Parser().convert([])
+          if (document.get('version') != '2.1.0' or len(document.get('runs', [])) != 1 or
+                  len(document['runs'][0].get('results', [])) != 0):
+              raise ValueError('Clean report serializer did not produce one SARIF run')
+          '@ | & $python -
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned clang report cache validation failed.' }
+          # The fixture lives only under runner.temp; no synthetic result can reach upload paths.
+          $fixture = Join-Path $env:RUNNER_TEMP 'clang-report-fixture'
+          $source = Join-Path $fixture 'space ü/src/fixture.cpp'
+          $other = Join-Path $fixture 'other/src/fixture.cpp'
+          New-Item -ItemType Directory -Force -Path (Split-Path -Parent $source) | Out-Null
+          New-Item -ItemType Directory -Force -Path (Split-Path -Parent $other) | Out-Null
+          "int main() {`n  return 0;`n}`n" | Set-Content -LiteralPath $source -Encoding utf8
+          "int second() {`n  return 0;`n}`n" | Set-Content -LiteralPath $other -Encoding utf8
+          $log = Join-Path $fixture 'diagnostic.log'
+          # Exercise native diagnostic newlines through the production runner entry point.
+          @'
+          from pathlib import Path
+          import subprocess
+          import sys
+
+          sys.path.insert(0, 'build')
+          from main import _CLANG_TIDY_RUNNER_BOOTSTRAP
+
+          fixture = Path(sys.argv[1])
+          source, other = sys.argv[2:]
+          context = "  return 0;\r\n  ^\r\n"
+          payload = (
+              f"{source}:2:3: error: intentional fixture [bugprone-use-after-move,-warnings-as-errors]\r\n"
+              + context + f"{source}:2:3: note: first context\r\n" + context
+              + f"{other}:3:5: error: second fixture [bugprone-use-after-move,-warnings-as-errors]\r\n"
+              + context + f"{other}:3:5: note: second context\r\n" + context
+          )
+          runner = fixture / 'emit-diagnostic.py'
+          runner.write_text("import sys\nsys.stdout.reconfigure(encoding='utf-8')\n"
+                            + f"print({payload!r}, end='')\nraise SystemExit(7)\n", encoding='utf-8')
+          completed = subprocess.run(
+              [sys.executable, '-c', _CLANG_TIDY_RUNNER_BOOTSTRAP, str(runner)],
+              capture_output=True, check=False)
+          if completed.returncode != 7 or completed.stdout != payload.encode('utf-8'):
+              raise ValueError('Runner entry point changed native diagnostic bytes or exit status')
+          (fixture / 'diagnostic.log').write_bytes(completed.stdout)
+          '@ | & $python - $fixture $source $other
+          if ($LASTEXITCODE -ne 0) { throw 'Clang report fixture native transport failed.' }
+          $raw = Join-Path $fixture 'raw'
+          New-Item -ItemType Directory -Force -Path $raw | Out-Null
+          & $converter -t clang-tidy -e sarif -o $raw $log
+          if ($LASTEXITCODE -ne 0) { throw 'Clang report fixture conversion failed.' }
+          $sarif = Join-Path $env:RUNNER_TEMP 'sarif-tools/sarif.exe'
+          & $sarif merge "$raw/*.sarif" --recurse --merge-empty-logs `
+            --output-directory $fixture --output-file merged.sarif
+          if ($LASTEXITCODE -ne 0) { throw 'Clang report fixture merge failed.' }
+          $base = "$fixture$([IO.Path]::DirectorySeparatorChar)"
+          $github = Join-Path $fixture 'github.sarif'
+          & $sarif rewrite (Join-Path $fixture 'merged.sarif') --output $github `
+            --normalize-for-ghas --base-path-value $base --base-path-token SRCROOT
+          if ($LASTEXITCODE -ne 0) { throw 'Clang report fixture path rewrite failed.' }
+          $filtered = Join-Path $fixture 'filtered.sarif'
+          & $python $filter --input $github --output $filtered --split-lines -- '-**:-warnings-as-errors'
+          if ($LASTEXITCODE -ne 0) { throw 'Clang report fixture filter failed.' }
+          & $sarif validate $filtered
+          if ($LASTEXITCODE -ne 0) { throw 'Clang report fixture SARIF validation failed.' }
+          $document = Get-Content -LiteralPath $filtered -Raw | ConvertFrom-Json
+          $findings = @($document.runs[0].results)
+          $first = @($findings | Where-Object {
+            $_.locations[0].physicalLocation.artifactLocation.uri -match 'space%20.*fixture\.cpp$'
+          })
+          $second = @($findings | Where-Object {
+            $_.locations[0].physicalLocation.artifactLocation.uri -match 'other/src/fixture\.cpp$'
+          })
+          if ($findings.Count -ne 2 -or $first.Count -ne 1 -or $second.Count -ne 1 -or
+              @($findings | Where-Object { $_.ruleId -ne 'bugprone-use-after-move' }).Count -ne 0 -or
+              $first[0].locations[0].physicalLocation.region.startLine -ne 2 -or
+              $first[0].locations[0].physicalLocation.region.startColumn -ne 3 -or
+              $second[0].locations[0].physicalLocation.region.startLine -ne 3 -or
+              $second[0].locations[0].physicalLocation.region.startColumn -ne 5) {
+            throw 'Clang report fixture lost or merged same-basename findings or their relative locations.'
+          }
+
+      - name: Restore reusable clang-tidy cache
+        if: inputs.stage == 'clang-tidy'
+        id: tidy-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          # The client stores only successful, empty-output calls. Toolchain and image versions
+          # scope this tree; a commit key and shared prefix reuse unchanged translation units.
+          path: ${{ runner.temp }}/clang-tidy-cache-data/${{ inputs.arch }}/${{ hashFiles('build/main.py', 'build/*.props', 'build/*.targets', 'build/projects/**', 'vcpkg.json', 'vcpkg-configuration.json', 'build/vcpkg/ports/**', 'build/vcpkg/triplets/**') }}
+          key: ctcache-v2-857b14271d3ded5511c2e6a60f2dc20c1e4b5680-llvm23.1.3-9ee6a2192fbb30c776415af529927f76ca6b5d1d55699bb1315f9878e610b5b8-v143${{ steps.msvc-toolset.outputs.version }}-sdk10.0.26100.0-${{ steps.runner-image.outputs.identity }}-${{ inputs.arch }}-${{ hashFiles('build/main.py', 'build/*.props', 'build/*.targets', 'build/projects/**', 'vcpkg.json', 'vcpkg-configuration.json', 'build/vcpkg/ports/**', 'build/vcpkg/triplets/**') }}-${{ github.sha }}
+          restore-keys: |
+            ctcache-v2-857b14271d3ded5511c2e6a60f2dc20c1e4b5680-llvm23.1.3-9ee6a2192fbb30c776415af529927f76ca6b5d1d55699bb1315f9878e610b5b8-v143${{ steps.msvc-toolset.outputs.version }}-sdk10.0.26100.0-${{ steps.runner-image.outputs.identity }}-${{ inputs.arch }}-${{ hashFiles('build/main.py', 'build/*.props', 'build/*.targets', 'build/projects/**', 'vcpkg.json', 'vcpkg-configuration.json', 'build/vcpkg/ports/**', 'build/vcpkg/triplets/**') }}-
+
+      - name: Prepare the official clang-tidy cache bridge
+        if: inputs.stage == 'clang-tidy'
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP 'clang-report-tools'
+          $cache = Join-Path $root 'venv/Scripts/clang-tidy-cache.exe'
+          $tidy = Join-Path $env:RUNNER_TEMP 'unpackrat/tools/llvm/23.1.3/bin/clang-tidy.exe'
+          if (-not (Test-Path -LiteralPath $cache -PathType Leaf) -or
+              -not (Test-Path -LiteralPath $tidy -PathType Leaf)) {
+            throw 'Pinned clang-tidy cache or analyzer is missing.'
+          }
+          $bridge = Join-Path $env:RUNNER_TEMP 'clang-tidy-cache-bridge.cmd'
+          [IO.File]::WriteAllText($bridge, "@echo off`r`n`"$cache`" `"$tidy`" %*`r`nexit /b %ERRORLEVEL%`r`n",
+            [Text.ASCIIEncoding]::new())
+          $cacheDir = Join-Path $env:RUNNER_TEMP 'clang-tidy-cache-data/${{ inputs.arch }}/${{ hashFiles('build/main.py', 'build/*.props', 'build/*.targets', 'build/projects/**', 'vcpkg.json', 'vcpkg-configuration.json', 'build/vcpkg/ports/**', 'build/vcpkg/triplets/**') }}'
+          New-Item -ItemType Directory -Force -Path $cacheDir | Out-Null
+          $env:CTCACHE_DIR = $cacheDir
+          $env:CTCACHE_KEEP_COMMENTS = '1'
+          & $cache --zero-stats
+          if ($LASTEXITCODE -ne 0) { throw 'ctcache statistics reset failed.' }
+          "CTCACHE_DIR=$cacheDir" | Add-Content -Path $env:GITHUB_ENV
+          'CTCACHE_KEEP_COMMENTS=1' | Add-Content -Path $env:GITHUB_ENV
+          "UNPACKRAT_CLANG_TIDY_CACHE=$bridge" | Add-Content -Path $env:GITHUB_ENV
+
+      # Probe the actual pinned cache and analyzer under runner.temp before the project gate.
+      - name: Verify pinned clang-tidy cache behavior
+        if: inputs.stage == 'clang-tidy'
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP 'clang-report-tools'
+          $cache = Join-Path $root 'venv/Scripts/clang-tidy-cache.exe'
+          $bridge = Join-Path $env:RUNNER_TEMP 'clang-tidy-cache-bridge.cmd'
+          $fixture = Join-Path $env:RUNNER_TEMP 'clang-tidy-cache-fixture'
+          New-Item -ItemType Directory -Force -Path $fixture | Out-Null
+          $env:CTCACHE_DIR = Join-Path $fixture 'cache'
+          $env:CTCACHE_KEEP_COMMENTS = '1'
+          $header = Join-Path $fixture 'header.h'
+          $config = Join-Path $fixture '.clang-tidy'
+          $source = Join-Path $fixture 'clean.cpp'
+          $independent = Join-Path $fixture 'independent.cpp'
+          $bad = Join-Path $fixture 'bad.cpp'
+          $clangCl = Join-Path $env:RUNNER_TEMP 'unpackrat/tools/llvm/23.1.3/bin/clang-cl.exe'
+          $compileCommands = Join-Path $fixture 'compile_commands.json'
+          $database = @($source, $independent, $bad) | ForEach-Object {
+            [pscustomobject]@{
+              directory = $fixture
+              file = $_
+              command = '"{0}" /c /std:c++23 -Qunused-arguments /clang:-frewrite-includes /I"{1}" "{2}"' -f
+                $clangCl, $fixture, $_
+            }
+          }
+          $database | ConvertTo-Json | Set-Content -LiteralPath $compileCommands -Encoding utf8
+          @('inline int value() { return 1; }',
+            '#define BAD2 1+2 // NOLINT(bugprone-macro-parentheses)',
+            '#define BAD3(A) (A+1) // NOLINT(bugprone-macro-parentheses)') |
+            Set-Content -LiteralPath $header
+          "#include `"header.h`"`nint main() { return value(); }" | Set-Content -LiteralPath $source
+          'int independent() { return 0; }' | Set-Content -LiteralPath $independent
+          'inline unsigned bad_literal() { return sizeof(42); }' | Set-Content -LiteralPath $bad
+          "Checks: '-*,bugprone-sizeof-expression,bugprone-macro-parentheses'`nHeaderFilterRegex: '^$'" |
+            Set-Content -LiteralPath $config
+          & $cache --zero-stats
+          if ($LASTEXITCODE -ne 0) { throw 'ctcache fixture statistics reset failed.' }
+          function Read-CacheStats {
+            $json = & $cache --print-stats | Out-String
+            if ($LASTEXITCODE -ne 0) { throw 'ctcache statistics query failed.' }
+            return $json | ConvertFrom-Json
+          }
+          function Invoke-TidyProbe {
+            param([string] $File)
+            $output = & $bridge '-p' $fixture $File "-config-file=$config" '-warnings-as-errors=*' 2>&1 | Out-String
+            return [pscustomobject]@{ Code = $LASTEXITCODE; Output = $output }
+          }
+          $first = Invoke-TidyProbe $source
+          $firstIndependent = Invoke-TidyProbe $independent
+          $second = Invoke-TidyProbe $source
+          $secondIndependent = Invoke-TidyProbe $independent
+          $stats = Read-CacheStats
+          if ($first.Code -ne 0 -or $firstIndependent.Code -ne 0 -or
+              $second.Code -ne 0 -or $secondIndependent.Code -ne 0 -or
+              $stats.local.miss_count -ne 2 -or $stats.local.hit_count -ne 2 -or
+              $stats.local.cached_count -ne 2) {
+            throw 'ctcache did not cache and reuse both independent translation units.'
+          }
+          '// changed source comment' | Add-Content -LiteralPath $source
+          $changedSource = Invoke-TidyProbe $source
+          $unaffectedAfterSource = Invoke-TidyProbe $independent
+          $afterSource = Read-CacheStats
+          if ($changedSource.Code -ne 0 -or $unaffectedAfterSource.Code -ne 0 -or
+              $afterSource.local.miss_count -ne 3 -or $afterSource.local.hit_count -ne 3 -or
+              $afterSource.local.cached_count -ne 3) {
+            throw 'ctcache invalidated an unrelated translation unit after a source edit.'
+          }
+          '// changed header comment' | Add-Content -LiteralPath $header
+          $changedHeader = Invoke-TidyProbe $source
+          $unaffectedAfterHeader = Invoke-TidyProbe $independent
+          $afterHeader = Read-CacheStats
+          if ($changedHeader.Code -ne 0 -or $unaffectedAfterHeader.Code -ne 0 -or
+              $afterHeader.local.miss_count -ne 4 -or $afterHeader.local.hit_count -ne 4 -or
+              $afterHeader.local.cached_count -ne 4) {
+            throw 'ctcache reused an obsolete header result or invalidated an unrelated unit.'
+          }
+          "Checks: '-*,bugprone-sizeof-expression,bugprone-macro-parentheses'`nHeaderFilterRegex: '.*'" |
+            Set-Content -LiteralPath $config
+          $changedConfig = Invoke-TidyProbe $source
+          $refreshedIndependent = Invoke-TidyProbe $independent
+          $afterConfig = Read-CacheStats
+          if ($changedConfig.Code -ne 0 -or $refreshedIndependent.Code -ne 0 -or
+              $afterConfig.local.miss_count -ne 6 -or $afterConfig.local.cached_count -ne 6) {
+            throw ("ctcache reused an obsolete analyzer configuration. SourceCode={0}; IndependentCode={1}; Stats={2}`nSource output:`n{3}`nIndependent output:`n{4}" -f
+              $changedConfig.Code, $refreshedIndependent.Code,
+              ($afterConfig | ConvertTo-Json -Depth 5 -Compress),
+              $changedConfig.Output, $refreshedIndependent.Output)
+          }
+          $database[0].command += ' /DCHANGED=1'
+          $database | ConvertTo-Json | Set-Content -LiteralPath $compileCommands -Encoding utf8
+          $changedFlags = Invoke-TidyProbe $source
+          $afterFlags = Read-CacheStats
+          if ($changedFlags.Code -ne 0 -or $afterFlags.local.miss_count -ne 7 -or
+              $afterFlags.local.cached_count -ne 7) {
+            throw 'ctcache reused an obsolete compile-flag result.'
+          }
+          $badFirst = Invoke-TidyProbe $bad
+          $badSecond = Invoke-TidyProbe $bad
+          $afterBad = Read-CacheStats
+          if ($badFirst.Code -eq 0 -or $badSecond.Code -eq 0 -or
+              $badFirst.Output -notmatch 'bugprone-sizeof-expression' -or
+              $badSecond.Output -notmatch 'bugprone-sizeof-expression' -or
+              $afterBad.local.hit_count -ne 4 -or $afterBad.local.cached_count -ne 7 -or
+              $afterBad.local.miss_count -ne 9) {
+            throw 'ctcache hid or cached a clang-tidy finding.'
+          }
+          # Preserve the same cache while changing only an included header's NOLINT comments.
+          # Rewritten includes make raw macro definitions part of the official cache key.
+          $headerText = [IO.File]::ReadAllText($header)
+          [IO.File]::WriteAllText($header,
+            $headerText.Replace(' // NOLINT(bugprone-macro-parentheses)', ''),
+            [Text.UTF8Encoding]::new($false))
+          $unsuppressedFirst = Invoke-TidyProbe $source
+          $unsuppressedSecond = Invoke-TidyProbe $source
+          $unaffectedAfterNolint = Invoke-TidyProbe $independent
+          $afterNolint = Read-CacheStats
+          if ($unsuppressedFirst.Code -eq 0 -or $unsuppressedSecond.Code -eq 0 -or
+              $unaffectedAfterNolint.Code -ne 0 -or
+              $unsuppressedFirst.Output -notmatch 'bugprone-macro-parentheses' -or
+              $unsuppressedSecond.Output -notmatch 'bugprone-macro-parentheses' -or
+              $afterNolint.local.hit_count -ne 5 -or $afterNolint.local.miss_count -ne 11 -or
+              $afterNolint.local.cached_count -ne 7) {
+            throw 'ctcache reused a clean NOLINT result or cached a finding.'
+          }
+          Write-Host 'ctcache fixture: independent units, source/header/config/flags invalidation and uncached findings passed.'
+
+      - name: Save the pinned clang report tools
+        if: inputs.stage == 'clang-tidy' && steps.clang-report-tools.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/clang-report-tools
+          key: clang-report-cache-v3-2d666fd9333e69a0c48b5d31a64bd360d5984c20-2da736ff05ef065cb2894ac6892e47b5eac2c3c0-857b14271d3ded5511c2e6a60f2dc20c1e4b5680-py3.14.8-lxml6.1.3-pyyaml6.0.3-sariftools3.0.5-jsonpath1.10.1
+
       - name: Provision binary-analysis tools
-        if: inputs.stage == 'native'
+        if: inputs.stage == 'native-release'
         shell: pwsh
         run: |
           $binskimRoot = Join-Path $env:RUNNER_TEMP 'binskim'
@@ -179,37 +859,104 @@ jobs:
           "UNPACKRAT_UMDH=$umdh" | Add-Content -Path $env:GITHUB_ENV
 
       # The leak stage measures a tree this same workflow run already built: it downloads the
-      # native-x64 Release output (module .so/.pdb plus leak-probe.exe/.pdb) instead of building
-      # anything, and never reaches a released binary from another run.
+      # native-release-x64 Release output (module .so/.pdb plus leak-probe.exe/.pdb) instead of
+      # building anything, and never reaches a released binary from another run.
       - name: Collect the verified x64 Release binaries
         if: inputs.stage == 'leaks'
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: release-x64
           path: out/native/bin/x64/Release
 
+      # curl with the Schannel backend aborted the Codecov CLI binary download with
+      # "curl: (56) connection closed abruptly" before an upload began. The pinned action's
+      # wrapper does not retry that error. A CI-owned curl config adds the single
+      # retry-all-errors clause and reaches only the two Codecov upload steps through a
+      # step-scoped curl home, so the pinned action, its SHA pin and its fail-closed policy stay
+      # untouched. Only the coverage-producing stages publish a report, so only they need it.
+      - name: Prepare the Codecov curl retry configuration
+        if: inputs.stage == 'source' || inputs.stage == 'coverage'
+        shell: pwsh
+        run: |
+          $curlHome = Join-Path $env:RUNNER_TEMP 'codecov-curl'
+          New-Item -ItemType Directory -Force -Path $curlHome | Out-Null
+          $curlrc = Join-Path $curlHome '.curlrc'
+          [System.IO.File]::WriteAllText($curlrc, "retry-all-errors`n", [System.Text.UTF8Encoding]::new($false))
+
       - name: Verify the repository sources
         if: inputs.stage == 'source'
+        id: source-gate
         shell: pwsh
         run: ./build.ps1 ci-source -Jobs 4
 
       - name: Verify one stage for one architecture
-        if: inputs.stage != 'source'
+        if: inputs.stage != 'source' && inputs.stage != 'clang-tidy'
+        id: arch-gate
         shell: pwsh
         run: ./build.ps1 ci-arch -Arch '${{ inputs.arch }}' -Stage '${{ inputs.stage }}' -Jobs 4
 
+      - name: Verify clang-tidy and capture its report
+        if: inputs.stage == 'clang-tidy'
+        id: tidy-gate
+        shell: pwsh
+        run: |
+          $arch = '${{ inputs.arch }}'
+          $directory = 'out/native/analysis'
+          New-Item -ItemType Directory -Force -Path $directory | Out-Null
+          $log = Join-Path $directory "clang-tidy-$arch.log"
+          ./build.ps1 ci-arch -Arch $arch -Stage clang-tidy -Jobs 4 *>&1 | Tee-Object -FilePath $log
+          $status = $LASTEXITCODE
+          if ($status -ne 0) { exit $status }
+
+      - name: Show clang-tidy cache statistics
+        if: ${{ always() && inputs.stage == 'clang-tidy' && hashFiles(format('out/native/analysis/clang-tidy-{0}.log', inputs.arch)) != '' }}
+        shell: pwsh
+        run: |
+          $cache = Join-Path $env:RUNNER_TEMP 'clang-report-tools/venv/Scripts/clang-tidy-cache.exe'
+          & $cache --print-stats
+          if ($LASTEXITCODE -ne 0) { throw 'ctcache statistics query failed.' }
+
+      - name: Save reusable clang-tidy cache
+        if: success() && inputs.stage == 'clang-tidy' && steps.tidy-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/clang-tidy-cache-data/${{ inputs.arch }}/${{ hashFiles('build/main.py', 'build/*.props', 'build/*.targets', 'build/projects/**', 'vcpkg.json', 'vcpkg-configuration.json', 'build/vcpkg/ports/**', 'build/vcpkg/triplets/**') }}
+          key: ctcache-v2-857b14271d3ded5511c2e6a60f2dc20c1e4b5680-llvm23.1.3-9ee6a2192fbb30c776415af529927f76ca6b5d1d55699bb1315f9878e610b5b8-v143${{ steps.msvc-toolset.outputs.version }}-sdk10.0.26100.0-${{ steps.runner-image.outputs.identity }}-${{ inputs.arch }}-${{ hashFiles('build/main.py', 'build/*.props', 'build/*.targets', 'build/projects/**', 'vcpkg.json', 'vcpkg-configuration.json', 'build/vcpkg/ports/**', 'build/vcpkg/triplets/**') }}-${{ github.sha }}
+
+      # The vcpkg binary cache is saved only once the gates above have populated it and the job
+      # has succeeded, so a failed build never publishes a partial cache.
+      - name: Save the vcpkg binary cache
+        if: success() && inputs.stage != 'leaks'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
+          key: vcpkg-${{ steps.runner-image.outputs.identity }}-${{ inputs.arch == 'none' && 'x64' || inputs.arch }}-${{ (inputs.stage == 'asan' || inputs.stage == 'fuzz') && 'asan' || 'standard' }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'build/vcpkg/ports/**', 'build/vcpkg/triplets/*.cmake') }}
+
       - name: Upload the Release binaries
-        if: inputs.stage == 'native'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: inputs.stage == 'native-release'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-${{ inputs.arch }}
           path: out/native/bin/${{ inputs.arch }}/Release
           if-no-files-found: error
           retention-days: 30
 
+      - name: Retain the fuzz failure inputs
+        if: failure() && inputs.stage == 'fuzz'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: fuzz-failure-${{ inputs.arch }}
+          path: |
+            out/native/fuzz/${{ inputs.arch }}
+            crash-*
+            oom-*
+            timeout-*
+          if-no-files-found: ignore
+          retention-days: 14
+
       - name: Upload the test reports
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: diagnostics-${{ inputs.stage }}-${{ inputs.arch }}-reports
           path: out/native/reports
@@ -218,10 +965,137 @@ jobs:
 
       - name: Upload the coverage summaries
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: diagnostics-${{ inputs.stage }}-${{ inputs.arch }}-coverage
           path: out/native/coverage
+          if-no-files-found: warn
+          retention-days: 14
+
+      # A successful analysis gate must have produced a real report. On an earlier gate
+      # failure, any report that was written is still published as diagnostic evidence.
+      - name: Require completed analysis reports
+        if: ${{ success() && (inputs.stage == 'source' || inputs.stage == 'msvc-analysis' || inputs.stage == 'clang-tidy') }}
+        shell: pwsh
+        run: |
+          if ('${{ inputs.stage }}' -eq 'source') {
+            if (-not (Test-Path -LiteralPath 'out/native/analysis/cppcheck.sarif' -PathType Leaf)) {
+              throw 'Cppcheck completed without its SARIF report.'
+            }
+          } elseif ('${{ inputs.stage }}' -eq 'msvc-analysis') {
+            $root = 'out/native/obj-analysis/${{ inputs.arch }}/Release'
+            $reports = @(Get-ChildItem -LiteralPath $root -Recurse -File -Filter '*.sarif' -ErrorAction SilentlyContinue)
+            if ($reports.Count -eq 0) {
+              throw 'MSVC analysis completed without PREfast SARIF reports.'
+            }
+          } else {
+            if (-not (Test-Path -LiteralPath 'out/native/analysis/clang-tidy-${{ inputs.arch }}.log' -PathType Leaf)) {
+              throw 'clang-tidy completed without its full-stage diagnostic log.'
+            }
+            if (-not (Test-Path -LiteralPath 'out/native/analysis/clang-tidy-${{ inputs.arch }}.complete' -PathType Leaf)) {
+              throw 'clang-tidy completed without scanning every selected project.'
+            }
+          }
+
+      - name: Merge the MSVC analysis reports
+        if: ${{ always() && inputs.stage == 'msvc-analysis' && hashFiles(format('out/native/obj-analysis/{0}/Release/**/*.sarif', inputs.arch)) != '' }}
+        shell: pwsh
+        run: |
+          $arch = '${{ inputs.arch }}'
+          $sarif = Join-Path $env:RUNNER_TEMP 'sarif-tools/sarif.exe'
+          New-Item -ItemType Directory -Force -Path 'out/native/analysis' | Out-Null
+          & $sarif merge "out/native/obj-analysis/$arch/Release/*.sarif" --recurse --merge-empty-logs --output-directory out/native/analysis --output-file "msvc-$arch.sarif"
+          if ($LASTEXITCODE -ne 0) {
+            throw 'MSVC SARIF merge failed.'
+          }
+
+      # The converter reads the whole original stage log once. It emits no file for a clean
+      # gate, so only a successful, complete gate may receive the upstream serializer's empty run.
+      # The filter drops just the converter's duplicate pseudo-ID for a compiler option;
+      # clang-tidy's strict verdict and every real checker result remain unchanged.
+      - name: Convert the clang-tidy diagnostics to Code Scanning SARIF
+        if: ${{ always() && inputs.stage == 'clang-tidy' && hashFiles(format('out/native/analysis/clang-tidy-{0}.log', inputs.arch)) != '' }}
+        shell: pwsh
+        run: |
+          Remove-Item Env:CC_DATA_FILES_DIR -ErrorAction SilentlyContinue
+          $arch = '${{ inputs.arch }}'
+          $root = Join-Path $env:RUNNER_TEMP 'clang-report-tools'
+          $python = Join-Path $root 'venv/Scripts/python.exe'
+          $converter = Join-Path $root 'venv/Scripts/report-converter.exe'
+          $filter = Join-Path $root 'filter_sarif.py'
+          $sarif = Join-Path $env:RUNNER_TEMP 'sarif-tools/sarif.exe'
+          $analysis = 'out/native/analysis'
+          $log = Join-Path $analysis "clang-tidy-$arch.log"
+          $raw = Join-Path $analysis "clang-tidy-$arch-raw"
+          New-Item -ItemType Directory -Force -Path $raw | Out-Null
+          & $converter -t clang-tidy -e sarif -o $raw $log
+          if ($LASTEXITCODE -ne 0) { throw 'clang-tidy SARIF conversion failed.' }
+          $reports = @(Get-ChildItem -LiteralPath $raw -Recurse -File -Filter '*.sarif')
+          if ($reports.Count -eq 0) {
+            if ('${{ steps.tidy-gate.outcome }}' -ne 'success') {
+              throw 'A failed clang-tidy gate produced no report; refusing a clean baseline.'
+            }
+            $env:UNPACKRAT_EMPTY_SARIF = Join-Path $raw 'clean.sarif'
+            @'
+          import json
+          import os
+          from pathlib import Path
+          from codechecker_report_converter.report.parser.sarif import Parser
+
+          with Path(os.environ['UNPACKRAT_EMPTY_SARIF']).open('w', encoding='utf-8') as output:
+              json.dump(Parser().convert([]), output, ensure_ascii=False)
+          '@ | & $python -
+            if ($LASTEXITCODE -ne 0) { throw 'Clean clang-tidy SARIF serialization failed.' }
+          }
+          & $sarif merge "$raw/*.sarif" --recurse --merge-empty-logs `
+            --output-directory $analysis --output-file "clang-tidy-$arch-merged.sarif"
+          if ($LASTEXITCODE -ne 0) { throw 'clang-tidy SARIF merge failed.' }
+          $base = "$env:GITHUB_WORKSPACE$([IO.Path]::DirectorySeparatorChar)"
+          $github = Join-Path $analysis "clang-tidy-$arch-github.sarif"
+          & $sarif rewrite (Join-Path $analysis "clang-tidy-$arch-merged.sarif") --output $github `
+            --normalize-for-ghas --base-path-value $base --base-path-token SRCROOT
+          if ($LASTEXITCODE -ne 0) { throw 'clang-tidy SARIF path rewrite failed.' }
+          $published = Join-Path $analysis "clang-tidy-$arch.sarif"
+          & $python $filter --input $github --output $published --split-lines -- '-**:-warnings-as-errors'
+          if ($LASTEXITCODE -ne 0) { throw 'clang-tidy SARIF pseudo-ID filter failed.' }
+          & $sarif validate $published
+          if ($LASTEXITCODE -ne 0) { throw 'clang-tidy SARIF validation failed.' }
+
+      - name: Upload the source analysis to Code Scanning
+        if: ${{ always() && inputs.stage == 'source' && hashFiles('out/native/analysis/cppcheck.sarif') != '' }}
+        uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        with:
+          sarif_file: out/native/analysis/cppcheck.sarif
+          checkout_path: ${{ github.workspace }}
+          category: cppcheck-source
+
+      - name: Upload the MSVC analysis to Code Scanning
+        if: ${{ always() && inputs.stage == 'msvc-analysis' && hashFiles(format('out/native/analysis/msvc-{0}.sarif', inputs.arch)) != '' }}
+        uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        with:
+          sarif_file: out/native/analysis/msvc-${{ inputs.arch }}.sarif
+          checkout_path: ${{ github.workspace }}
+          category: msvc-analysis-${{ inputs.arch }}
+
+      - name: Upload the clang-tidy analysis to Code Scanning
+        if: ${{ always() && inputs.stage == 'clang-tidy' && hashFiles(format('out/native/analysis/clang-tidy-{0}.complete', inputs.arch)) != '' && hashFiles(format('out/native/analysis/clang-tidy-{0}.sarif', inputs.arch)) != '' }}
+        uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        with:
+          sarif_file: out/native/analysis/clang-tidy-${{ inputs.arch }}.sarif
+          checkout_path: ${{ github.workspace }}
+          category: clang-tidy-${{ inputs.arch }}
+
+      - name: Retain the analysis SARIF artifacts
+        if: ${{ always() && (inputs.stage == 'source' || inputs.stage == 'msvc-analysis' || inputs.stage == 'clang-tidy') }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: diagnostics-${{ inputs.stage }}-${{ inputs.arch }}-analysis
+          path: |
+            out/native/analysis/*.sarif
+            out/native/analysis/*.log
+            out/native/analysis/*.complete
+            out/native/analysis/clang-tidy-*-raw/**/*.sarif
+            out/native/obj-analysis/**/*.sarif
           if-no-files-found: warn
           retention-days: 14
 
@@ -232,6 +1106,8 @@ jobs:
       - name: Upload the python coverage to Codecov
         if: ${{ always() && inputs.stage == 'source' && hashFiles('out/native/coverage/python/coverage.xml') != '' }}
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        env:
+          CURL_HOME: ${{ runner.temp }}/codecov-curl
         with:
           files: out/native/coverage/python/coverage.xml
           flags: python
@@ -242,6 +1118,8 @@ jobs:
       - name: Upload the native coverage to Codecov
         if: ${{ always() && inputs.stage == 'coverage' && hashFiles(format('out/native/coverage/{0}/coverage.lcov', inputs.arch)) != '' }}
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        env:
+          CURL_HOME: ${{ runner.temp }}/codecov-curl
         with:
           files: out/native/coverage/${{ inputs.arch }}/coverage.lcov
           flags: native-${{ inputs.arch }}

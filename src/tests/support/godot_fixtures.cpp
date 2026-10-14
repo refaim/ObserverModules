@@ -19,15 +19,15 @@ namespace test::support
         void append_u32(godot_bytes &output, const std::uint32_t value)
         {
             output.push_back(static_cast<std::uint8_t>(value));
-            output.push_back(static_cast<std::uint8_t>(value >> 8));
-            output.push_back(static_cast<std::uint8_t>(value >> 16));
-            output.push_back(static_cast<std::uint8_t>(value >> 24));
+            output.push_back(static_cast<std::uint8_t>(value >> 8U));
+            output.push_back(static_cast<std::uint8_t>(value >> 16U));
+            output.push_back(static_cast<std::uint8_t>(value >> 24U));
         }
 
         void append_u64(godot_bytes &output, const std::uint64_t value)
         {
             append_u32(output, static_cast<std::uint32_t>(value));
-            append_u32(output, static_cast<std::uint32_t>(value >> 32));
+            append_u32(output, static_cast<std::uint32_t>(value >> 32U));
         }
 
         void write_section_name(godot_bytes &bytes, const std::size_t offset, const std::string &name)
@@ -60,21 +60,21 @@ namespace test::support
     void patch_u16(godot_bytes &bytes, const std::size_t offset, const std::uint16_t value)
     {
         bytes.at(offset) = static_cast<std::uint8_t>(value);
-        bytes.at(offset + 1) = static_cast<std::uint8_t>(value >> 8);
+        bytes.at(offset + 1) = static_cast<std::uint8_t>(value >> 8U);
     }
 
     void patch_u32(godot_bytes &bytes, const std::size_t offset, const std::uint32_t value)
     {
         bytes.at(offset) = static_cast<std::uint8_t>(value);
-        bytes.at(offset + 1) = static_cast<std::uint8_t>(value >> 8);
-        bytes.at(offset + 2) = static_cast<std::uint8_t>(value >> 16);
-        bytes.at(offset + 3) = static_cast<std::uint8_t>(value >> 24);
+        bytes.at(offset + 1) = static_cast<std::uint8_t>(value >> 8U);
+        bytes.at(offset + 2) = static_cast<std::uint8_t>(value >> 16U);
+        bytes.at(offset + 3) = static_cast<std::uint8_t>(value >> 24U);
     }
 
     void patch_u64(godot_bytes &bytes, const std::size_t offset, const std::uint64_t value)
     {
         patch_u32(bytes, offset, static_cast<std::uint32_t>(value));
-        patch_u32(bytes, offset + 4, static_cast<std::uint32_t>(value >> 32));
+        patch_u32(bytes, offset + 4, static_cast<std::uint32_t>(value >> 32U));
     }
 
     godot_bytes build_godot_pck(const godot_pck_options &options)

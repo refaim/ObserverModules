@@ -25,7 +25,7 @@ namespace unpackrat::godot
             const auto at = [&input](const std::size_t index) {
                 return static_cast<std::uint32_t>(std::to_integer<std::uint8_t>(input[index]));
             };
-            return at(offset) | (at(offset + 1) << 8) | (at(offset + 2) << 16) | (at(offset + 3) << 24);
+            return at(offset) | (at(offset + 1) << 8U) | (at(offset + 2) << 16U) | (at(offset + 3) << 24U);
         }
 
         // The fixed header and envelope fields a caller needs before it commits to

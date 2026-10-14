@@ -17,41 +17,118 @@ permissions:
   contents: read
 
 jobs:
-  # One independent slice per stage and architecture, so the slow native build of one
-  # architecture never waits on another job and each slice can fail on its own. Every slice
-  # reuses the single maintained setup workflow, and these real jobs are the required check
-  # names directly: branch protection requires each of them, with no aggregate gate re-scoring
-  # their results.
+  # One independent slice per stage and architecture, so no slice waits on another job and each
+  # one can fail on its own. Every slice reuses the single maintained setup workflow, and these
+  # real jobs are the required check names directly: branch protection requires each of them,
+  # with no aggregate gate re-scoring their results. The native build is no longer one job per
+  # architecture: it is four real stages -- a Debug build/test slice, a Release build/audit
+  # slice, the MSVC static analyzer and the pinned clang-tidy -- each for x86 and x64.
   source-checks:
     name: source-checks
     uses: ./.github/workflows/ci-check.yml
     permissions:
       contents: read
       id-token: write
+      security-events: write
     with:
       arch: none
       stage: source
 
-  native-x86:
-    name: native-x86
+  # One real tool-provisioning job publishes the matched LLVM 19.1.5 instrumentation toolchain the
+  # coverage, UBSan and fuzz stages need. ASan is the MSVC 14.44 dynamic ASan build and needs no
+  # LLVM toolchain, so it does not wait on this job. It is a provisioning step rather than an
+  # aggregate gate, and it never rebuilds LLVM from source; each instrumentation slice downloads
+  # the same-run artifact it publishes. The native, source, ASan and leak stages never wait on it.
+  instrumentation-tools:
+    name: instrumentation-tools
+    uses: ./.github/workflows/ci-instrumentation.yml
+    permissions:
+      contents: read
+
+  # The four native/analysis stages are independent real checks, each with its own driver exit
+  # code as the verdict. native-debug builds and runs the full Debug suite plus the fatal cleanup
+  # probe; native-release builds, tests and audits the Release output (and, for x64, builds the
+  # leak probe); msvc-analysis runs the MSVC static analyzer and clang-tidy runs the pinned
+  # clang-tidy over the modules, tests and the x64 leak probe.
+  native-debug-x86:
+    name: native-debug-x86
     uses: ./.github/workflows/ci-check.yml
     permissions:
       contents: read
     with:
       arch: x86
-      stage: native
+      stage: native-debug
 
-  native-x64:
-    name: native-x64
+  native-debug-x64:
+    name: native-debug-x64
     uses: ./.github/workflows/ci-check.yml
     permissions:
       contents: read
     with:
       arch: x64
-      stage: native
+      stage: native-debug
+
+  native-release-x86:
+    name: native-release-x86
+    uses: ./.github/workflows/ci-check.yml
+    permissions:
+      contents: read
+    with:
+      arch: x86
+      stage: native-release
+
+  native-release-x64:
+    name: native-release-x64
+    uses: ./.github/workflows/ci-check.yml
+    permissions:
+      contents: read
+    with:
+      arch: x64
+      stage: native-release
+
+  msvc-analysis-x86:
+    name: msvc-analysis-x86
+    uses: ./.github/workflows/ci-check.yml
+    permissions:
+      contents: read
+      security-events: write
+    with:
+      arch: x86
+      stage: msvc-analysis
+
+  msvc-analysis-x64:
+    name: msvc-analysis-x64
+    uses: ./.github/workflows/ci-check.yml
+    permissions:
+      contents: read
+      security-events: write
+    with:
+      arch: x64
+      stage: msvc-analysis
+
+  clang-tidy-x86:
+    name: clang-tidy-x86
+    uses: ./.github/workflows/ci-check.yml
+    permissions:
+      contents: read
+      security-events: write
+    with:
+      arch: x86
+      stage: clang-tidy
+
+  clang-tidy-x64:
+    name: clang-tidy-x64
+    uses: ./.github/workflows/ci-check.yml
+    permissions:
+      contents: read
+      security-events: write
+    with:
+      arch: x64
+      stage: clang-tidy
 
   coverage-x86:
     name: coverage-x86
+    needs: instrumentation-tools
     uses: ./.github/workflows/ci-check.yml
     permissions:
       contents: read
@@ -62,6 +139,7 @@ jobs:
 
   coverage-x64:
     name: coverage-x64
+    needs: instrumentation-tools
     uses: ./.github/workflows/ci-check.yml
     permissions:
       contents: read
@@ -90,6 +168,7 @@ jobs:
 
   ubsan-x64:
     name: ubsan-x64
+    needs: instrumentation-tools
     uses: ./.github/workflows/ci-check.yml
     permissions:
       contents: read
@@ -99,6 +178,7 @@ jobs:
 
   fuzz-x86:
     name: fuzz-x86
+    needs: instrumentation-tools
     uses: ./.github/workflows/ci-check.yml
     permissions:
       contents: read
@@ -108,6 +188,7 @@ jobs:
 
   fuzz-x64:
     name: fuzz-x64
+    needs: instrumentation-tools
     uses: ./.github/workflows/ci-check.yml
     permissions:
       contents: read
@@ -116,10 +197,10 @@ jobs:
       stage: fuzz
 
   # The leak measurement reuses the x64 Release output this same run already built: it downloads
-  # the native-x64 artifact and never touches another run's binaries.
+  # the native-release-x64 artifact and never touches another run's binaries.
   leaks-x64:
     name: leaks-x64
-    needs: native-x64
+    needs: native-release-x64
     uses: ./.github/workflows/ci-check.yml
     permissions:
       contents: read
@@ -129,17 +210,17 @@ jobs:
 
   packaging:
     name: packaging
-    needs: [source-checks, native-x86, native-x64, coverage-x86, coverage-x64, asan-x86, asan-x64, ubsan-x64, fuzz-x86, fuzz-x64, leaks-x64]
-    runs-on: windows-2022
+    needs: [source-checks, native-debug-x86, native-debug-x64, native-release-x86, native-release-x64, msvc-analysis-x86, msvc-analysis-x64, clang-tidy-x86, clang-tidy-x64, coverage-x86, coverage-x64, asan-x86, asan-x64, ubsan-x64, fuzz-x86, fuzz-x64, leaks-x64]
+    runs-on: windows-2025-vs2026
     timeout-minutes: 30
     steps:
       - name: Check out the repository
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           version: "0.13.0"
           enable-cache: true
@@ -151,13 +232,13 @@ jobs:
         run: uv sync --project build --frozen
 
       - name: Collect the verified x86 Release binaries
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: release-x86
           path: out/native/bin/x86/Release
 
       - name: Collect the verified x64 Release binaries
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: release-x64
           path: out/native/bin/x64/Release
@@ -167,7 +248,7 @@ jobs:
         run: ./build.ps1 package -Output out/packages
 
       - name: Upload the module archives
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: packages
           path: out/packages/*.zip
@@ -178,18 +259,18 @@ jobs:
     name: release
     needs: packaging
     if: startsWith(github.ref, 'refs/tags/renpy/v') || startsWith(github.ref, 'refs/tags/rpgmaker/v') || startsWith(github.ref, 'refs/tags/zanzarah/v') || startsWith(github.ref, 'refs/tags/godot/v')
-    runs-on: windows-2022
+    runs-on: windows-2025-vs2026
     timeout-minutes: 15
     permissions:
       contents: write
     steps:
       - name: Check out the repository
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: Collect the module archives
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: packages
           path: packages

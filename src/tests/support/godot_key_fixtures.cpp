@@ -82,7 +82,7 @@ namespace test::support
                 const auto a = static_cast<std::uint8_t>(i * 7 + 3), b = static_cast<std::uint8_t>(i * 13 + 11);
                 bytes[0x1200 + i] = a;
                 bytes[0x1220 + i] = b;
-                bytes[0x1240 + i] = static_cast<std::uint8_t>(a ^ b ^ (i + 1));
+                bytes[0x1240 + i] = static_cast<std::uint8_t>(static_cast<std::uint32_t>(a) ^ b ^ (i + 1));
             }
             cursor = 0xe00;
             reference(base + 0x2600);

@@ -1,4 +1,5 @@
-#pragma once
+#ifndef UNPACKRAT_CORE_GODOT_KEY_RECOVERY_H
+#define UNPACKRAT_CORE_GODOT_KEY_RECOVERY_H
 #include "../codecs/crypto_codec.h"
 #include <cstddef>
 #include <cstdint>
@@ -30,3 +31,4 @@ namespace unpackrat::godot
     [[nodiscard]] std::vector<codecs::key256> recover_key_candidates(std::istream &source, key_recovery_budget &budget,
                                                                      const key_recovery_limits &limits = {});
 } // namespace unpackrat::godot
+#endif

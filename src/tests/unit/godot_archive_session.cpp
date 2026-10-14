@@ -46,8 +46,8 @@ namespace
         std::string text;
         for (const auto byte : key) {
             const auto value = std::to_integer<unsigned>(byte);
-            text.push_back(digits[value >> 4]);
-            text.push_back(digits[value & 15]);
+            text.push_back(digits[value >> 4U]);
+            text.push_back(digits[value & 15U]);
         }
         return text;
     }
@@ -116,7 +116,9 @@ TEST_CASE("godot session: owns a validated standalone source and releases its re
         std::error_code error;
         std::filesystem::resize_file(path, 0, error);
         CHECK(error);
-        std::fstream writer(path, std::ios::in | std::ios::out | std::ios::binary);
+        std::fstream writer(path, static_cast<std::ios::openmode>(static_cast<unsigned>(std::ios::in) |
+                                                                  static_cast<unsigned>(std::ios::out) |
+                                                                  static_cast<unsigned>(std::ios::binary)));
         CHECK(!(writer.is_open()));
         auto &input = session.stream();
         input.clear();

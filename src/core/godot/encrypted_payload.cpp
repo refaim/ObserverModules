@@ -178,7 +178,7 @@ namespace unpackrat::godot
         pos_type seekoff(const off_type offset, const std::ios_base::seekdir direction,
                          const std::ios_base::openmode mode) override
         {
-            if ((mode & std::ios_base::in) == 0) {
+            if ((static_cast<unsigned>(mode) & static_cast<unsigned>(std::ios_base::in)) == 0) {
                 return pos_type(off_type(-1));
             }
             std::uint64_t base = 0;

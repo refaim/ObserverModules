@@ -1,4 +1,5 @@
-#pragma once
+#ifndef UNPACKRAT_CORE_CODECS_CRYPTO_CODEC_H
+#define UNPACKRAT_CORE_CODECS_CRYPTO_CODEC_H
 
 #include <array>
 #include <cstddef>
@@ -56,3 +57,4 @@ namespace unpackrat::codecs
         std::unique_ptr<state> state_;
     };
 } // namespace unpackrat::codecs
+#endif

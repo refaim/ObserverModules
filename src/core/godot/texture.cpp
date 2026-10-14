@@ -12,10 +12,10 @@ namespace unpackrat::godot
     {
         // GDST (Godot 3 StreamTexture) envelope geometry.
         constexpr std::size_t gdst_header_bytes = 20;
-        constexpr std::uint32_t gdst_format_mask = (1U << 20) - 1U;
-        constexpr std::uint32_t gdst_bit_png = 1U << 20;
-        constexpr std::uint32_t gdst_bit_webp = 1U << 21;
-        constexpr std::uint32_t gdst_bit_mipmaps = 1U << 23;
+        constexpr std::uint32_t gdst_format_mask = (1U << 20U) - 1U;
+        constexpr std::uint32_t gdst_bit_png = 1U << 20U;
+        constexpr std::uint32_t gdst_bit_webp = 1U << 21U;
+        constexpr std::uint32_t gdst_bit_mipmaps = 1U << 23U;
 
         // GST2 (Godot 4 CompressedTexture2D) envelope geometry.
         constexpr std::size_t gst2_header_bytes = 36;
@@ -69,15 +69,15 @@ namespace unpackrat::godot
         {
             return static_cast<std::uint16_t>(
                 static_cast<std::uint16_t>(static_cast<std::uint8_t>(bytes[0])) |
-                static_cast<std::uint16_t>(static_cast<std::uint16_t>(static_cast<std::uint8_t>(bytes[1])) << 8));
+                static_cast<std::uint16_t>(static_cast<std::uint16_t>(static_cast<std::uint8_t>(bytes[1])) << 8U));
         }
 
         [[nodiscard]] std::uint32_t load_u32(const char *bytes) noexcept
         {
             return static_cast<std::uint32_t>(static_cast<std::uint8_t>(bytes[0])) |
-                   static_cast<std::uint32_t>(static_cast<std::uint32_t>(static_cast<std::uint8_t>(bytes[1])) << 8) |
-                   static_cast<std::uint32_t>(static_cast<std::uint32_t>(static_cast<std::uint8_t>(bytes[2])) << 16) |
-                   static_cast<std::uint32_t>(static_cast<std::uint32_t>(static_cast<std::uint8_t>(bytes[3])) << 24);
+                   static_cast<std::uint32_t>(static_cast<std::uint32_t>(static_cast<std::uint8_t>(bytes[1])) << 8U) |
+                   static_cast<std::uint32_t>(static_cast<std::uint32_t>(static_cast<std::uint8_t>(bytes[2])) << 16U) |
+                   static_cast<std::uint32_t>(static_cast<std::uint32_t>(static_cast<std::uint8_t>(bytes[3])) << 24U);
         }
 
         // Stored geometry of one Image::Format level: block size and bytes per block.

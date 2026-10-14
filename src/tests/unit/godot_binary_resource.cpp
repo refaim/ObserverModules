@@ -4,6 +4,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <exception>
 #include <optional>
 #include <span>
 #include <string>
@@ -544,7 +545,7 @@ TEST_CASE("godot binary resource: reads the legacy embedded image variant")
     SECTION("godot 3 raw image rejects a future format version")
     {
         const godot_resource_bytes value = encode_value(
-            false, [](variant_encoder &e) { e.image_raw(1, 1, 0, (1U << 24) | 4U, std::vector<std::uint8_t>{1}); });
+            false, [](variant_encoder &e) { e.image_raw(1, 1, 0, (1U << 24U) | 4U, std::vector<std::uint8_t>{1}); });
         CHECK_THROWS_AS(read(build_resource(single_property(3, 3, "image", value))), resource_error);
     }
     SECTION("encoded lossless image")
@@ -969,10 +970,10 @@ TEST_CASE("godot binary resource: rejects malformed and duplicate dictionaries")
             });
         });
         const godot_resource_bytes bytes = document(value);
-        REQUIRE(fits(bytes, 1U << 20));
+        REQUIRE(fits(bytes, 1U << 20U));
         CHECK(!(fits(bytes, 0)));
         std::uint64_t low = 0;
-        std::uint64_t high = 1U << 20;
+        std::uint64_t high = 1U << 20U;
         while (low < high) {
             const std::uint64_t middle = low + (high - low) / 2;
             if (fits(bytes, middle)) {
@@ -2058,7 +2059,7 @@ TEST_CASE("godot binary resource: metadata scalars use exact-width reads and ski
 TEST_CASE("godot binary resource: rejected main types stop after a validated header",
           "[godot][binary-resource][header-admission]")
 {
-    struct late_read final
+    struct late_read final : std::exception
     {
     };
     for (const std::uint32_t major : {3U, 4U}) {
@@ -2167,10 +2168,10 @@ TEST_CASE("godot binary resource: admitted metadata matches one strict parse wit
 TEST_CASE("godot binary resource: header admission preserves bounds and callback failures",
           "[godot][binary-resource][header-admission]")
 {
-    struct source_failure final
+    struct source_failure final : std::exception
     {
     };
-    struct predicate_failure final
+    struct predicate_failure final : std::exception
     {
     };
     const godot_resource_bytes valid = build_resource(

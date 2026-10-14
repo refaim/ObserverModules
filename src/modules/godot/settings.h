@@ -1,4 +1,5 @@
-#pragma once
+#ifndef UNPACKRAT_MODULES_GODOT_SETTINGS_H
+#define UNPACKRAT_MODULES_GODOT_SETTINGS_H
 
 #include <cstddef>
 
@@ -16,3 +17,4 @@ namespace unpackrat::godot
     // case-insensitive DecodeResources key enables it only for the trimmed value 1.
     [[nodiscard]] module_settings parse_module_settings(const wchar_t *multi_sz) noexcept;
 } // namespace unpackrat::godot
+#endif

@@ -75,28 +75,28 @@ namespace unpackrat::godot
 
         std::uint16_t read_u16_be(const std::byte *const bytes) noexcept
         {
-            return static_cast<std::uint16_t>((byte_value(bytes[0]) << 8) | byte_value(bytes[1]));
+            return static_cast<std::uint16_t>((byte_value(bytes[0]) << 8U) | byte_value(bytes[1]));
         }
 
         std::uint32_t read_u24_be(const std::byte *const bytes) noexcept
         {
-            return (byte_value(bytes[0]) << 16) | (byte_value(bytes[1]) << 8) | byte_value(bytes[2]);
+            return (byte_value(bytes[0]) << 16U) | (byte_value(bytes[1]) << 8U) | byte_value(bytes[2]);
         }
 
         std::uint32_t read_u32_be(const std::byte *const bytes) noexcept
         {
-            return (static_cast<std::uint32_t>(byte_value(bytes[0])) << 24) |
-                   (static_cast<std::uint32_t>(byte_value(bytes[1])) << 16) |
-                   (static_cast<std::uint32_t>(byte_value(bytes[2])) << 8) |
+            return (static_cast<std::uint32_t>(byte_value(bytes[0])) << 24U) |
+                   (static_cast<std::uint32_t>(byte_value(bytes[1])) << 16U) |
+                   (static_cast<std::uint32_t>(byte_value(bytes[2])) << 8U) |
                    static_cast<std::uint32_t>(byte_value(bytes[3]));
         }
 
         std::uint32_t read_u32_le(const std::byte *const bytes) noexcept
         {
             return static_cast<std::uint32_t>(byte_value(bytes[0])) |
-                   (static_cast<std::uint32_t>(byte_value(bytes[1])) << 8) |
-                   (static_cast<std::uint32_t>(byte_value(bytes[2])) << 16) |
-                   (static_cast<std::uint32_t>(byte_value(bytes[3])) << 24);
+                   (static_cast<std::uint32_t>(byte_value(bytes[1])) << 8U) |
+                   (static_cast<std::uint32_t>(byte_value(bytes[2])) << 16U) |
+                   (static_cast<std::uint32_t>(byte_value(bytes[3])) << 24U);
         }
 
         std::span<const std::byte> as_span(const std::vector<std::byte> &bytes) noexcept
@@ -792,8 +792,8 @@ namespace unpackrat::godot
                 const unsigned first = byte_value(data.bytes[offset]);
                 const unsigned second = byte_value(data.bytes[offset + 1]);
                 const unsigned third = byte_value(data.bytes[offset + 2]);
-                return first == 0xFFU && (second & 0xE6U) == 0xE2U && (third >> 4) != 0xFU &&
-                       ((third >> 2) & 0x3U) != 0x3U;
+                return first == 0xFFU && (second & 0xE6U) == 0xE2U && (third >> 4U) != 0xFU &&
+                       ((third >> 2U) & 0x3U) != 0x3U;
             };
             const bool leading_two = !frame_at(0) && frame_at(2);
             // The private dr_mp3 adapter (mp3_codec.h) performs the bounded recognition: an
@@ -880,8 +880,8 @@ namespace unpackrat::godot
                 pcm.samples.resize(resolved.payload.size() / 2);
                 for (std::size_t index = 0; index < pcm.samples.size(); ++index) {
                     const auto low = std::to_integer<std::uint16_t>(resolved.payload[index * 2]);
-                    const auto high = std::to_integer<std::uint16_t>(resolved.payload[index * 2 + 1]);
-                    pcm.samples[index] = static_cast<std::int16_t>(static_cast<std::uint16_t>(low | (high << 8)));
+                    const auto high = std::to_integer<std::uint32_t>(resolved.payload[index * 2 + 1]);
+                    pcm.samples[index] = static_cast<std::int16_t>(static_cast<std::uint16_t>(low | (high << 8U)));
                 }
                 return pcm;
             }
@@ -1115,9 +1115,9 @@ namespace unpackrat::godot
                     } else {
                         for (std::size_t i = 0; i < take / 2; ++i) {
                             const auto low = std::to_integer<std::uint16_t>(input[2 * i]);
-                            const auto high = std::to_integer<std::uint16_t>(input[2 * i + 1]);
+                            const auto high = std::to_integer<std::uint32_t>(input[2 * i + 1]);
                             samples[position / 2 + i] =
-                                static_cast<std::int16_t>(static_cast<std::uint16_t>(low | (high << 8)));
+                                static_cast<std::int16_t>(static_cast<std::uint16_t>(low | (high << 8U)));
                         }
                     }
                 }

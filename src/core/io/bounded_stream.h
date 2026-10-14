@@ -1,4 +1,5 @@
-#pragma once
+#ifndef UNPACKRAT_CORE_IO_BOUNDED_STREAM_H
+#define UNPACKRAT_CORE_IO_BOUNDED_STREAM_H
 
 #include <cstddef>
 #include <cstdint>
@@ -41,3 +42,4 @@ namespace unpackrat::io
         std::streamoff size_ = 0;
     };
 } // namespace unpackrat::io
+#endif

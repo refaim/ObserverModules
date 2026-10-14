@@ -1,6 +1,7 @@
 #include "archive_lazy_fixtures.h"
 
 #include <atomic>
+#include <exception>
 #include <format>
 #include <fstream>
 #include <ios>
@@ -15,11 +16,16 @@
 namespace
 {
     test::support::fake_extractor_state *g_state = nullptr;
-    test::support::fake_extractor_state g_default_state;
 
     test::support::fake_extractor_state &fake_state()
     {
-        return g_state != nullptr ? *g_state : g_default_state;
+        if (g_state != nullptr) {
+            return *g_state;
+        }
+        // Constructed on first use so a failed allocation surfaces as a catchable
+        // exception at the call site instead of an uncatchable static-init throw.
+        static test::support::fake_extractor_state default_state;
+        return default_state;
     }
 } // namespace
 
@@ -98,7 +104,8 @@ namespace test::support
         : path_(unused_path(label))
     {
 
-        std::ofstream output(path_, std::ios::binary | std::ios::trunc);
+        std::ofstream output(path_, static_cast<std::ios_base::openmode>(static_cast<unsigned>(std::ios::binary) |
+                                                                         static_cast<unsigned>(std::ios::trunc)));
         if (!output.is_open()) {
             throw std::runtime_error(std::format("Failed to create lazy fixture {}", path_.string()));
         }
@@ -132,8 +139,15 @@ namespace test::support
 
     temporary_directory::~temporary_directory()
     {
-        std::error_code error;
-        std::filesystem::remove_all(path_, error);
+        try {
+            std::error_code error;
+            std::filesystem::remove_all(path_, error);
+        } catch (...) {
+            // The error-code overload still lets an allocation failure escape instead of reporting
+            // a filesystem error. The destructor is implicitly noexcept, so preserving that fatal
+            // policy means terminating rather than silently swallowing the failure.
+            std::terminate();
+        }
     }
 
     const std::filesystem::path &temporary_directory::path() const noexcept

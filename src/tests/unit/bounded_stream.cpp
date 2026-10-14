@@ -41,7 +41,7 @@ namespace
         pos_type seekoff(const off_type offset, const std::ios_base::seekdir direction,
                          const std::ios_base::openmode mode) override
         {
-            if (fail_seeks_ || (mode & std::ios_base::in) == 0) {
+            if (fail_seeks_ || (static_cast<unsigned>(mode) & static_cast<unsigned>(std::ios_base::in)) == 0) {
                 return pos_type{off_type{-1}};
             }
 
@@ -61,7 +61,8 @@ namespace
 
         pos_type seekpos(const pos_type position, const std::ios_base::openmode mode) override
         {
-            if (fail_seeks_ || (mode & std::ios_base::in) == 0 || position < 0) {
+            if (fail_seeks_ || (static_cast<unsigned>(mode) & static_cast<unsigned>(std::ios_base::in)) == 0 ||
+                position < 0) {
                 return pos_type{off_type{-1}};
             }
             position_ = static_cast<off_type>(position);

@@ -148,16 +148,16 @@ namespace unpackrat::godot
             if (code_point < 0x80U) {
                 out.push_back(static_cast<char>(code_point));
             } else if (code_point < 0x800U) {
-                out.push_back(static_cast<char>(0xC0U | (code_point >> 6)));
+                out.push_back(static_cast<char>(0xC0U | (code_point >> 6U)));
                 out.push_back(static_cast<char>(0x80U | (code_point & 0x3FU)));
             } else if (code_point < 0x10000U) {
-                out.push_back(static_cast<char>(0xE0U | (code_point >> 12)));
-                out.push_back(static_cast<char>(0x80U | ((code_point >> 6) & 0x3FU)));
+                out.push_back(static_cast<char>(0xE0U | (code_point >> 12U)));
+                out.push_back(static_cast<char>(0x80U | ((code_point >> 6U) & 0x3FU)));
                 out.push_back(static_cast<char>(0x80U | (code_point & 0x3FU)));
             } else {
-                out.push_back(static_cast<char>(0xF0U | (code_point >> 18)));
-                out.push_back(static_cast<char>(0x80U | ((code_point >> 12) & 0x3FU)));
-                out.push_back(static_cast<char>(0x80U | ((code_point >> 6) & 0x3FU)));
+                out.push_back(static_cast<char>(0xF0U | (code_point >> 18U)));
+                out.push_back(static_cast<char>(0x80U | ((code_point >> 12U) & 0x3FU)));
+                out.push_back(static_cast<char>(0x80U | ((code_point >> 6U) & 0x3FU)));
                 out.push_back(static_cast<char>(0x80U | (code_point & 0x3FU)));
             }
             return out;
@@ -179,10 +179,10 @@ namespace unpackrat::godot
             if (value.starts_with("res://")) {
                 value.remove_prefix(6);
             }
-            if (value.starts_with("/")) {
+            if (value.starts_with('/')) {
                 return std::nullopt;
             }
-            if (value.starts_with("\\")) {
+            if (value.starts_with('\\')) {
                 return std::nullopt;
             }
             for (const char c : value) {
@@ -460,7 +460,7 @@ namespace unpackrat::godot
                     if (digit < 0) {
                         throw metadata_error{};
                     }
-                    value = (value << 4) | static_cast<std::uint32_t>(digit);
+                    value = (value << 4U) | static_cast<std::uint32_t>(digit);
                 }
                 return value;
             }

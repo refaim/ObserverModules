@@ -60,23 +60,23 @@ namespace unpackrat::codecs
         void decode_nibble(const std::uint8_t packed, const bool high_nibble, adpcm_channel_state &state) noexcept
         {
             const std::uint8_t nibble =
-                high_nibble ? static_cast<std::uint8_t>(packed >> 4) : static_cast<std::uint8_t>(packed & 0x0fU);
+                high_nibble ? static_cast<std::uint8_t>(packed >> 4U) : static_cast<std::uint8_t>(packed & 0x0fU);
             const std::int32_t step = ima_step_table[static_cast<std::size_t>(state.step_index)];
             std::int32_t index = state.step_index + ima_index_table[static_cast<std::size_t>(nibble)];
             index = index < 0 ? 0 : (index > ima_max_step_index ? ima_max_step_index : index);
             state.step_index = index;
 
-            std::int32_t difference = step >> 3;
-            if ((nibble & 1) != 0) {
-                difference += step >> 2;
+            std::int32_t difference = step / 8;
+            if ((nibble & 1U) != 0) {
+                difference += step / 4;
             }
-            if ((nibble & 2) != 0) {
-                difference += step >> 1;
+            if ((nibble & 2U) != 0) {
+                difference += step / 2;
             }
-            if ((nibble & 4) != 0) {
+            if ((nibble & 4U) != 0) {
                 difference += step;
             }
-            if ((nibble & 8) != 0) {
+            if ((nibble & 8U) != 0) {
                 difference = -difference;
             }
 
@@ -102,7 +102,7 @@ namespace unpackrat::codecs
         for (std::size_t frame = 0; frame < frames; ++frame) {
             const std::size_t base = (frame / 2) * channels;
             for (std::size_t channel = 0; channel < channels; ++channel) {
-                decode_nibble(std::to_integer<std::uint8_t>(packed[base + channel]), (frame & 1) != 0,
+                decode_nibble(std::to_integer<std::uint8_t>(packed[base + channel]), (frame & 1U) != 0,
                               state.channels[channel]);
                 output[frame * channels + channel] = static_cast<std::int16_t>(state.channels[channel].predictor);
             }
@@ -177,8 +177,8 @@ namespace unpackrat::codecs
             const auto *const data = reinterpret_cast<const std::uint8_t *>(input.data());
             std::array<adpcm_channel_state, 2> state{};
             for (std::size_t frame = 0; frame < frames; ++frame) {
-                const std::size_t base = (frame >> 1) * channels;
-                const bool high_nibble = (frame & 1) != 0;
+                const std::size_t base = (frame >> 1U) * channels;
+                const bool high_nibble = (frame & 1U) != 0;
                 for (std::size_t channel = 0; channel < channels; ++channel) {
                     decode_nibble(data[base + channel], high_nibble, state[channel]);
                     result.samples[frame * channels + channel] = static_cast<std::int16_t>(state[channel].predictor);

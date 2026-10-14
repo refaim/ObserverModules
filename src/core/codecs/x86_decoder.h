@@ -1,4 +1,5 @@
-#pragma once
+#ifndef UNPACKRAT_CORE_CODECS_X86_DECODER_H
+#define UNPACKRAT_CORE_CODECS_X86_DECODER_H
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -27,3 +28,4 @@ namespace unpackrat::codecs
     [[nodiscard]] std::optional<x86_instruction> decode_x86(std::span<const std::byte> input, std::uint64_t address,
                                                             x86_mode mode);
 } // namespace unpackrat::codecs
+#endif

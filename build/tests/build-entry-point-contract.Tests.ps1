@@ -91,4 +91,13 @@ if ([string]::Join([char]31, $actual) -ne [string]::Join([char]31, @('ci-source'
     throw 'build.cmd must forward every argument unchanged.'
 }
 
+# The launcher must never silently download a Python interpreter: the pinned environment is
+# provisioned explicitly, and a local run must refuse an automatic download rather than fetch one.
+$launcher = Get-Content -Raw -LiteralPath $entryPoint
+foreach ($flag in @('--frozen', '--no-sync', '--no-python-downloads')) {
+    if ($launcher -notmatch [Regex]::Escape($flag)) {
+        throw "build.ps1's uv run invocation must pass $flag so a missing interpreter fails instead of being downloaded."
+    }
+}
+
 Write-Host '[OK] The root entry point forwards every documented argument form unchanged.'

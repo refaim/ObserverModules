@@ -1,3 +1,8 @@
+Version 3.1.3
+-------------
+ * Reject indexes with more than 64 nested Pickle containers.
+ * Preserve the nesting limit across memo copies and container updates so value copying and cleanup stay bounded.
+
 Version 3.1.2
 -------------
  * Fixed misaligned access to the packed Observer output buffer written when reporting general archive information.

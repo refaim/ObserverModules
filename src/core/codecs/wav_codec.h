@@ -1,4 +1,5 @@
-#pragma once
+#ifndef UNPACKRAT_CORE_CODECS_WAV_CODEC_H
+#define UNPACKRAT_CORE_CODECS_WAV_CODEC_H
 
 #include "audio_types.h"
 
@@ -24,3 +25,4 @@ namespace unpackrat::codecs
                              const std::function<void(std::span<const std::byte>)> &sink,
                              const audio_limits &limits = {});
 } // namespace unpackrat::codecs
+#endif

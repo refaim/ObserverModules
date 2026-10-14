@@ -1,4 +1,5 @@
-#pragma once
+#ifndef UNPACKRAT_CORE_CODECS_AUDIO_PREFLIGHT_H
+#define UNPACKRAT_CORE_CODECS_AUDIO_PREFLIGHT_H
 
 #include <cstddef>
 #include <cstdint>
@@ -29,3 +30,4 @@ namespace unpackrat::codecs::preflight
     // supports; no caller budget can lift either limit.
     [[nodiscard]] std::uint64_t riff_pcm16_stream_bytes(std::uint64_t frames, std::uint64_t channels);
 } // namespace unpackrat::codecs::preflight
+#endif

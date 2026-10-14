@@ -1,4 +1,5 @@
-#pragma once
+#ifndef UNPACKRAT_MODULES_EXTRACTOR_H
+#define UNPACKRAT_MODULES_EXTRACTOR_H
 
 #include <filesystem>
 #include <functional>
@@ -114,3 +115,4 @@ namespace extractor
         std::unique_ptr<storage_state> state_;
     };
 } // namespace extractor
+#endif

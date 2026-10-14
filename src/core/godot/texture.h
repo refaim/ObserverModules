@@ -1,4 +1,5 @@
-#pragma once
+#ifndef UNPACKRAT_CORE_GODOT_TEXTURE_H
+#define UNPACKRAT_CORE_GODOT_TEXTURE_H
 
 // Platform-neutral descriptor prober for the Godot texture container envelopes written by
 // StreamTexture (Godot 3, "GDST") and CompressedTexture2D (Godot 4, "GST2"). It validates
@@ -106,3 +107,4 @@ namespace unpackrat::godot
     [[nodiscard]] texture_payload probe_texture(std::istream &stream, byte_range source,
                                                 const texture_limits &limits = {});
 } // namespace unpackrat::godot
+#endif

@@ -1,5 +1,7 @@
-#pragma once
+#ifndef UNPACKRAT_MODULES_RENPY_PICKLE_H
+#define UNPACKRAT_MODULES_RENPY_PICKLE_H
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <span>
@@ -34,7 +36,12 @@ namespace pickle
         };
 
       private:
+        friend class parser;
+        // Count owned container levels: scalars are zero, empty containers are one.
+        // This bound also limits recursive cloning and ordinary RAII destruction.
+        static constexpr std::size_t max_depth = 64;
         type type_;
+        std::size_t depth_ = 0;
         std::variant<std::monostate, // none
                      bool,           // bool_
                      int64_t,        // int64
@@ -45,10 +52,21 @@ namespace pickle
                      >
             data_;
 
+        static std::size_t checked_child_depth(const value_ptr &child);
+        static std::size_t container_depth(const pickle::list &children);
+        static std::size_t container_depth(const pickle::dict &children);
+        void append(value_ptr child);
+        void append(pickle::list children);
+        void set(std::string key, value_ptr child);
+
       public:
         explicit value(const type t) : type_(t)
         {
         }
+        value(const value &) = delete;
+        value(value &&) = delete;
+        value &operator=(const value &) = delete;
+        value &operator=(value &&) = delete;
 
         static value_ptr none()
         {
@@ -92,22 +110,28 @@ namespace pickle
 
         static value_ptr list(pickle::list val)
         {
+            const auto depth = container_depth(val);
             auto v = std::make_unique<value>(type::list);
             v->data_ = std::move(val);
+            v->depth_ = depth;
             return v;
         }
 
         static value_ptr tuple(pickle::list val)
         {
+            const auto depth = container_depth(val);
             auto v = std::make_unique<value>(type::tuple);
             v->data_ = std::move(val);
+            v->depth_ = depth;
             return v;
         }
 
         static value_ptr dict(pickle::dict val)
         {
+            const auto depth = container_depth(val);
             auto v = std::make_unique<value>(type::dict);
             v->data_ = std::move(val);
+            v->depth_ = depth;
             return v;
         }
 
@@ -214,3 +238,4 @@ namespace pickle
 
     value_ptr loads(const std::string &data);
 } // namespace pickle
+#endif

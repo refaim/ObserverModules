@@ -15,6 +15,29 @@ def _project(relative_path: str) -> ET.Element:
 
 
 class MSBuildContractsTests(unittest.TestCase):
+    def test_configuration_props_pin_the_retained_windows_sdk_family(self) -> None:
+        # A freshly installed 10.0.28000 SDK must not retarget the production and instrumented
+        # builds: the configuration props keep the existing 10.0.26100.0 family explicitly.
+        project = _project("build/unpackrat-configuration.props")
+        version = project.find(f".//{MSBUILD}WindowsTargetPlatformVersion")
+        self.assertIsNotNone(version)
+        self.assertEqual(version.text, "10.0.26100.0")
+
+    def test_common_compile_definitions_carry_the_vista_window_version_pair(self) -> None:
+        # The Vista minimums WINVER and _WIN32_WINNT must reach the compiler through the
+        # shared MSBuild toolchain, not through a reserved-identifier macro declared in
+        # api.h, and the inherited %(PreprocessorDefinitions) must stay appended.
+        project = _project("build/unpackrat-project.props")
+        definitions = project.find(
+            f".//{MSBUILD}ItemDefinitionGroup/{MSBUILD}ClCompile/"
+            f"{MSBUILD}PreprocessorDefinitions"
+        )
+        self.assertIsNotNone(definitions)
+        self.assertEqual(
+            definitions.text,
+            "NOMINMAX;WINVER=0x0600;_WIN32_WINNT=0x0600;%(PreprocessorDefinitions)",
+        )
+
     def test_direct_msbuild_fallback_stays_below_managed_work_root(self) -> None:
         project = _project("build/unpackrat-project.props")
 

@@ -45,7 +45,7 @@ namespace test
                 throw std::runtime_error("Failed to open source for a range lock");
             }
             overlapped_.Offset = static_cast<DWORD>(offset);
-            overlapped_.OffsetHigh = static_cast<DWORD>(offset >> 32);
+            overlapped_.OffsetHigh = static_cast<DWORD>(offset >> 32U);
             if (!LockFileEx(file_, LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY, 0, length, 0, &overlapped_)) {
                 static_cast<void>(CloseHandle(file_));
                 throw std::runtime_error("Failed to lock source body range");
@@ -583,7 +583,9 @@ namespace test
                 invalid_contents.assign(8, '\0');
             }
             {
-                std::ofstream invalid_archive(invalid_archive_path, std::ios::binary | std::ios::trunc);
+                std::ofstream invalid_archive(
+                    invalid_archive_path, static_cast<std::ios_base::openmode>(static_cast<unsigned>(std::ios::binary) |
+                                                                               static_cast<unsigned>(std::ios::trunc)));
                 REQUIRE(invalid_archive.is_open());
                 invalid_archive.write(invalid_contents.data(), static_cast<std::streamsize>(invalid_contents.size()));
             }
@@ -676,7 +678,9 @@ namespace test
 
             const auto expect_prepare_failure = [&](const std::string_view contents) {
                 {
-                    std::ofstream invalid_archive(invalid_archive_path, std::ios::binary | std::ios::trunc);
+                    std::ofstream invalid_archive(invalid_archive_path, static_cast<std::ios_base::openmode>(
+                                                                            static_cast<unsigned>(std::ios::binary) |
+                                                                            static_cast<unsigned>(std::ios::trunc)));
                     REQUIRE(invalid_archive.is_open());
                     invalid_archive.write(contents.data(), static_cast<std::streamsize>(contents.size()));
                 }
@@ -696,7 +700,7 @@ namespace test
                                              &sparse_attributes) != 0);
                 REQUIRE((sparse_attributes.dwFileAttributes & FILE_ATTRIBUTE_SPARSE_FILE) != 0);
                 const std::uint64_t sparse_logical_size =
-                    (static_cast<std::uint64_t>(sparse_attributes.nFileSizeHigh) << 32) |
+                    (static_cast<std::uint64_t>(sparse_attributes.nFileSizeHigh) << 32U) |
                     sparse_attributes.nFileSizeLow;
                 REQUIRE(sparse_logical_size > 64ULL * 1024 * 1024);
                 StorageOpenParams sparse_params{
@@ -961,7 +965,7 @@ namespace test
         auto bytes = support::encrypted_pck(3, true, true);
         // The five-byte member occupies one sixteen-byte CFB block at the physical tail.
         // Change a logical byte rather than ignored padding; the directory remains intact.
-        bytes[bytes.size() - 16] ^= 1;
+        bytes[bytes.size() - 16] ^= 1U;
         const support::temporary_archive archive("godot-encrypted-digest", bytes);
         c_module loaded("godot.so");
         REQUIRE(loaded.open(archive.path(), fixture_key_hex));
@@ -1343,14 +1347,20 @@ namespace test
         {
             c_module loaded("godot.so");
             REQUIRE(loaded.open(archive.path()));
-            std::fstream writer(archive.path(), std::ios::in | std::ios::out | std::ios::binary);
+            std::fstream writer(archive.path(),
+                                static_cast<std::ios_base::openmode>(static_cast<unsigned>(std::ios::in) |
+                                                                     static_cast<unsigned>(std::ios::out) |
+                                                                     static_cast<unsigned>(std::ios::binary)));
             CHECK(!(writer.is_open()));
             std::error_code error;
             std::filesystem::resize_file(archive.path(), 0, error);
             CHECK(error);
             REQUIRE(loaded.list_files().size() == 1);
         }
-        std::fstream writer(archive.path(), std::ios::in | std::ios::out | std::ios::binary);
+        std::fstream writer(archive.path(),
+                            static_cast<std::ios_base::openmode>(static_cast<unsigned>(std::ios::in) |
+                                                                 static_cast<unsigned>(std::ios::out) |
+                                                                 static_cast<unsigned>(std::ios::binary)));
         CHECK(writer.is_open());
     }
 
@@ -1368,7 +1378,10 @@ namespace test
 
         // Verification and later random-access reads share a stable leased file. A second
         // writer cannot invalidate a verified directory between opening and preparation.
-        std::fstream edit(archive.path(), std::ios::in | std::ios::out | std::ios::binary);
+        std::fstream edit(archive.path(),
+                          static_cast<std::ios_base::openmode>(static_cast<unsigned>(std::ios::in) |
+                                                               static_cast<unsigned>(std::ios::out) |
+                                                               static_cast<unsigned>(std::ios::binary)));
         CHECK(!(edit.is_open()));
         CHECK(loaded.api().PrepareFiles(loaded.storage()) == TRUE);
     }
@@ -1451,7 +1464,7 @@ namespace test
             source.path = "res://raw/";
             source.path += std::to_string(index);
             for (int part = 0; part < 4; ++part) {
-                source.path += "/";
+                source.path += '/';
                 source.path += component;
             }
             options.entries.push_back(std::move(source));
@@ -1461,7 +1474,10 @@ namespace test
         std::istringstream check_index(image);
         const auto location = unpackrat::godot::locate_pack(check_index);
         REQUIRE(location.has_value());
-        REQUIRE(unpackrat::godot::read_pack(check_index, *location).entries.size() == entries);
+        const auto entry_count = location.transform([&check_index](const unpackrat::godot::pack_location &pack) {
+            return unpackrat::godot::read_pack(check_index, pack).entries.size();
+        });
+        REQUIRE(entry_count == entries);
 
         const support::temporary_archive archive("godot-raw-tree-budget", bytes);
         c_module loaded("godot.so");

@@ -1,4 +1,5 @@
-#pragma once
+#ifndef UNPACKRAT_TESTS_FRAMEWORK_OBSERVER_H
+#define UNPACKRAT_TESTS_FRAMEWORK_OBSERVER_H
 
 #include <filesystem>
 #include <functional>
@@ -32,3 +33,4 @@ namespace test
         std::vector<std::unique_ptr<module>> modules_;
     };
 } // namespace test
+#endif

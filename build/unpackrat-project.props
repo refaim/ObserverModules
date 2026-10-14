@@ -20,6 +20,9 @@
     <VcpkgAdditionalInstallOptions>--overlay-triplets=$(RepositoryRoot)build\vcpkg\triplets</VcpkgAdditionalInstallOptions>
     <OutDir>$(ArtifactsRoot)bin\$(PlatformMoniker)\$(Configuration)\</OutDir>
     <IntDir>$(ArtifactsRoot)obj\$(PlatformMoniker)\$(Configuration)\$(ProjectName)\</IntDir>
+    <!-- Analysis-only compiles and their tracker logs live in a dedicated intermediate tree so
+         the /analyze:only objects and .tlog files cannot poison the ordinary incremental build. -->
+    <IntDir Condition="'$(unpackratCompileAnalysis)' == 'true'">$(ArtifactsRoot)obj-analysis\$(PlatformMoniker)\$(Configuration)\$(ProjectName)\</IntDir>
     <TargetDir>$(OutDir)</TargetDir>
     <TargetName>$(ProjectName)</TargetName>
     <GenerateManifest>true</GenerateManifest>
@@ -29,6 +32,10 @@
     <CodeAnalysisRuleSet Condition="'$(unpackratRunCodeAnalysis)' == 'true'">$(RepositoryRoot)build\unpackrat-native-analysis.ruleset</CodeAnalysisRuleSet>
     <unpackratAnalysisReportName Condition="'$(unpackratAnalysisReportName)' == ''">$(ProjectName)</unpackratAnalysisReportName>
     <EnableClangTidyCodeAnalysis Condition="'$(unpackratEnableClangTidy)' == 'true'">true</EnableClangTidyCodeAnalysis>
+    <!-- VS passes CL.exe /c to clang-tidy; -Qunused-arguments handles that driver-only flag.
+         VS omits ExternalIncludeDirectories from clang-tidy's compile database. Mark only
+         restored vcpkg headers as system for LLVM 22 matcher skipping; src stays ordinary. -->
+    <ClangTidyAdditionalOptions Condition="'$(unpackratEnableClangTidy)' == 'true'">-Qunused-arguments -imsvc"$(VcpkgInstalledDir)$(VcpkgTriplet)\include" $(ClangTidyAdditionalOptions)</ClangTidyAdditionalOptions>
     <!-- clang-cl resolves compiler-rt relative to its own binary, so an x64 clang-cl targeting
          i686 emits an unsuffixed /DEFAULTLIB:clang_rt.profile.lib that exists in no toolset.
          The caller supplies LLVMRuntimeDir per architecture; the link below names the archive
@@ -39,8 +46,8 @@
 
   <ItemDefinitionGroup>
     <ClCompile>
-      <LanguageStandard Condition="'$(Configuration)' != 'Coverage' And '$(Configuration)' != 'Fuzz' And '$(Configuration)' != 'UBSan' And '$(unpackratEnableClangTidy)' != 'true'">stdcpp23</LanguageStandard>
-      <LanguageStandard Condition="'$(Configuration)' == 'Coverage' Or '$(Configuration)' == 'Fuzz' Or '$(Configuration)' == 'UBSan' Or '$(unpackratEnableClangTidy)' == 'true'">stdcpplatest</LanguageStandard>
+      <LanguageStandard Condition="'$(Configuration)' != 'Release' And '$(Configuration)' != 'Coverage' And '$(Configuration)' != 'Fuzz' And '$(Configuration)' != 'UBSan' And '$(unpackratEnableClangTidy)' != 'true'">stdcpp23</LanguageStandard>
+      <LanguageStandard Condition="'$(Configuration)' == 'Release' Or '$(Configuration)' == 'Coverage' Or '$(Configuration)' == 'Fuzz' Or '$(Configuration)' == 'UBSan' Or '$(unpackratEnableClangTidy)' == 'true'">stdcpplatest</LanguageStandard>
       <WarningLevel>Level4</WarningLevel>
       <TreatWarningAsError>true</TreatWarningAsError>
       <ConformanceMode>true</ConformanceMode>
@@ -66,13 +73,30 @@
       <IntrinsicFunctions Condition="'$(Configuration)' == 'Release'">true</IntrinsicFunctions>
       <FunctionLevelLinking Condition="'$(Configuration)' == 'Release'">true</FunctionLevelLinking>
       <AdditionalIncludeDirectories>$(RepositoryRoot)src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>NOMINMAX;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>NOMINMAX;WINVER=0x0600;_WIN32_WINNT=0x0600;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <AdditionalOptions>/utf-8 /Zc:__cplusplus %(AdditionalOptions)</AdditionalOptions>
       <AdditionalOptions Condition="'$(Configuration)' == 'Coverage'">/clang:-fprofile-instr-generate /clang:-fcoverage-mapping %(AdditionalOptions)</AdditionalOptions>
       <AdditionalOptions Condition="'$(Configuration)' == 'ASan'">/fsanitize=address %(AdditionalOptions)</AdditionalOptions>
       <!-- One SDK-only alignment exception; rationale and removal rule: docs/ubsan-sdk-wmemcmp.md. -->
       <AdditionalOptions Condition="'$(Configuration)' == 'UBSan'">/clang:-fsanitize=undefined /clang:-fno-sanitize-recover=all /clang:-fsanitize-ignorelist="$(RepositoryRoot)build\ubsan-ignorelist.txt" %(AdditionalOptions)</AdditionalOptions>
       <AdditionalOptions Condition="'$(Configuration)' == 'Fuzz'">/clang:-fsanitize=fuzzer,address %(AdditionalOptions)</AdditionalOptions>
+      <!-- Standalone MSVC analysis is driven through the standard ClCompile target's item
+           metadata: pure /analyze:only per translation unit with a unique SARIF log beside the
+           object file, the existing strict ruleset, and no link-time analysis. Clang-tidy and the
+           report-only path stay on their own switches. -->
+      <EnablePREfast Condition="'$(unpackratCompileAnalysis)' == 'true'">true</EnablePREfast>
+      <!-- Compile-only analysis keeps /Qspectre without selecting unused Spectre libraries. -->
+      <SpectreMitigation Condition="'$(unpackratCompileAnalysis)' == 'true'">Spectre</SpectreMitigation>
+      <!-- The compile-analysis actor sets only unpackratCompileAnalysis, so PREfast must
+           take the strict ruleset directly; CodeAnalysisRuleSet is defined only by the
+           report-only switch and would otherwise resolve empty here. -->
+      <PREfastRulesetFile Condition="'$(unpackratCompileAnalysis)' == 'true'">$(RepositoryRoot)build\unpackrat-native-analysis.ruleset</PREfastRulesetFile>
+      <!-- PREfastLog is deliberately not set here: this item definition is evaluated
+           before the per-item ObjectFileName overrides exist, so a %(ObjectFileName)
+           reference would collapse to the shared $(IntDir) default and same-basename
+           translation units would collide on one log. ComputeunpackratCompileAnalysisLogs
+           sets it on a target that runs immediately before ClCompile instead. -->
+      <AdditionalOptions Condition="'$(unpackratCompileAnalysis)' == 'true'">/analyze:only /analyze:log:format:sarif %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <GenerateDebugInformation>true</GenerateDebugInformation>
@@ -96,5 +120,24 @@
            Text="Coverage links the LLVM profile runtime and requires LLVMRuntimeDir; build through build.ps1 test-coverage." />
     <Error Condition="'$(unpackratCompileAnalysis)' != 'true' And '$(Configuration)' == 'Coverage' And '$(unpackratProfileRuntime)' == ''"
            Text="Coverage is supported on Win32 and x64 only." />
+  </Target>
+
+  <!-- One nativecodeanalysis.sarif per translation unit, named from each item's resolved
+       object file name. Running immediately before ClCompile means every per-item
+       ObjectFileName override has been applied, so the log follows the real object file
+       (the object directory default or an explicit object file name) and no two units
+       share a log. The report-only switch keeps its own single shared report. -->
+  <Target Name="ComputeunpackratCompileAnalysisLogs"
+          BeforeTargets="ClCompile"
+          Condition="'$(unpackratCompileAnalysis)' == 'true'">
+    <ItemGroup>
+      <ClCompile>
+        <!-- The vendor quiet option expects post-link report ingestion. Compile-only analysis
+             must emit diagnostics for /WX; remove only that exact option after all imports,
+             preserving the other per-item options without conflicting quiet/quiet- flags. -->
+        <PREfastAdditionalOptions>$([System.Text.RegularExpressions.Regex]::Replace(`%(PREfastAdditionalOptions)`, `(?&lt;![^;])quiet(?:;|$)`, ``))</PREfastAdditionalOptions>
+        <PREfastLog>%(ObjectFileName)%(FileName).nativecodeanalysis.sarif</PREfastLog>
+      </ClCompile>
+    </ItemGroup>
   </Target>
 </Project>

@@ -247,6 +247,36 @@ class LeakWorkerTests(unittest.TestCase):
                 leak_main(("measure", str(root), str(umdh), "operations", "malformed", "1", "2", "3", "0"))
             self.assertTrue(process.killed)
 
+    def test_capture_propagates_a_spawn_failure_without_touching_a_probe(self) -> None:
+        # A probe that never launches leaves no process to reap: the failure must propagate
+        # unchanged, the cleanup must skip the absent process, and no probe object may be killed.
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "leak-probe.exe").touch()
+            umdh = root / "umdh.exe"
+            umdh.touch()
+            (root / "gflags.exe").touch()
+            output = root / "evidence"
+            output.mkdir()
+
+            def preset(argv: list[str], **_options: object) -> subprocess.CompletedProcess[str]:
+                # Stack traces are already live, so capture reaches the probe launch directly.
+                return subprocess.CompletedProcess(
+                    argv, 0, "Current Registry Settings for leak-probe.exe executable are: 00001000"
+                )
+
+            failure = OSError("the probe could not be launched")
+            with self.output(output), mock.patch(
+                "leaks.subprocess.run", side_effect=preset
+            ), mock.patch("leaks.psutil.Popen", side_effect=failure) as popen, self.assertRaises(
+                OSError
+            ) as raised:
+                leak_main(("measure", str(root), str(umdh), "operations", "malformed", "1", "2", "3", "0"))
+
+            self.assertIs(raised.exception, failure)
+            popen.assert_called_once()
+            self.assertTrue((output / "probe.stderr.log").is_file())
+
     def test_gflags_elevation_and_preset_paths(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

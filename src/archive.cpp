@@ -33,7 +33,8 @@ namespace archive
         if (!source->is_open()) {
             throw std::runtime_error("Failed to open file");
         }
-        source->exceptions(std::ifstream::failbit | std::ifstream::badbit);
+        source->exceptions(static_cast<std::ios_base::iostate>(static_cast<unsigned>(std::ifstream::failbit) |
+                                                               static_cast<unsigned>(std::ifstream::badbit)));
 
         // Old callbacks borrow extractor-owned state. Destroy them before releasing that
         // state or replacing the underlying stream when this object is opened again.
@@ -82,7 +83,8 @@ namespace archive
         if (!output.is_open()) {
             throw write_error();
         }
-        output.exceptions(std::ofstream::failbit | std::ofstream::badbit);
+        output.exceptions(static_cast<std::ios_base::iostate>(static_cast<unsigned>(std::ofstream::failbit) |
+                                                              static_cast<unsigned>(std::ofstream::badbit)));
 
         if (file.extract) {
             // A custom handler owns the whole destination body. On any failure the

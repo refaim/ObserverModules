@@ -549,6 +549,36 @@ TEST_CASE("archive lazy: an empty signature accepts any prefix")
     REQUIRE(state.archive_info_data_size == 4);
 }
 
+TEST_CASE("archive lazy: the extractor signature follows the active fake state and restores the default")
+{
+    // Without a scope the test-only extractor functions fall back to the process-wide
+    // default fake state, whose signature is "FAKE".
+    const auto default_signature = extractor::extractor::get_signature();
+    REQUIRE(default_signature ==
+            std::vector<std::byte>{std::byte{'F'}, std::byte{'A'}, std::byte{'K'}, std::byte{'E'}});
+
+    {
+        test::support::fake_extractor_state outer;
+        outer.signature = {std::byte{'O'}, std::byte{'U'}, std::byte{'T'}, std::byte{'E'}, std::byte{'R'}};
+        const test::support::fake_extractor_scope outer_scope(outer);
+        REQUIRE(extractor::extractor::get_signature() == outer.signature);
+
+        {
+            // A nested scope shadows the outer override while it stays alive.
+            test::support::fake_extractor_state inner;
+            inner.signature = {std::byte{'I'}, std::byte{'N'}};
+            const test::support::fake_extractor_scope inner_scope(inner);
+            REQUIRE(extractor::extractor::get_signature() == inner.signature);
+        }
+
+        // Leaving the nested scope restores the outer override, not the default.
+        REQUIRE(extractor::extractor::get_signature() == outer.signature);
+    }
+
+    // Leaving the outer scope restores the unscoped default state.
+    REQUIRE(extractor::extractor::get_signature() == default_signature);
+}
+
 TEST_CASE("archive lazy: unused_path is unique per call and carries the process id")
 {
     const auto first = test::support::unused_path("unique-probe");

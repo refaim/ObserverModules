@@ -127,7 +127,7 @@ namespace test::support
         std::vector<std::byte> output;
         const auto put_u32 = [&output](const std::uint32_t value) {
             for (int shift = 0; shift < 32; shift += 8) {
-                output.push_back(static_cast<std::byte>((value >> shift) & 0xFFU));
+                output.push_back(static_cast<std::byte>((value >> static_cast<unsigned>(shift)) & 0xFFU));
             }
         };
         put_u32(rscc_magic);
@@ -150,7 +150,7 @@ namespace test::support
         std::uint32_t state = 0x9E3779B9U;
         for (auto &byte : payload) {
             state = state * 1664525U + 1013904223U;
-            byte = static_cast<std::byte>((state >> 24) & 0x0FU); // low entropy keeps streams small
+            byte = static_cast<std::byte>((state >> 24U) & 0x0FU); // low entropy keeps streams small
         }
         return payload;
     }

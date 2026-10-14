@@ -1,4 +1,5 @@
-#pragma once
+#ifndef UNPACKRAT_CORE_IO_BYTE_SOURCE_H
+#define UNPACKRAT_CORE_IO_BYTE_SOURCE_H
 
 #include <algorithm>
 #include <array>
@@ -37,3 +38,4 @@ namespace unpackrat::io
         }
     }
 } // namespace unpackrat::io
+#endif

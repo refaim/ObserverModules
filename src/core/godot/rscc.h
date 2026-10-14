@@ -1,4 +1,5 @@
-#pragma once
+#ifndef UNPACKRAT_CORE_GODOT_RSCC_H
+#define UNPACKRAT_CORE_GODOT_RSCC_H
 
 #include "../codecs/resource_compression.h"
 
@@ -113,3 +114,4 @@ namespace unpackrat::godot
         std::unique_ptr<codecs::block_stream_decoder> streamed_block_;
     };
 } // namespace unpackrat::godot
+#endif

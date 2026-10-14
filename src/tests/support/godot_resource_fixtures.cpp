@@ -36,11 +36,11 @@ namespace test::support
     wire_writer &wire_writer::u16(const std::uint16_t value)
     {
         if (big_endian_) {
-            bytes_.push_back(static_cast<std::uint8_t>(value >> 8));
+            bytes_.push_back(static_cast<std::uint8_t>(value >> 8U));
             bytes_.push_back(static_cast<std::uint8_t>(value));
         } else {
             bytes_.push_back(static_cast<std::uint8_t>(value));
-            bytes_.push_back(static_cast<std::uint8_t>(value >> 8));
+            bytes_.push_back(static_cast<std::uint8_t>(value >> 8U));
         }
         return *this;
     }
@@ -48,15 +48,15 @@ namespace test::support
     wire_writer &wire_writer::u32(const std::uint32_t value)
     {
         if (big_endian_) {
-            bytes_.push_back(static_cast<std::uint8_t>(value >> 24));
-            bytes_.push_back(static_cast<std::uint8_t>(value >> 16));
-            bytes_.push_back(static_cast<std::uint8_t>(value >> 8));
+            bytes_.push_back(static_cast<std::uint8_t>(value >> 24U));
+            bytes_.push_back(static_cast<std::uint8_t>(value >> 16U));
+            bytes_.push_back(static_cast<std::uint8_t>(value >> 8U));
             bytes_.push_back(static_cast<std::uint8_t>(value));
         } else {
             bytes_.push_back(static_cast<std::uint8_t>(value));
-            bytes_.push_back(static_cast<std::uint8_t>(value >> 8));
-            bytes_.push_back(static_cast<std::uint8_t>(value >> 16));
-            bytes_.push_back(static_cast<std::uint8_t>(value >> 24));
+            bytes_.push_back(static_cast<std::uint8_t>(value >> 8U));
+            bytes_.push_back(static_cast<std::uint8_t>(value >> 16U));
+            bytes_.push_back(static_cast<std::uint8_t>(value >> 24U));
         }
         return *this;
     }
@@ -64,11 +64,11 @@ namespace test::support
     wire_writer &wire_writer::u64(const std::uint64_t value)
     {
         if (big_endian_) {
-            u32(static_cast<std::uint32_t>(value >> 32));
+            u32(static_cast<std::uint32_t>(value >> 32U));
             u32(static_cast<std::uint32_t>(value));
         } else {
             u32(static_cast<std::uint32_t>(value));
-            u32(static_cast<std::uint32_t>(value >> 32));
+            u32(static_cast<std::uint32_t>(value >> 32U));
         }
         return *this;
     }
@@ -123,21 +123,22 @@ namespace test::support
     {
         const godot_resource_bytes patch =
             big_endian_
-                ? godot_resource_bytes{static_cast<std::uint8_t>(value >> 24), static_cast<std::uint8_t>(value >> 16),
-                                       static_cast<std::uint8_t>(value >> 8), static_cast<std::uint8_t>(value)}
-                : godot_resource_bytes{static_cast<std::uint8_t>(value), static_cast<std::uint8_t>(value >> 8),
-                                       static_cast<std::uint8_t>(value >> 16), static_cast<std::uint8_t>(value >> 24)};
+                ? godot_resource_bytes{static_cast<std::uint8_t>(value >> 24U), static_cast<std::uint8_t>(value >> 16U),
+                                       static_cast<std::uint8_t>(value >> 8U), static_cast<std::uint8_t>(value)}
+                : godot_resource_bytes{static_cast<std::uint8_t>(value), static_cast<std::uint8_t>(value >> 8U),
+                                       static_cast<std::uint8_t>(value >> 16U),
+                                       static_cast<std::uint8_t>(value >> 24U)};
         std::copy(patch.begin(), patch.end(), bytes_.begin() + static_cast<std::ptrdiff_t>(offset));
     }
 
     void wire_writer::patch_u64(const std::size_t offset, const std::uint64_t value)
     {
         if (big_endian_) {
-            patch_u32(offset, static_cast<std::uint32_t>(value >> 32));
+            patch_u32(offset, static_cast<std::uint32_t>(value >> 32U));
             patch_u32(offset + 4, static_cast<std::uint32_t>(value));
         } else {
             patch_u32(offset, static_cast<std::uint32_t>(value));
-            patch_u32(offset + 4, static_cast<std::uint32_t>(value >> 32));
+            patch_u32(offset + 4, static_cast<std::uint32_t>(value >> 32U));
         }
     }
 

@@ -1,4 +1,5 @@
-#pragma once
+#ifndef UNPACKRAT_CORE_ARCHIVE_LIMITS_H
+#define UNPACKRAT_CORE_ARCHIVE_LIMITS_H
 
 #include <cstddef>
 
@@ -11,3 +12,4 @@ namespace unpackrat::archive_limits
     // a corrupt count from driving an unbounded allocation.
     inline constexpr std::size_t max_entry_count = 100'000;
 } // namespace unpackrat::archive_limits
+#endif

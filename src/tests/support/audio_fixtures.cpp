@@ -15,15 +15,15 @@ namespace test::support
         [[nodiscard]] std::uint16_t read_u16le(const std::span<const std::byte> bytes, const std::size_t offset)
         {
             return static_cast<std::uint16_t>(std::to_integer<unsigned>(bytes[offset]) |
-                                              (std::to_integer<unsigned>(bytes[offset + 1]) << 8));
+                                              (std::to_integer<unsigned>(bytes[offset + 1]) << 8U));
         }
 
         [[nodiscard]] std::uint32_t read_u32le(const std::span<const std::byte> bytes, const std::size_t offset)
         {
             return static_cast<std::uint32_t>(std::to_integer<unsigned>(bytes[offset]) |
-                                              (std::to_integer<unsigned>(bytes[offset + 1]) << 8) |
-                                              (std::to_integer<unsigned>(bytes[offset + 2]) << 16) |
-                                              (std::to_integer<unsigned>(bytes[offset + 3]) << 24));
+                                              (std::to_integer<unsigned>(bytes[offset + 1]) << 8U) |
+                                              (std::to_integer<unsigned>(bytes[offset + 2]) << 16U) |
+                                              (std::to_integer<unsigned>(bytes[offset + 3]) << 24U));
         }
 
         [[nodiscard]] bool matches_tag(const std::span<const std::byte> bytes, const std::size_t offset,

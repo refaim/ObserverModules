@@ -1,4 +1,5 @@
-#pragma once
+#ifndef UNPACKRAT_TESTS_SUPPORT_GODOT_KEY_FIXTURES_H
+#define UNPACKRAT_TESTS_SUPPORT_GODOT_KEY_FIXTURES_H
 #include "../../core/codecs/crypto_codec.h"
 #include <vector>
 namespace test::support
@@ -19,3 +20,4 @@ namespace test::support
     };
     [[nodiscard]] key_fixture make_key_fixture(key_shape shape = key_shape::direct_scalar, bool x64 = true);
 } // namespace test::support
+#endif

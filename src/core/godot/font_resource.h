@@ -1,4 +1,5 @@
-#pragma once
+#ifndef UNPACKRAT_CORE_GODOT_FONT_RESOURCE_H
+#define UNPACKRAT_CORE_GODOT_FONT_RESOURCE_H
 
 #include "binary_resource.h"
 
@@ -39,3 +40,4 @@ namespace unpackrat::godot
     void write_font_resource(const binary_resource &resource,
                              const std::function<void(std::span<const std::byte>)> &sink);
 } // namespace unpackrat::godot
+#endif

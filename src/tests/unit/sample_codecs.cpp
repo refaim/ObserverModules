@@ -111,22 +111,25 @@ namespace
             while (pos > last_nibble) {
                 ++last_nibble;
                 for (std::uint32_t channel = 0; channel < channels; ++channel) {
-                    const std::uint8_t byte = data[static_cast<std::size_t>(last_nibble >> 1) * channels + channel];
-                    const std::int32_t nibble = (last_nibble & 1) != 0 ? (byte >> 4) : (byte & 0x0F);
+                    const std::uint64_t nibble_index = static_cast<std::uint64_t>(last_nibble);
+                    const std::uint8_t byte = data[static_cast<std::size_t>(nibble_index >> 1U) * channels + channel];
+                    const std::int32_t nibble =
+                        (nibble_index & 1U) != 0 ? static_cast<std::int32_t>(static_cast<std::uint32_t>(byte) >> 4U)
+                                                 : static_cast<std::int32_t>(static_cast<std::uint32_t>(byte) & 0x0FU);
                     const std::int32_t step = step_table[static_cast<std::size_t>(step_index[channel])];
                     step_index[channel] += index_table[static_cast<std::size_t>(nibble)];
                     step_index[channel] = std::clamp(step_index[channel], 0, 88);
-                    std::int32_t diff = step >> 3;
-                    if ((nibble & 1) != 0) {
-                        diff += step >> 2;
+                    std::int32_t diff = static_cast<std::int32_t>(static_cast<std::uint32_t>(step) >> 3U);
+                    if ((static_cast<std::uint32_t>(nibble) & 1U) != 0) {
+                        diff += static_cast<std::int32_t>(static_cast<std::uint32_t>(step) >> 2U);
                     }
-                    if ((nibble & 2) != 0) {
-                        diff += step >> 1;
+                    if ((static_cast<std::uint32_t>(nibble) & 2U) != 0) {
+                        diff += static_cast<std::int32_t>(static_cast<std::uint32_t>(step) >> 1U);
                     }
-                    if ((nibble & 4) != 0) {
+                    if ((static_cast<std::uint32_t>(nibble) & 4U) != 0) {
                         diff += step;
                     }
-                    if ((nibble & 8) != 0) {
+                    if ((static_cast<std::uint32_t>(nibble) & 8U) != 0) {
                         diff = -diff;
                     }
                     predictor[channel] = std::clamp(predictor[channel] + diff, -0x8000, 0x7FFF);
@@ -146,7 +149,7 @@ namespace
         std::uint32_t state = seed;
         for (auto &byte : payload) {
             state = state * 1664525U + 1013904223U;
-            byte = static_cast<std::byte>(state >> 24);
+            byte = static_cast<std::byte>(state >> 24U);
         }
         return payload;
     }

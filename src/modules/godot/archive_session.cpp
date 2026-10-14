@@ -114,7 +114,8 @@ namespace unpackrat::godot
                 // The pinned MSVC standard library's FILE* constructor borrows the CRT stream.
                 // It never resolves the path again. Declaration order destroys input before the
                 // FILE owner, whose fclose releases both CRT descriptor and leased native handle.
-                input.exceptions(std::ios::failbit | std::ios::badbit);
+                input.exceptions(static_cast<std::ios_base::iostate>(static_cast<unsigned>(std::ios::failbit) |
+                                                                     static_cast<unsigned>(std::ios::badbit)));
             }
         };
 
@@ -166,7 +167,8 @@ namespace unpackrat::godot
                 if (high < 0 || low < 0) {
                     return false;
                 }
-                key.value[index] = static_cast<std::byte>((high << 4) | low);
+                key.value[index] =
+                    static_cast<std::byte>((static_cast<unsigned>(high) << 4U) | static_cast<unsigned>(low));
             }
             return true;
         }

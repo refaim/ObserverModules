@@ -38,5 +38,7 @@ if ($env:UNPACKRAT_BUILD_PRINT_ARGV -eq '1') {
     exit 97
 }
 
-& uv run --project $buildProject --frozen --no-sync python $driverScript @forwarded
+# Never let a local run download a Python interpreter: the pinned environment must already exist,
+# so a missing interpreter fails closed instead of being fetched automatically.
+& uv run --project $buildProject --frozen --no-sync --no-python-downloads python $driverScript @forwarded
 exit $LASTEXITCODE

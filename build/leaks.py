@@ -140,6 +140,18 @@ def _kill_tree(process: psutil.Popen[str]) -> None:
     psutil.wait_procs(processes, timeout=5)
 
 
+def _reap_probe(process: psutil.Popen[str] | None) -> None:
+    """Kill a live probe tree and close its pipes; a launch that never happened is a no-op."""
+
+    if process is None:
+        return
+    if process.poll() is None:
+        _kill_tree(process)
+    assert process.stdin is not None and process.stdout is not None
+    process.stdin.close()
+    process.stdout.close()
+
+
 def _run_gflags(gflags: Path, image: str, flag: str | None = None) -> subprocess.CompletedProcess[str]:
     command = [str(gflags), "/i", image]
     if flag is not None:
@@ -282,12 +294,7 @@ def _capture(
                 errors.seek(0)
                 raise LeakError(f"leak probe failed ({result}): {errors.read()}")
         finally:
-            if process is not None:
-                if process.poll() is None:
-                    _kill_tree(process)
-                assert process.stdin is not None and process.stdout is not None
-                process.stdin.close()
-                process.stdout.close()
+            _reap_probe(process)
     return snapshot_dir
 
 

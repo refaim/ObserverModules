@@ -29,7 +29,8 @@ namespace
         const auto digit = [](const char c) { return c <= '9' ? c - '0' : c - 'a' + 10; };
         std::vector<std::byte> output;
         for (std::size_t index = 0; index < hex.size(); index += 2) {
-            output.push_back(static_cast<std::byte>((digit(hex[index]) << 4) | digit(hex[index + 1])));
+            output.push_back(static_cast<std::byte>((static_cast<unsigned>(digit(hex[index])) << 4U) |
+                                                    static_cast<unsigned>(digit(hex[index + 1]))));
         }
         return output;
     }
@@ -277,7 +278,7 @@ TEST_CASE("godot encryption: seeks inside the last decrypted window reuse it wit
 TEST_CASE("godot encryption: padding is outside the logical digest")
 {
     auto bytes = test::support::encrypted_envelope(godot_bytes{1, 2, 3});
-    bytes.back() ^= 0xff;
+    bytes.back() ^= 0xFFU;
     auto input = source_of(bytes);
     const auto key = test::support::godot_test_key();
     verified_payload_source source(input, read_encrypted_payload(input, {0, bytes.size()}), key);
@@ -295,7 +296,7 @@ TEST_CASE("godot encryption: complete MD5 rejects wrong keys and corruption")
         if (wrong_key) {
             key[0] ^= std::byte{1};
         } else {
-            bytes[40] ^= 1;
+            bytes[40] ^= 1U;
         }
         auto input = source_of(bytes);
         verified_payload_source source(input, read_encrypted_payload(input, {0, bytes.size()}), key);

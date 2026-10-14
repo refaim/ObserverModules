@@ -1,5 +1,6 @@
 #include "../../core/codecs/bc_codec.h"
 #include "../../core/codecs/png_codec.h"
+#include "../support/archive_lazy_fixtures.h"
 
 #include <algorithm>
 #include <array>
@@ -7,10 +8,13 @@
 #include <cstdlib>
 #include <cstring>
 #include <exception>
+#include <filesystem>
+#include <fstream>
 #include <functional>
 #include <limits>
 #include <memory>
 #include <new>
+#include <optional>
 #include <span>
 #include <string>
 #include <vector>
@@ -602,7 +606,7 @@ TEST_CASE("bc codec: an unaddressable x86 output is rejected before inspecting i
     try {
         const auto input = std::span<const std::byte>(static_cast<const std::byte *>(view), input_bytes);
         static_cast<void>(
-            unpackrat::codecs::decode_bc(input, unpackrat::codecs::bc_format::bc1, 1U << 16, 1U << 14, limits));
+            unpackrat::codecs::decode_bc(input, unpackrat::codecs::bc_format::bc1, 1U << 16U, 1U << 14U, limits));
     } catch (const unpackrat::codecs::image_error &error) {
         diagnostic = error.what();
     }
@@ -796,3 +800,56 @@ TEST_CASE("png codec: progressive failures preserve errors and validate before p
         CHECK(reads > 0);
     }
 }
+
+#ifdef _DEBUG
+// test::support::temporary_directory removes a populated directory through the error-code
+// std::filesystem::remove_all overload while its destructor is implicitly noexcept. An
+// allocation failure inside that cleanup is not a filesystem error, so it still escapes as
+// std::bad_alloc and terminates the process. The build probe (build/main.py:
+// _cleanup_fatal_probe) launches the hidden child below in its own process and requires the
+// exact fatal exit code together with the directory the child could not remove; the process
+// management lives in Python so the path handling stays Unicode-correct.
+namespace
+{
+    // Distinct from Catch2's own 0..4 exit codes and from the _Exit(86) used elsewhere.
+    constexpr int cleanup_fatal_exit_code = 0x5A;
+
+    [[noreturn]] void cleanup_fatal_terminate_handler() noexcept
+    {
+        // std::exit, not _Exit or abort, so the LLVM profile runtime's atexit hook flushes
+        // the child's coverage before the process ends.
+        std::exit(cleanup_fatal_exit_code);
+    }
+} // namespace
+
+TEST_CASE("directory cleanup: an allocation failure while removing a populated directory stays fatal",
+          "[.directory-cleanup-fatal]")
+{
+    // Hidden (the tag begins with '.') so only the build probe runs this case, through an
+    // explicit filter; the probe asserts the exact fatal exit code separately.
+    std::optional<test::support::temporary_directory> directory;
+    directory.emplace("cleanup-fatal");
+    const auto nested = directory->path() / "nested.bin";
+    {
+        std::ofstream output(nested, std::ios::binary);
+        REQUIRE(output.is_open());
+        output << "nested";
+        output.close();
+        REQUIRE(output.good());
+    }
+    REQUIRE(std::filesystem::exists(nested));
+
+    std::set_terminate(cleanup_fatal_terminate_handler);
+
+    {
+        // The first allocation after the hook is installed happens inside
+        // std::filesystem::remove_all while it enumerates the populated directory, so the
+        // refusal cannot land anywhere else; nothing between arming and reset() allocates.
+        scoped_allocation_policy policy(1);
+        directory.reset();
+        // reset() must not return: the refused allocation escapes the noexcept destructor and
+        // terminates with cleanup_fatal_exit_code. If it does return, the case ends normally
+        // (exit code 0) and the probe's exact-code check fails, which is the intended signal.
+    }
+}
+#endif

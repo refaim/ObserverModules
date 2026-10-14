@@ -1,4 +1,5 @@
-#pragma once
+#ifndef UNPACKRAT_MODULES_GODOT_RESOURCE_CONVERTER_H
+#define UNPACKRAT_MODULES_GODOT_RESOURCE_CONVERTER_H
 
 // Physical-resource dispatcher for the Godot module.
 //
@@ -71,3 +72,4 @@ namespace unpackrat::godot
     void write_resource(std::istream &stream, byte_range source, const resource_descriptor &descriptor,
                         const std::function<void(std::span<const std::byte>)> &sink);
 } // namespace unpackrat::godot
+#endif

@@ -51,7 +51,7 @@ namespace
         const std::array<std::uint32_t, 3> fields{mode, block_size, total};
         for (const auto value : fields) {
             for (int shift = 0; shift < 32; shift += 8) {
-                output.push_back(static_cast<std::byte>((value >> shift) & 0xFFU));
+                output.push_back(static_cast<std::byte>((value >> static_cast<unsigned>(shift)) & 0xFFU));
             }
         }
         return output;
@@ -60,7 +60,7 @@ namespace
     void append_u32(std::vector<std::byte> &output, const std::uint32_t value)
     {
         for (int shift = 0; shift < 32; shift += 8) {
-            output.push_back(static_cast<std::byte>((value >> shift) & 0xFFU));
+            output.push_back(static_cast<std::byte>((value >> static_cast<unsigned>(shift)) & 0xFFU));
         }
     }
 
@@ -80,14 +80,14 @@ namespace
         std::vector<std::byte> output;
         output.reserve(values.size());
         for (const int value : values) {
-            output.push_back(static_cast<std::byte>(value & 0xFF));
+            output.push_back(static_cast<std::byte>(static_cast<unsigned>(value) & 0xFFU));
         }
         return output;
     }
 
     std::vector<std::byte> repeat(std::vector<std::byte> prefix, const std::size_t count, const int value)
     {
-        prefix.insert(prefix.end(), count, static_cast<std::byte>(value & 0xFF));
+        prefix.insert(prefix.end(), count, static_cast<std::byte>(static_cast<unsigned>(value) & 0xFFU));
         return prefix;
     }
 

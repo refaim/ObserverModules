@@ -98,7 +98,7 @@ class FakeRun:
                 if any("--format=lcov" in item for item in argv):
                     return subprocess.CompletedProcess(list(argv), 0, _LCOV)
                 return subprocess.CompletedProcess(list(argv), 0, self._llvm_export)
-            return subprocess.CompletedProcess(list(argv), 0, "")
+            raise AssertionError(f"unmodelled captured tool: {name}")
         if self._profraw and env and "LLVM_PROFILE_FILE" in env:
             path = Path(env["LLVM_PROFILE_FILE"].replace("%m", "1").replace("%p", "2"))
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -134,19 +134,29 @@ class MainCliCase(unittest.TestCase):
         )
         self.asan = self.root / "asan.dll"
         self.asan.write_bytes(b"x")
+        # The driver forwards the legacy 14.44 servicing toolset selected from the VS install.
+        cl = (self.root / "vs" / "VC" / "Tools" / "MSVC" / "14.44.35307"
+              / "bin" / "Hostx64" / "x64" / "cl.exe")
+        cl.parent.mkdir(parents=True, exist_ok=True)
+        cl.write_bytes(b"x")
 
     def tools(self, run: FakeRun):
         stack = mock.patch.multiple(
             main,
             run=run,
             _native_tools=mock.Mock(return_value=(self.root / "MSBuild.exe", self.root / "vcpkg.exe")),
+            _vs_installation=mock.Mock(return_value=self.root / "vs"),
             _source_tools=mock.Mock(return_value=main.SourceTools(
                 self.root / "clang-format.exe", self.root / "cppcheck.exe", self.root / "pwsh.exe")),
             _llvm=mock.Mock(return_value=self.llvm),
+            _clang_tidy=mock.Mock(return_value=self.root / "clang-tidy.exe"),
             _find_dumpbin=mock.Mock(return_value=self.root / "dumpbin.exe"),
             _find_binskimm=mock.Mock(return_value=self.root / "binskim.exe"),
             _find_umdh=mock.Mock(return_value=self.root / "umdh.exe"),
             _asan_runtime=mock.Mock(return_value=self.asan),
+            # Debug tests and the coverage unit scope launch the fatal cleanup probe; the tool
+            # fake must never let that escape into a real subprocess.
+            _cleanup_fatal_probe=mock.Mock(),
         )
         return stack
 
@@ -195,6 +205,35 @@ class MainCliCase(unittest.TestCase):
             main.run(["x"])
         self.assertIsNone(invoked.call_args.kwargs["stdout"])
         self.assertIsNone(invoked.call_args.kwargs["env"])
+
+    def test_run_reports_captured_failure_output_without_replacing_the_exception(self) -> None:
+        output = "llvm-cov: error: malformed coverage mapping\n詳細: profile mismatch\n"
+        failure = subprocess.CalledProcessError(7, ["llvm-cov"], output=output)
+        with mock.patch.object(subprocess, "run", side_effect=failure):
+            with self.assertRaises(subprocess.CalledProcessError) as raised:
+                main.run(["llvm-cov"], capture=True)
+        self.assertIs(raised.exception, failure)
+        self.assertEqual(raised.exception.returncode, 7)
+        self.assertEqual(raised.exception.stdout, output)
+        self.assertEqual(getattr(raised.exception, "__notes__", []), [output])
+
+    def test_run_preserves_failures_without_captured_output(self) -> None:
+        for capture, output in ((True, ""), (True, None), (False, None)):
+            with self.subTest(capture=capture, output=output):
+                failure = subprocess.CalledProcessError(9, ["tool"], output=output)
+                with mock.patch.object(subprocess, "run", side_effect=failure) as invoked:
+                    with self.assertRaises(subprocess.CalledProcessError) as raised:
+                        main.run(["tool"], capture=capture)
+                self.assertIs(raised.exception, failure)
+                self.assertEqual(getattr(raised.exception, "__notes__", []), [])
+                self.assertEqual(invoked.call_args.kwargs["stdout"],
+                                 subprocess.PIPE if capture else None)
+
+    def test_tool_fake_rejects_unmodelled_captured_output(self) -> None:
+        # A report-producing gate must not pass because the fake silently supplied an empty
+        # successful report for a new, unmodelled captured tool.
+        with self.assertRaisesRegex(AssertionError, "unmodelled captured tool"):
+            FakeRun()((str(self.root / "unknown.exe"),), capture=True)
 
     def test_job_count_defaults_validates_and_rejects(self) -> None:
         self.assertGreaterEqual(main._job_count(None), 1)
@@ -245,10 +284,24 @@ class MainCliCase(unittest.TestCase):
             main._find_vcpkg()
 
     def test_source_tools_and_dumpbin_and_umdh(self) -> None:
-        with mock.patch("shutil.which", side_effect=lambda name: f"/bin/{name}"):
+        format_tool = self.root / "clang-format.exe"
+        with mock.patch("shutil.which", side_effect=lambda name: f"/bin/{name}"), mock.patch.object(
+            main, "_clang_format", return_value=format_tool
+        ):
             tools = main._source_tools()
             self.assertEqual(main._find_dumpbin(), Path("/bin/dumpbin"))
+        self.assertEqual(tools.clang_format, format_tool)
         self.assertEqual(tools.cppcheck, Path("/bin/cppcheck"))
+
+        # The bundled LLVM tool helper stays available: PATH first, otherwise the selected
+        # Visual Studio's own LLVM bin directory.
+        with mock.patch("shutil.which", side_effect=lambda name: f"/bin/{name}"):
+            self.assertEqual(main._llvm_tool("clang-format"), Path("/bin/clang-format"))
+        bundled = self.root / "llvm"
+        with mock.patch("shutil.which", return_value=None), mock.patch.object(
+            main, "_llvm_home", return_value=bundled
+        ):
+            self.assertEqual(main._llvm_tool("clang-format"), bundled / "bin" / "clang-format.exe")
 
         override = self.root / "custom-umdh.exe"
         override.write_bytes(b"x")
@@ -265,28 +318,55 @@ class MainCliCase(unittest.TestCase):
         with mock.patch.dict(os.environ, {}, clear=True), self.assertRaises(FileNotFoundError):
             main._find_umdh()
 
+    def _seed_llvm(self, llvm: Path) -> Path:
+        """Seed a complete LLVM 19 x64 home: the tools, the headers and the x64 runtimes."""
+
+        (llvm / "bin").mkdir(parents=True, exist_ok=True)
+        for tool in ("clang-cl", "llvm-cov", "llvm-profdata"):
+            (llvm / "bin" / f"{tool}.exe").write_bytes(b"x")
+        include = llvm / "lib" / "clang" / "19" / "include"
+        include.mkdir(parents=True, exist_ok=True)
+        (include / "stddef.h").write_bytes(b"x")
+        windows = llvm / "lib" / "clang" / "19" / "lib" / "windows"
+        windows.mkdir(parents=True, exist_ok=True)
+        for library in (
+            "clang_rt.profile-x86_64.lib", "clang_rt.fuzzer-x86_64.lib",
+            "clang_rt.asan-x86_64.lib", "clang_rt.asan_cxx-x86_64.lib",
+            "clang_rt.ubsan_standalone-x86_64.lib", "clang_rt.ubsan_standalone_cxx-x86_64.lib",
+        ):
+            (windows / library).write_bytes(b"x")
+        return windows
+
+    def _llvm_version_runner(self):
+        def runner(argv, **options: object) -> subprocess.CompletedProcess[str]:
+            return subprocess.CompletedProcess(list(argv), 0, "LLVM version 19.1.5\n")
+
+        return runner
+
     def test_llvm_resolution_success_and_failures(self) -> None:
         llvm = self.root / "llvm"
-        (llvm / "bin").mkdir(parents=True)
-        (llvm / "bin" / "llvm-cov.exe").write_bytes(b"x")
-        (llvm / "bin" / "llvm-profdata.exe").write_bytes(b"x")
-        windows = llvm / "lib" / "clang" / "19.1.0" / "lib" / "windows"
-        windows.mkdir(parents=True)
-        with mock.patch.object(main, "_llvm_dir", return_value=llvm):
+        windows = self._seed_llvm(llvm)
+        with mock.patch.object(main, "_llvm_dir", return_value=llvm), mock.patch.object(
+            main, "run", side_effect=self._llvm_version_runner()
+        ):
             resolved = main._llvm()
         self.assertEqual(resolved.runtime, windows)
         self.assertEqual(resolved.cov, llvm / "bin" / "llvm-cov.exe")
 
         shutil.rmtree(windows)
-        with mock.patch.object(main, "_llvm_dir", return_value=llvm), self.assertRaises(FileNotFoundError):
+        with mock.patch.object(main, "_llvm_dir", return_value=llvm), mock.patch.object(
+            main, "run", side_effect=self._llvm_version_runner()
+        ), self.assertRaises(FileNotFoundError):
             main._llvm()
         windows.mkdir(parents=True)
         (llvm / "bin" / "llvm-cov.exe").unlink()
-        with mock.patch.object(main, "_llvm_dir", return_value=llvm), self.assertRaises(FileNotFoundError):
+        with mock.patch.object(main, "_llvm_dir", return_value=llvm), mock.patch.object(
+            main, "run", side_effect=self._llvm_version_runner()
+        ), self.assertRaises(FileNotFoundError):
             main._llvm()
 
-        with mock.patch("shutil.which", return_value=None), mock.patch.object(
-            main, "_vs_installation", side_effect=FileNotFoundError("no Visual Studio")
+        with mock.patch.object(
+            main, "_llvm_installation", side_effect=FileNotFoundError("no Visual Studio")
         ), self.assertRaises(FileNotFoundError):
             main._llvm_dir()
 
@@ -299,7 +379,7 @@ class MainCliCase(unittest.TestCase):
         path_bin = self.root / "llvm20" / "bin"
         path_bin.mkdir(parents=True)
         (path_bin / "clang-cl.exe").write_bytes(b"x")
-        with mock.patch.object(main, "_vs_installation", return_value=install), mock.patch(
+        with mock.patch.object(main, "_llvm_installation", return_value=install), mock.patch(
             "shutil.which", return_value=str(path_bin / "clang-cl.exe")
         ):
             self.assertEqual(main._llvm_dir(), bundled)
@@ -326,8 +406,8 @@ class MainCliCase(unittest.TestCase):
 
     def test_asan_runtime_resolution(self) -> None:
         install = self.root / "vs"
-        bin_dir = install / "VC" / "Tools" / "MSVC" / "14.4" / "bin" / "Hostx64" / "x64"
-        bin_dir.mkdir(parents=True)
+        bin_dir = install / "VC" / "Tools" / "MSVC" / "14.44.35307" / "bin" / "Hostx64" / "x64"
+        bin_dir.mkdir(parents=True, exist_ok=True)
         runtime = bin_dir / main._ASAN_RUNTIMES["x64"]
         runtime.write_bytes(b"x")
         msbuild = install / "MSBuild" / "Current" / "Bin" / "amd64" / "MSBuild.exe"
@@ -453,6 +533,25 @@ class MainCliCase(unittest.TestCase):
         self.assertIn("--suppress=*:third_party/*", command)
         self.assertIn(f"--relative-paths={resolved}", command)
         self.assertIn("--error-exitcode=1", command)
+        report = main.artifacts_root(resolved) / "analysis" / "cppcheck.sarif"
+        self.assertIn("--output-format=sarif", command)
+        self.assertIn(f"--output-file={report}", command)
+        self.assertTrue(report.parent.is_dir())
+
+    def test_cppcheck_failure_propagates_after_the_report_is_written(self) -> None:
+        report = main.artifacts_root(self.repo) / "analysis" / "cppcheck.sarif"
+
+        def fail_with_report(argv):
+            report.write_text('{"version":"2.1.0","runs":[]}', encoding="utf-8")
+            return True
+
+        run = FakeRun(fail_when=fail_with_report)
+        tools = main.SourceTools(self.root / "clang-format.exe", self.root / "cppcheck.exe",
+                                 self.root / "pwsh.exe")
+        with mock.patch.object(main, "run", run), self.assertRaises(subprocess.CalledProcessError):
+            main._cppcheck(self.repo, "x64", "Debug", tools)
+        self.assertTrue(report.is_file())
+        self.assertEqual(len(run.calls), 1)
 
     def test_source_checks_skip_empty_source_trees(self) -> None:
         (self.repo / "build" / "tests").mkdir(parents=True)

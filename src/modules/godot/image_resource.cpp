@@ -62,16 +62,16 @@ namespace unpackrat::godot
         std::uint16_t little_endian_u16(const std::byte *source) noexcept
         {
             const std::uint16_t low = byte_value(source);
-            const std::uint16_t high = static_cast<std::uint16_t>(byte_value(source + 1) << 8);
+            const std::uint16_t high = static_cast<std::uint16_t>(byte_value(source + 1) << 8U);
             return static_cast<std::uint16_t>(low | high);
         }
 
         std::uint32_t little_endian_u32(const std::byte *source) noexcept
         {
             return static_cast<std::uint32_t>(byte_value(source)) |
-                   (static_cast<std::uint32_t>(byte_value(source + 1)) << 8) |
-                   (static_cast<std::uint32_t>(byte_value(source + 2)) << 16) |
-                   (static_cast<std::uint32_t>(byte_value(source + 3)) << 24);
+                   (static_cast<std::uint32_t>(byte_value(source + 1)) << 8U) |
+                   (static_cast<std::uint32_t>(byte_value(source + 2)) << 16U) |
+                   (static_cast<std::uint32_t>(byte_value(source + 3)) << 24U);
         }
 
         // ---- one output RGBA quad per source pixel ----
@@ -145,27 +145,27 @@ namespace unpackrat::godot
 
         void read_rgba4444(const std::byte *source, std::uint8_t (&rgba)[4]) noexcept
         {
-            const std::uint16_t packed = little_endian_u16(source);
-            rgba[0] = static_cast<std::uint8_t>(((packed >> 12) & 0xFU) * 17U);
-            rgba[1] = static_cast<std::uint8_t>(((packed >> 8) & 0xFU) * 17U);
-            rgba[2] = static_cast<std::uint8_t>(((packed >> 4) & 0xFU) * 17U);
+            const std::uint32_t packed = little_endian_u16(source);
+            rgba[0] = static_cast<std::uint8_t>(((packed >> 12U) & 0xFU) * 17U);
+            rgba[1] = static_cast<std::uint8_t>(((packed >> 8U) & 0xFU) * 17U);
+            rgba[2] = static_cast<std::uint8_t>(((packed >> 4U) & 0xFU) * 17U);
             rgba[3] = static_cast<std::uint8_t>((packed & 0xFU) * 17U);
         }
 
         void read_rgba5551(const std::byte *source, std::uint8_t (&rgba)[4]) noexcept
         {
-            const std::uint16_t packed = little_endian_u16(source);
-            rgba[0] = scale_5_to_8((packed >> 11) & 0x1FU);
-            rgba[1] = scale_5_to_8((packed >> 6) & 0x1FU);
-            rgba[2] = scale_5_to_8((packed >> 1) & 0x1FU);
+            const std::uint32_t packed = little_endian_u16(source);
+            rgba[0] = scale_5_to_8((packed >> 11U) & 0x1FU);
+            rgba[1] = scale_5_to_8((packed >> 6U) & 0x1FU);
+            rgba[2] = scale_5_to_8((packed >> 1U) & 0x1FU);
             rgba[3] = static_cast<std::uint8_t>((packed & 0x1U) * 0xFFU);
         }
 
         void read_rgb565(const std::byte *source, std::uint8_t (&rgba)[4]) noexcept
         {
-            const std::uint16_t packed = little_endian_u16(source);
-            rgba[0] = static_cast<std::uint8_t>(((packed >> 11) & 0x1FU) * 0xFFU / 31U);
-            rgba[1] = static_cast<std::uint8_t>(((packed >> 5) & 0x3FU) * 0xFFU / 63U);
+            const std::uint32_t packed = little_endian_u16(source);
+            rgba[0] = static_cast<std::uint8_t>(((packed >> 11U) & 0x1FU) * 0xFFU / 31U);
+            rgba[1] = static_cast<std::uint8_t>(((packed >> 5U) & 0x3FU) * 0xFFU / 63U);
             rgba[2] = static_cast<std::uint8_t>((packed & 0x1FU) * 0xFFU / 31U);
             rgba[3] = 0xFF;
         }
@@ -362,8 +362,8 @@ namespace unpackrat::godot
                 if (!mipmaps || (level_width == 1 && level_height == 1)) {
                     break;
                 }
-                level_width = level_width > 1 ? level_width >> 1 : 1;
-                level_height = level_height > 1 ? level_height >> 1 : 1;
+                level_width = level_width > 1 ? level_width >> 1U : 1;
+                level_height = level_height > 1 ? level_height >> 1U : 1;
             }
             return remaining == 0;
         }

@@ -11,15 +11,15 @@ namespace test::support
         void append_u16(godot_bytes &output, const std::uint16_t value)
         {
             output.push_back(static_cast<std::uint8_t>(value));
-            output.push_back(static_cast<std::uint8_t>(value >> 8));
+            output.push_back(static_cast<std::uint8_t>(value >> 8U));
         }
 
         void append_u32(godot_bytes &output, const std::uint32_t value)
         {
             output.push_back(static_cast<std::uint8_t>(value));
-            output.push_back(static_cast<std::uint8_t>(value >> 8));
-            output.push_back(static_cast<std::uint8_t>(value >> 16));
-            output.push_back(static_cast<std::uint8_t>(value >> 24));
+            output.push_back(static_cast<std::uint8_t>(value >> 8U));
+            output.push_back(static_cast<std::uint8_t>(value >> 16U));
+            output.push_back(static_cast<std::uint8_t>(value >> 24U));
         }
 
         void append_bytes(godot_bytes &output, const godot_bytes &bytes)
@@ -219,7 +219,7 @@ namespace test::support
                                                              const std::ios_base::seekdir direction,
                                                              const std::ios_base::openmode mode)
     {
-        if ((mode & std::ios_base::in) == 0) {
+        if ((static_cast<unsigned>(mode) & static_cast<unsigned>(std::ios_base::in)) == 0U) {
             return pos_type(off_type(-1));
         }
 
@@ -279,7 +279,7 @@ namespace test::support
                                                                  const std::ios_base::seekdir direction,
                                                                  const std::ios_base::openmode mode)
     {
-        if ((mode & std::ios_base::in) == 0) {
+        if ((static_cast<unsigned>(mode) & static_cast<unsigned>(std::ios_base::in)) == 0U) {
             return pos_type(off_type(-1));
         }
         std::streamoff base = 0;

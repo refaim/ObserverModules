@@ -1,0 +1,176 @@
+name: CI instrumentation toolchain
+
+# One real provisioning job builds and publishes the matched Microsoft LLVM 19.1.5 family the
+# coverage, UBSan and fuzz stages need.  The VS2026 image bundles LLVM 22.1.3, which ships no
+# i386 runtime and no static ASan libraries, so it cannot drive those stages; the ASan stage is
+# unaffected because it is the MSVC 14.44 dynamic AddressSanitizer build and uses no LLVM
+# toolchain.  The job fetches the exact official VS payloads, verifies and extracts them into the
+# vendor layout, checks the 19.1.5 versions and the runtime libraries for both architectures,
+# caches the result, and publishes it as a same-run artifact.  It never rebuilds LLVM from
+# source, and it is a provisioning job rather than an aggregate verdict.
+
+on:
+  workflow_call:
+
+jobs:
+  instrumentation-tools:
+    name: instrumentation-tools
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The cache key pins both official payload hashes, so a payload swap invalidates the
+      # whole toolchain instead of silently mixing two builds.
+      - name: Restore the pinned LLVM 19.1.5 toolchain
+        id: llvm-instrumentation
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/unpackrat/tools/llvm/19.1.5
+          key: llvm-instrumentation-19.1.5-6a70f2b5677302799b5220afd03d062af72ad8ca869e4537465f8a687810cfa2-3f4c2578467784756f3706848d8ebec3f0b1f6705c062b2be769f4138534115f
+
+      - name: Provision the pinned LLVM 19.1.5 toolchain
+        if: steps.llvm-instrumentation.outputs.cache-hit != 'true'
+        shell: pwsh
+        env:
+          # The two official Visual Studio payloads that carry the LLVM 19.1.5 family.  They are
+          # Microsoft download URLs, not GitHub release assets, so they are fetched with a plain
+          # web request and then size- and hash-verified before anything is extracted.
+          LLVM_BASE_URL: https://download.visualstudio.microsoft.com/download/pr/58af20f6-56e8-48a0-86d3-115fb110097b/6a70f2b5677302799b5220afd03d062af72ad8ca869e4537465f8a687810cfa2/payload.vsix
+          LLVM_BASE_SHA: 6a70f2b5677302799b5220afd03d062af72ad8ca869e4537465f8a687810cfa2
+          LLVM_BASE_SIZE: "62004420"
+          LLVM_CLANG_URL: https://download.visualstudio.microsoft.com/download/pr/e98d75fa-91b1-47a1-9cb7-b6556de592c5/3f4c2578467784756f3706848d8ebec3f0b1f6705c062b2be769f4138534115f/payload.vsix
+          LLVM_CLANG_SHA: 3f4c2578467784756f3706848d8ebec3f0b1f6705c062b2be769f4138534115f
+          LLVM_CLANG_SIZE: "2224434987"
+          LLVM_ROOT: ${{ runner.temp }}/unpackrat/tools/llvm/19.1.5
+        run: |
+          $payloads = @(
+            @{ Name = 'base';  Url = $env:LLVM_BASE_URL;  Sha = $env:LLVM_BASE_SHA;  Size = [long]$env:LLVM_BASE_SIZE },
+            @{ Name = 'clang'; Url = $env:LLVM_CLANG_URL; Sha = $env:LLVM_CLANG_SHA; Size = [long]$env:LLVM_CLANG_SIZE }
+          )
+          $downloads = Join-Path $env:RUNNER_TEMP 'llvm-19.1.5-payloads'
+          New-Item -ItemType Directory -Force -Path $downloads | Out-Null
+          foreach ($payload in $payloads) {
+            $file = Join-Path $downloads "$($payload.Name).vsix"
+            Invoke-WebRequest -Uri $payload.Url -OutFile $file
+            $length = (Get-Item -LiteralPath $file).Length
+            if ($length -ne $payload.Size) {
+              throw "Unexpected $($payload.Name) VSIX size: $length (expected $($payload.Size))."
+            }
+            if ((Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash -ne $payload.Sha) {
+              throw "Pinned $($payload.Name) VSIX SHA-256 validation failed."
+            }
+          }
+          $env:LLVM_PAYLOAD_DIR = $downloads
+          # The official payloads keep the vendor tree below Contents/VC/Tools/Llvm, so the same
+          # layout is preserved and the published artifact is a drop-in VC/Tools/Llvm home.  Only
+          # the compiler, the coverage/profile tools, their runtime DLLs, the 19 headers and the
+          # windows runtime libraries are extracted, through the standard-library zip reader.
+          @'
+          import os
+          from pathlib import Path
+          import shutil
+          import zipfile
+
+          prefix = 'Contents/VC/Tools/Llvm/'
+          wanted_files = (
+              'x64/bin/clang-cl.exe',
+              'x64/bin/llvm-cov.exe',
+              'x64/bin/llvm-profdata.exe',
+          )
+          root = Path(os.environ['LLVM_ROOT']).resolve()
+          count = 0
+          for payload in sorted(Path(os.environ['LLVM_PAYLOAD_DIR']).glob('*.vsix')):
+              with zipfile.ZipFile(payload) as archive:
+                  for member in archive.namelist():
+                      if member.endswith('/') or not member.startswith(prefix):
+                          continue
+                      relative = member[len(prefix):]
+                      if relative in wanted_files:
+                          keep = True
+                      elif relative.startswith('x64/bin/'):
+                          keep = relative.endswith('.dll')
+                      elif relative.startswith('x64/lib/clang/19/'):
+                          keep = True
+                      elif relative.startswith('lib/clang/19/lib/windows/'):
+                          keep = True
+                      else:
+                          keep = False
+                      if not keep:
+                          continue
+                      target = (root / relative).resolve()
+                      if not target.is_relative_to(root):
+                          raise ValueError(f'Unsafe LLVM payload member: {member}')
+                      target.parent.mkdir(parents=True, exist_ok=True)
+                      with archive.open(member) as source, target.open('wb') as output:
+                          shutil.copyfileobj(source, output)
+                      count += 1
+          if count == 0:
+              raise ValueError('no LLVM members were extracted')
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Pinned LLVM 19.1.5 payload extraction failed.'
+          }
+
+      # The published toolchain must be a complete, matched family: the three tools report the
+      # exact 19.1.5 version, the headers are present, and the profile, fuzzer, static ASan and
+      # UBSan runtime libraries exist for the architectures the stages build.  The step runs on a
+      # cache HIT as well as a miss, so a restored tree is re-verified before it is trusted.
+      - name: Verify the pinned LLVM 19.1.5 toolchain
+        shell: pwsh
+        env:
+          LLVM_ROOT: ${{ runner.temp }}/unpackrat/tools/llvm/19.1.5
+        run: |
+          $root = $env:LLVM_ROOT
+          $llvmCompilerHome = Join-Path $root 'x64'
+          foreach ($tool in @('clang-cl', 'llvm-cov', 'llvm-profdata')) {
+            $exe = Join-Path $llvmCompilerHome "bin/$tool.exe"
+            if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) {
+              throw "Missing LLVM instrumentation tool: $exe"
+            }
+            $version = & $exe --version | Out-String
+            if ($LASTEXITCODE -ne 0 -or $version -notmatch '19\.1\.5(?!\d)') {
+              throw "Unexpected $tool version: $version"
+            }
+          }
+          $libraries = @(
+            'x64/lib/clang/19/lib/windows/clang_rt.profile-x86_64.lib',
+            'x64/lib/clang/19/lib/windows/clang_rt.asan-x86_64.lib',
+            'x64/lib/clang/19/lib/windows/clang_rt.asan_cxx-x86_64.lib',
+            'x64/lib/clang/19/lib/windows/clang_rt.fuzzer-x86_64.lib',
+            'x64/lib/clang/19/lib/windows/clang_rt.ubsan_standalone-x86_64.lib',
+            'x64/lib/clang/19/lib/windows/clang_rt.ubsan_standalone_cxx-x86_64.lib',
+            'lib/clang/19/lib/windows/clang_rt.profile-i386.lib',
+            'lib/clang/19/lib/windows/clang_rt.asan-i386.lib',
+            'lib/clang/19/lib/windows/clang_rt.asan_cxx-i386.lib',
+            'lib/clang/19/lib/windows/clang_rt.fuzzer-i386.lib'
+          )
+          foreach ($library in $libraries) {
+            if (-not (Test-Path -LiteralPath (Join-Path $root $library) -PathType Leaf)) {
+              throw "Missing LLVM instrumentation library: $library"
+            }
+          }
+          if (-not (Test-Path -LiteralPath (Join-Path $llvmCompilerHome 'lib/clang/19/include/stddef.h') -PathType Leaf)) {
+            throw 'Missing LLVM 19.1.5 headers.'
+          }
+
+      # The verified toolchain is cached before it is published, so a later gate failure still
+      # leaves a complete, hash-verified toolchain for the next run.
+      - name: Save the pinned LLVM 19.1.5 toolchain
+        if: steps.llvm-instrumentation.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/unpackrat/tools/llvm/19.1.5
+          key: llvm-instrumentation-19.1.5-6a70f2b5677302799b5220afd03d062af72ad8ca869e4537465f8a687810cfa2-3f4c2578467784756f3706848d8ebec3f0b1f6705c062b2be769f4138534115f
+
+      - name: Upload the LLVM 19.1.5 instrumentation toolchain
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: llvm-instrumentation-19.1.5
+          path: ${{ runner.temp }}/unpackrat/tools/llvm/19.1.5
+          if-no-files-found: error
+          retention-days: 7

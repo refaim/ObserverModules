@@ -206,9 +206,9 @@ TEST_CASE("godot pck: locates an embedded pack in a PE section")
         const auto offset = static_cast<std::size_t>(location.value_or(pack_location{}).pack.offset);
         REQUIRE(image.size() - offset >= 4);
         CHECK(test::support::godot_pck_magic ==
-              (static_cast<std::uint32_t>(image[offset]) | (static_cast<std::uint32_t>(image[offset + 1]) << 8) |
-               (static_cast<std::uint32_t>(image[offset + 2]) << 16) |
-               (static_cast<std::uint32_t>(image[offset + 3]) << 24)));
+              (static_cast<std::uint32_t>(image[offset]) | (static_cast<std::uint32_t>(image[offset + 1]) << 8U) |
+               (static_cast<std::uint32_t>(image[offset + 2]) << 16U) |
+               (static_cast<std::uint32_t>(image[offset + 3]) << 24U)));
     }
     SECTION("header shifted by alignment padding")
     {

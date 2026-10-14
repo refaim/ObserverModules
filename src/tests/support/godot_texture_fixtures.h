@@ -1,4 +1,5 @@
-#pragma once
+#ifndef UNPACKRAT_TESTS_SUPPORT_GODOT_TEXTURE_FIXTURES_H
+#define UNPACKRAT_TESTS_SUPPORT_GODOT_TEXTURE_FIXTURES_H
 
 // Repository-owned fixtures for Godot texture envelopes (GDST / GST2). Every byte is generated
 // here; no engine artefact or image payload from an archive is read.
@@ -39,11 +40,11 @@ namespace test::support
     inline constexpr char gst2_magic[5] = "GST2"; // Godot 4 compressed texture
 
     // --- GDST data-format bits (3.6 StreamTexture::FormatBits) -----------------------------
-    inline constexpr std::uint32_t gdst_format_mask = (1U << 20) - 1U;
-    inline constexpr std::uint32_t gdst_bit_png = 1U << 20;
-    inline constexpr std::uint32_t gdst_bit_webp = 1U << 21;
-    inline constexpr std::uint32_t gdst_bit_stream = 1U << 22;
-    inline constexpr std::uint32_t gdst_bit_mipmaps = 1U << 23;
+    inline constexpr std::uint32_t gdst_format_mask = (1U << 20U) - 1U;
+    inline constexpr std::uint32_t gdst_bit_png = 1U << 20U;
+    inline constexpr std::uint32_t gdst_bit_webp = 1U << 21U;
+    inline constexpr std::uint32_t gdst_bit_stream = 1U << 22U;
+    inline constexpr std::uint32_t gdst_bit_mipmaps = 1U << 23U;
 
     // --- GST2 image data-format selector (4.5 CompressedTexture2D::DataFormat) --------------
     inline constexpr std::uint32_t gst2_data_image = 0;
@@ -188,3 +189,4 @@ namespace test::support
         unreadable_streambuf buffer_;
     };
 } // namespace test::support
+#endif

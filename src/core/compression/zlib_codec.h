@@ -1,4 +1,5 @@
-#pragma once
+#ifndef UNPACKRAT_CORE_COMPRESSION_ZLIB_CODEC_H
+#define UNPACKRAT_CORE_COMPRESSION_ZLIB_CODEC_H
 
 #include <cstddef>
 #include <span>
@@ -16,3 +17,4 @@ namespace unpackrat::compression
     [[nodiscard]] std::vector<std::byte> decompress_zlib(std::span<const std::byte> input,
                                                          std::size_t max_output_bytes);
 } // namespace unpackrat::compression
+#endif

@@ -218,7 +218,7 @@ namespace unpackrat::codecs
                 header[1] = 'g';
                 header[2] = 'g';
                 header[3] = 'S';
-                header[5] = static_cast<unsigned char>((first_page ? 0 : 1) | (page_number == 0 ? 2 : 0));
+                header[5] = static_cast<unsigned char>((first_page ? 0U : 1U) | (page_number == 0 ? 2U : 0U));
                 std::size_t segments = 0;
                 std::size_t body_size = 0;
                 while (segments < 255) {
@@ -233,7 +233,7 @@ namespace unpackrat::codecs
                     }
                 }
                 if (packet_complete && index + 1 == packets.size()) {
-                    header[5] |= 4;
+                    header[5] |= 4U;
                 }
                 const std::int64_t granule =
                     packet_complete ? (index == 0 && packet.granule_position < 0 ? 0 : packet.granule_position) : -1;

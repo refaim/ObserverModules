@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <array>
 #include <charconv>
+#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <format>
@@ -123,8 +124,19 @@ namespace
         if (address == nullptr) {
             throw std::runtime_error(std::format("Required module export is absent: {}", name));
         }
+        // Windows ``GetProcAddress`` supplies a generic ``FARPROC``; the exact signature comes from
+        // the contract of the requested ABI export, so this Win32 boundary needs a function-pointer
+        // conversion. The regression suite exercises the helper with a real Kernel32 export and
+        // checks that the resolved function is callable with that export's documented signature.
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wcast-function-type-mismatch"
+#endif
 #pragma warning(suppress : 4191)
         return reinterpret_cast<Function>(address);
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#endif
     }
 
     class storage_handle final
@@ -676,10 +688,14 @@ int main(const int argc, char **argv)
         }
         return EXIT_SUCCESS;
     } catch (const std::exception &error) {
-        std::cerr << marker_prefix << "|ERROR|" << error.what() << '\n' << std::flush;
+        std::fprintf(stderr, "%.*s|ERROR|%s\n", static_cast<int>(marker_prefix.size()), marker_prefix.data(),
+                     error.what());
+        std::fflush(stderr);
         return EXIT_FAILURE;
     } catch (...) {
-        std::cerr << marker_prefix << "|ERROR|unknown failure\n" << std::flush;
+        std::fprintf(stderr, "%.*s|ERROR|unknown failure\n", static_cast<int>(marker_prefix.size()),
+                     marker_prefix.data());
+        std::fflush(stderr);
         return EXIT_FAILURE;
     }
 }

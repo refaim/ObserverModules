@@ -1,4 +1,5 @@
-#pragma once
+#ifndef UNPACKRAT_CORE_CODECS_RESOURCE_COMPRESSION_H
+#define UNPACKRAT_CORE_CODECS_RESOURCE_COMPRESSION_H
 
 #include <cstddef>
 #include <cstdint>
@@ -83,3 +84,4 @@ namespace unpackrat::codecs
         std::unique_ptr<state> state_;
     };
 } // namespace unpackrat::codecs
+#endif
