@@ -1,4 +1,5 @@
-#pragma once
+#ifndef UNPACKRAT_CORE_GODOT_BINARY_RESOURCE_H
+#define UNPACKRAT_CORE_GODOT_BINARY_RESOURCE_H
 
 // Platform-neutral reader for Godot binary resources: the "RSRC" container and the
 // uncompressed logical payload of a compressed "RSCC" container (see read_binary_resource
@@ -221,3 +222,4 @@ namespace unpackrat::godot
         const std::function<bool(std::string_view)> &accept_main_type, bool has_magic = true,
         const resource_limits &limits = {});
 } // namespace unpackrat::godot
+#endif

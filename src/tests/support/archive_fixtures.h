@@ -1,4 +1,5 @@
-#pragma once
+#ifndef UNPACKRAT_TESTS_SUPPORT_ARCHIVE_FIXTURES_H
+#define UNPACKRAT_TESTS_SUPPORT_ARCHIVE_FIXTURES_H
 
 #include <cstddef>
 #include <cstdint>
@@ -88,3 +89,4 @@ namespace test::support
         std::filesystem::path path_;
     };
 } // namespace test::support
+#endif

@@ -41,8 +41,8 @@ namespace test::support
             // Seed the LMS filter the same way Godot's importer does: weights {0, 0, -1, 2}, no history.
             desc.lms[channel].weights[0] = 0;
             desc.lms[channel].weights[1] = 0;
-            desc.lms[channel].weights[2] = -(1 << 13);
-            desc.lms[channel].weights[3] = (1 << 14);
+            desc.lms[channel].weights[2] = -static_cast<int>(1U << 13U);
+            desc.lms[channel].weights[3] = static_cast<int>(1U << 14U);
             for (int tap = 0; tap < QOA_LMS_LEN; ++tap) {
                 desc.lms[channel].history[tap] = 0;
             }

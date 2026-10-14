@@ -1,4 +1,5 @@
-#pragma once
+#ifndef UNPACKRAT_CORE_GODOT_AUDIO_RESOURCE_H
+#define UNPACKRAT_CORE_GODOT_AUDIO_RESOURCE_H
 
 #include "binary_resource.h"
 
@@ -67,3 +68,4 @@ namespace unpackrat::godot
     void write_audio_resource_streaming(const binary_resource &metadata, const io::byte_source &source,
                                         const io::byte_sink &sink, const codecs::audio_limits &limits = {});
 } // namespace unpackrat::godot
+#endif

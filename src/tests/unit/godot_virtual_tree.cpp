@@ -118,7 +118,7 @@ namespace
                 const int high = hex_value(field[index + 1]);
                 const int low = hex_value(field[index + 2]);
                 if (high >= 0 && low >= 0) {
-                    out.push_back(static_cast<char>((high << 4) | low));
+                    out.push_back(static_cast<char>((static_cast<unsigned>(high) << 4U) | static_cast<unsigned>(low)));
                     index += 2;
                     continue;
                 }
@@ -671,7 +671,7 @@ TEST_CASE("godot virtual tree: components above 255 UTF-16 units shorten to a so
     for (int index = 0; index < 127; ++index) {
         astral127 += astral;
     }
-    astral127 += "x"; // 254 + 1 = 255 UTF-16 units: exactly at the limit
+    astral127 += 'x'; // 254 + 1 = 255 UTF-16 units: exactly at the limit
 
     const virtual_tree tree = build(make_index({ascii256, astral128, astral127}));
 
@@ -733,7 +733,7 @@ TEST_CASE("godot virtual tree: the manifest stays valid UTF-8 and keeps original
     REQUIRE(manifest != nullptr);
     const std::string doc = manifest->generated_text;
     CHECK(valid_utf8(doc));
-    REQUIRE(doc.ends_with("\n"));
+    REQUIRE(doc.ends_with('\n'));
     const std::vector<std::string> fields = tab_fields(doc.substr(0, doc.size() - 1));
     REQUIRE(fields.size() == 3);
     CHECK(fields[0] == "0");
@@ -1025,7 +1025,7 @@ TEST_CASE("godot virtual tree: escaped manifest metadata is accounted against th
     const virtual_entry *ample_manifest = manifest_of(ample);
     REQUIRE(ample_manifest != nullptr);
     CHECK(valid_utf8(ample_manifest->generated_text));
-    CHECK(ample_manifest->generated_text.ends_with("\n"));
+    CHECK(ample_manifest->generated_text.ends_with('\n'));
 
     // The row is the escaped original name followed by its placed raw path.
     const std::vector<std::string> fields = tab_fields(ample_manifest->generated_text);

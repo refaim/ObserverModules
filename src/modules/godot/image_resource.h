@@ -1,4 +1,5 @@
-#pragma once
+#ifndef UNPACKRAT_MODULES_GODOT_IMAGE_RESOURCE_H
+#define UNPACKRAT_MODULES_GODOT_IMAGE_RESOURCE_H
 
 // Converts a Godot Image or ImageTexture binary resource into a standalone image stream.
 //
@@ -91,3 +92,4 @@ namespace unpackrat::godot
     void write_image_resource_streaming(const binary_resource &metadata, const io::byte_source &logical,
                                         const io::byte_sink &sink, const codecs::image_limits &limits = {});
 } // namespace unpackrat::godot
+#endif

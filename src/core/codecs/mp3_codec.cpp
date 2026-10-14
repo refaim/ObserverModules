@@ -33,8 +33,8 @@ namespace unpackrat::codecs
 
         [[nodiscard]] bool has_id3_magic(const std::span<const std::byte> input) noexcept
         {
-            const unsigned tag = (std::to_integer<unsigned>(input[0]) << 16) |
-                                 (std::to_integer<unsigned>(input[1]) << 8) | std::to_integer<unsigned>(input[2]);
+            const unsigned tag = (std::to_integer<unsigned>(input[0]) << 16U) |
+                                 (std::to_integer<unsigned>(input[1]) << 8U) | std::to_integer<unsigned>(input[2]);
             return tag == 0x494433U; // "ID3"
         }
 
@@ -50,7 +50,7 @@ namespace unpackrat::codecs
                 if ((part & 0x80U) != 0) {
                     throw audio_error("mp3: an ID3 size byte has the high bit set");
                 }
-                tag_size = (tag_size << 7) | (part & 0x7FU);
+                tag_size = (tag_size << 7U) | (part & 0x7FU);
             }
             std::uint64_t offset = id3_header_bytes + static_cast<std::uint64_t>(tag_size);
             if ((std::to_integer<unsigned>(prefix[5]) & 0x10U) != 0) {

@@ -79,7 +79,7 @@ TEST_CASE("compression: zlib consumes multiple output chunks and rejects trailin
     std::uint32_t state = 0x9e3779b9;
     for (auto &byte : input) {
         state = state * 1664525 + 1013904223;
-        byte = static_cast<std::byte>(state >> 24);
+        byte = static_cast<std::byte>(state >> 24U);
     }
 
     const auto compressed = test::support::compress_zlib_fixture(input);

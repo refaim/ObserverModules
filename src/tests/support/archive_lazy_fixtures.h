@@ -1,4 +1,5 @@
-#pragma once
+#ifndef UNPACKRAT_TESTS_SUPPORT_ARCHIVE_LAZY_FIXTURES_H
+#define UNPACKRAT_TESTS_SUPPORT_ARCHIVE_LAZY_FIXTURES_H
 
 #include "modules/extractor.h"
 
@@ -91,3 +92,4 @@ namespace test::support
     // A unique temporary path that is not created.
     [[nodiscard]] std::filesystem::path unused_path(std::string_view label);
 } // namespace test::support
+#endif

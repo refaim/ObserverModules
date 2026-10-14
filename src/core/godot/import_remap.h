@@ -1,4 +1,5 @@
-#pragma once
+#ifndef UNPACKRAT_CORE_GODOT_IMPORT_REMAP_H
+#define UNPACKRAT_CORE_GODOT_IMPORT_REMAP_H
 
 #include <cstddef>
 #include <span>
@@ -40,3 +41,4 @@ namespace unpackrat::godot
                                                                 std::string_view metadata_path,
                                                                 const metadata_limits &limits = {});
 } // namespace unpackrat::godot
+#endif

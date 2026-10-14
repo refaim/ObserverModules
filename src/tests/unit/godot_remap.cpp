@@ -819,8 +819,8 @@ TEST_CASE("godot remap: rejects unsafe mapping paths")
     SECTION("unknown scheme") reject("user://save.dat");
     SECTION("empty") reject("");
     SECTION("control byte")
-    reject(std::string("res://a\x01"
-                       "b.png"));
+    reject("res://a\x01"
+           "b.png");
     SECTION("nul byte") reject(std::string("res://a\0b.png", 13));
     SECTION("too long") reject("res://" + std::string(5000, 'a'));
 

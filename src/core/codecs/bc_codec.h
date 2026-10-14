@@ -1,4 +1,5 @@
-#pragma once
+#ifndef UNPACKRAT_CORE_CODECS_BC_CODEC_H
+#define UNPACKRAT_CORE_CODECS_BC_CODEC_H
 
 #include "image_types.h"
 
@@ -15,3 +16,4 @@ namespace unpackrat::codecs
     [[nodiscard]] rgba_image decode_bc(std::span<const std::byte> input, bc_format format, std::uint32_t width,
                                        std::uint32_t height, const image_limits &limits = {});
 } // namespace unpackrat::codecs
+#endif

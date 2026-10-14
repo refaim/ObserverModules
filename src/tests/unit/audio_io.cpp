@@ -860,7 +860,7 @@ TEST_CASE("audio: MP3 probe accepts a sparse mapped stream beyond the signed dec
     constexpr std::uint64_t logical_size = static_cast<std::uint64_t>((std::numeric_limits<int>::max)()) + 1;
     const HANDLE mapping =
         CreateFileMappingW(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE | SEC_RESERVE,
-                           static_cast<DWORD>(logical_size >> 32), static_cast<DWORD>(logical_size), nullptr);
+                           static_cast<DWORD>(logical_size >> 32U), static_cast<DWORD>(logical_size), nullptr);
     REQUIRE(mapping != nullptr);
     if (mapping == nullptr) {
         return;
@@ -953,7 +953,7 @@ TEST_CASE("audio: Ogg rejects a real mapped packet beyond libogg's signed-long r
     constexpr std::uint64_t logical_size = static_cast<std::uint64_t>((std::numeric_limits<long>::max)()) + 1;
     const HANDLE mapping =
         CreateFileMappingW(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE | SEC_RESERVE,
-                           static_cast<DWORD>(logical_size >> 32), static_cast<DWORD>(logical_size), nullptr);
+                           static_cast<DWORD>(logical_size >> 32U), static_cast<DWORD>(logical_size), nullptr);
     REQUIRE(mapping != nullptr);
     if (mapping == nullptr) {
         return;

@@ -140,6 +140,10 @@ class GuardedCase(unittest.TestCase):
         for path in (self.vcpkg_exe, self.vcpkg_props, self.msbuild_exe):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(b"fake")
+        # The driver forwards the legacy 14.44 servicing toolset selected from this install.
+        cl = self.vs_install / "VC" / "Tools" / "MSVC" / "14.44.35307" / "bin" / "Hostx64" / "x64" / "cl.exe"
+        cl.parent.mkdir(parents=True, exist_ok=True)
+        cl.write_bytes(b"fake")
 
     def _which(self, name: str):
         lowered = name.lower()
@@ -154,6 +158,10 @@ class GuardedCase(unittest.TestCase):
 
         stack = contextlib.ExitStack()
         stack.enter_context(mock.patch.object(main, "run", run))
+        # Debug tests launch the fatal cleanup probe; the tool fake must never let that escape
+        # into a real subprocess.
+        stack.enter_context(mock.patch.object(main, "_cleanup_fatal_probe"))
+        stack.enter_context(mock.patch.object(main, "_clang_tidy", return_value=self.root / "clang-tidy.exe"))
         stack.enter_context(mock.patch("shutil.which", side_effect=self._which))
         stack.enter_context(mock.patch.dict(os.environ, {"VCPKG_ROOT": str(self.vcpkg_root)}))
         return stack

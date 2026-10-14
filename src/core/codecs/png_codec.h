@@ -1,4 +1,5 @@
-#pragma once
+#ifndef UNPACKRAT_CORE_CODECS_PNG_CODEC_H
+#define UNPACKRAT_CORE_CODECS_PNG_CODEC_H
 
 #include "image_types.h"
 
@@ -20,3 +21,4 @@ namespace unpackrat::codecs
                          const std::function<void(std::uint32_t, std::span<std::byte>)> &read_row,
                          const std::function<void(std::span<const std::byte>)> &sink, const image_limits &limits = {});
 } // namespace unpackrat::codecs
+#endif

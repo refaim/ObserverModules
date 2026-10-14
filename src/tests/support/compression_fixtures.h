@@ -1,4 +1,5 @@
-#pragma once
+#ifndef UNPACKRAT_TESTS_SUPPORT_COMPRESSION_FIXTURES_H
+#define UNPACKRAT_TESTS_SUPPORT_COMPRESSION_FIXTURES_H
 
 #include "../../core/codecs/resource_compression.h"
 
@@ -27,3 +28,4 @@ namespace test::support
     // A deterministic, mildly compressible payload of the requested length.
     [[nodiscard]] std::vector<std::byte> make_payload(std::size_t size);
 } // namespace test::support
+#endif

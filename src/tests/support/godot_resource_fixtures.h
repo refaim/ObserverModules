@@ -1,4 +1,5 @@
-#pragma once
+#ifndef UNPACKRAT_TESTS_SUPPORT_GODOT_RESOURCE_FIXTURES_H
+#define UNPACKRAT_TESTS_SUPPORT_GODOT_RESOURCE_FIXTURES_H
 
 // Repository-owned Godot binary-resource fixture builder. Every byte is generated here
 // from the official wire layout; no external archive or engine artefact is read. The
@@ -198,3 +199,4 @@ namespace test::support
 
     [[nodiscard]] godot_resource_bytes build_resource(const resource_document_spec &spec);
 } // namespace test::support
+#endif

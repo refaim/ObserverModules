@@ -1,4 +1,5 @@
-#pragma once
+#ifndef UNPACKRAT_ARCHIVE_H
+#define UNPACKRAT_ARCHIVE_H
 
 #include "modules/extractor.h"
 
@@ -55,3 +56,4 @@ namespace archive
         bool opened_ = false;
     };
 } // namespace archive
+#endif

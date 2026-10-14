@@ -88,10 +88,10 @@ namespace unpackrat::godot
         constexpr std::uint32_t object_internal_resource = 2;
         constexpr std::uint32_t object_external_resource_index = 3;
 
-        constexpr std::uint32_t format_flag_named_scene_ids = 1U << 0;
-        constexpr std::uint32_t format_flag_uids = 1U << 1;
-        constexpr std::uint32_t format_flag_real_is_double = 1U << 2;
-        constexpr std::uint32_t format_flag_has_script_class = 1U << 3;
+        constexpr std::uint32_t format_flag_named_scene_ids = 1U << 0U;
+        constexpr std::uint32_t format_flag_uids = 1U << 1U;
+        constexpr std::uint32_t format_flag_real_is_double = 1U << 2U;
+        constexpr std::uint32_t format_flag_has_script_class = 1U << 3U;
 
         // Fixed-skip unit codes: a real-width scalar or an always-four-byte scalar.
         constexpr std::uint32_t skip_unit_real = 0;
@@ -560,13 +560,13 @@ namespace unpackrat::godot
         {
             require(2);
             const auto bytes = read_fixed<2>(position_);
-            const std::uint16_t low = std::to_integer<std::uint8_t>(bytes[0]);
-            const std::uint16_t high = std::to_integer<std::uint8_t>(bytes[1]);
+            const std::uint32_t low = std::to_integer<std::uint8_t>(bytes[0]);
+            const std::uint32_t high = std::to_integer<std::uint8_t>(bytes[1]);
             position_ += 2;
             if (big_endian_) {
-                return static_cast<std::uint16_t>((low << 8) | high);
+                return static_cast<std::uint16_t>((low << 8U) | high);
             }
-            return static_cast<std::uint16_t>(low | (high << 8));
+            return static_cast<std::uint16_t>(low | (high << 8U));
         }
 
         std::uint32_t parser::u32()
@@ -579,9 +579,9 @@ namespace unpackrat::godot
             const std::uint32_t b3 = std::to_integer<std::uint8_t>(bytes[3]);
             position_ += 4;
             if (big_endian_) {
-                return (b0 << 24) | (b1 << 16) | (b2 << 8) | b3;
+                return (b0 << 24U) | (b1 << 16U) | (b2 << 8U) | b3;
             }
-            return b0 | (b1 << 8) | (b2 << 16) | (b3 << 24);
+            return b0 | (b1 << 8U) | (b2 << 16U) | (b3 << 24U);
         }
 
         std::uint64_t parser::u64()
@@ -598,9 +598,10 @@ namespace unpackrat::godot
             const std::uint64_t b7 = std::to_integer<std::uint8_t>(bytes[7]);
             position_ += 8;
             if (big_endian_) {
-                return (b0 << 56) | (b1 << 48) | (b2 << 40) | (b3 << 32) | (b4 << 24) | (b5 << 16) | (b6 << 8) | b7;
+                return (b0 << 56U) | (b1 << 48U) | (b2 << 40U) | (b3 << 32U) | (b4 << 24U) | (b5 << 16U) | (b6 << 8U) |
+                       b7;
             }
-            return b0 | (b1 << 8) | (b2 << 16) | (b3 << 24) | (b4 << 32) | (b5 << 40) | (b6 << 48) | (b7 << 56);
+            return b0 | (b1 << 8U) | (b2 << 16U) | (b3 << 24U) | (b4 << 32U) | (b5 << 40U) | (b6 << 48U) | (b7 << 56U);
         }
 
         // Validates that ``bytes`` is well-formed UTF-8. An overlong encoding, a surrogate, a
@@ -641,7 +642,7 @@ namespace unpackrat::godot
                     if ((continuation & 0xC0U) != 0x80U) {
                         fail("resource string has an invalid UTF-8 continuation byte");
                     }
-                    code_point = (code_point << 6) | (continuation & 0x3FU);
+                    code_point = (code_point << 6U) | (continuation & 0x3FU);
                 }
                 if (code_point < minimum || code_point > 0x10FFFFU ||
                     (code_point >= 0xD800U && code_point <= 0xDFFFU)) {
@@ -909,7 +910,7 @@ namespace unpackrat::godot
                 value.image.mipmaps = reader.u32();
                 const std::uint32_t raw_format = reader.u32();
                 if (reader.versioned_image_format()) {
-                    if ((raw_format >> 24) != 0) {
+                    if ((raw_format >> 24U) != 0) {
                         fail("embedded image format version is unsupported");
                     }
                     value.image.format = raw_format & 0x00FFFFFFU;

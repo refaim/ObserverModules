@@ -32,7 +32,8 @@ namespace extractor
     }
 
     archive_info extractor::get_archive_info(
-        std::istream &, const std::span<const std::byte> &data, [[maybe_unused]] const std::filesystem::path &path,
+        [[maybe_unused]] std::istream &stream, const std::span<const std::byte> &data,
+        [[maybe_unused]] const std::filesystem::path &path,
         [[maybe_unused]] const std::string_view password) // NOLINT(*-convert-member-functions-to-static)
     {
         static_cast<void>(data);

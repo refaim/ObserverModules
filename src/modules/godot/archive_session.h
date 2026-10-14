@@ -1,4 +1,5 @@
-#pragma once
+#ifndef UNPACKRAT_MODULES_GODOT_ARCHIVE_SESSION_H
+#define UNPACKRAT_MODULES_GODOT_ARCHIVE_SESSION_H
 
 #include "../../core/godot/key_recovery.h"
 #include "../../core/godot/pck.h"
@@ -62,3 +63,4 @@ namespace unpackrat::godot
         std::unique_ptr<state> state_;
     };
 } // namespace unpackrat::godot
+#endif

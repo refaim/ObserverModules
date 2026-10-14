@@ -272,12 +272,12 @@ namespace
         REQUIRE(bytes.size() >= 44);
         const auto byte_at = [&](const std::size_t index) { return std::to_integer<unsigned>(bytes[index]); };
         const auto u16 = [&](const std::size_t index) {
-            return static_cast<std::uint16_t>(byte_at(index) | (byte_at(index + 1) << 8));
+            return static_cast<std::uint16_t>(byte_at(index) | (byte_at(index + 1) << 8U));
         };
         const auto u32 = [&](const std::size_t index) {
-            return static_cast<std::uint32_t>(byte_at(index)) | (static_cast<std::uint32_t>(byte_at(index + 1)) << 8) |
-                   (static_cast<std::uint32_t>(byte_at(index + 2)) << 16) |
-                   (static_cast<std::uint32_t>(byte_at(index + 3)) << 24);
+            return static_cast<std::uint32_t>(byte_at(index)) | (static_cast<std::uint32_t>(byte_at(index + 1)) << 8U) |
+                   (static_cast<std::uint32_t>(byte_at(index + 2)) << 16U) |
+                   (static_cast<std::uint32_t>(byte_at(index + 3)) << 24U);
         };
         REQUIRE(std::memcmp(bytes.data(), "RIFF", 4) == 0);
         REQUIRE(std::memcmp(bytes.data() + 8, "WAVE", 4) == 0);
@@ -359,8 +359,8 @@ namespace
         for (std::uint32_t channel = 0; channel < channels; ++channel) {
             desc.lms[channel].weights[0] = 0;
             desc.lms[channel].weights[1] = 0;
-            desc.lms[channel].weights[2] = -(1 << 13);
-            desc.lms[channel].weights[3] = (1 << 14);
+            desc.lms[channel].weights[2] = -static_cast<int>(1U << 13U);
+            desc.lms[channel].weights[3] = static_cast<int>(1U << 14U);
             for (int tap = 0; tap < QOA_LMS_LEN; ++tap) {
                 desc.lms[channel].history[tap] = 0;
             }
@@ -421,25 +421,25 @@ namespace
         std::int32_t step_index[2] = {0, 0};
         for (std::size_t frame = 0; frame < frames; ++frame) {
             for (unsigned channel = 0; channel < channels; ++channel) {
-                const std::size_t byte_index = (frame >> 1) * channels + channel;
+                const std::size_t byte_index = (frame >> 1U) * channels + channel;
                 const unsigned packed_byte = packed[byte_index];
-                const std::int32_t nibble = (frame & 1) != 0 ? static_cast<std::int32_t>(packed_byte >> 4)
-                                                             : static_cast<std::int32_t>(packed_byte & 0x0FU);
+                const std::int32_t nibble = (frame & 1U) != 0 ? static_cast<std::int32_t>(packed_byte >> 4U)
+                                                              : static_cast<std::int32_t>(packed_byte & 0x0FU);
                 const std::int32_t step = step_table[static_cast<std::size_t>(step_index[channel])];
                 std::int32_t index = step_index[channel] + index_table[static_cast<std::size_t>(nibble)];
                 index = index < 0 ? 0 : (index > 88 ? 88 : index);
                 step_index[channel] = index;
-                std::int32_t difference = step >> 3;
-                if ((nibble & 1) != 0) {
-                    difference += step >> 2;
+                std::int32_t difference = static_cast<std::int32_t>(static_cast<std::uint32_t>(step) >> 3U);
+                if ((static_cast<std::uint32_t>(nibble) & 1U) != 0) {
+                    difference += static_cast<std::int32_t>(static_cast<std::uint32_t>(step) >> 2U);
                 }
-                if ((nibble & 2) != 0) {
-                    difference += step >> 1;
+                if ((static_cast<std::uint32_t>(nibble) & 2U) != 0) {
+                    difference += static_cast<std::int32_t>(static_cast<std::uint32_t>(step) >> 1U);
                 }
-                if ((nibble & 4) != 0) {
+                if ((static_cast<std::uint32_t>(nibble) & 4U) != 0) {
                     difference += step;
                 }
-                if ((nibble & 8) != 0) {
+                if ((static_cast<std::uint32_t>(nibble) & 8U) != 0) {
                     difference = -difference;
                 }
                 predictor[channel] += difference;
@@ -463,9 +463,9 @@ namespace
         bytes[7] = static_cast<std::uint8_t>(version);
         bytes[11] = channels;
         bytes[12] = static_cast<std::uint8_t>(rate);
-        bytes[13] = static_cast<std::uint8_t>(rate >> 8);
-        bytes[14] = static_cast<std::uint8_t>(rate >> 16);
-        bytes[15] = static_cast<std::uint8_t>(rate >> 24);
+        bytes[13] = static_cast<std::uint8_t>(rate >> 8U);
+        bytes[14] = static_cast<std::uint8_t>(rate >> 16U);
+        bytes[15] = static_cast<std::uint8_t>(rate >> 24U);
         bytes[28] = 0xB8;
         bytes[29] = framing;
         return bytes;
@@ -565,8 +565,6 @@ namespace
         }
         return stream;
     }
-
-    const std::vector<std::uint8_t> valid_mp3_frame = complete_mp3_frame();
 } // namespace
 
 TEST_CASE("godot audio: godot 4 PCM8 sample expands to a PCM16 WAVE", "[godot][audio]")
@@ -1147,6 +1145,7 @@ TEST_CASE("godot audio: QOA descriptor validation rejects inconsistent headers",
 
 TEST_CASE("godot audio: MP3 pass-through preserves the exact bitstream", "[godot][audio]")
 {
+    const std::vector<std::uint8_t> valid_mp3_frame = complete_mp3_frame();
     SECTION("bare frame")
     {
         const binary_resource resource = read(build_resource(text_document("AudioStreamMP3", valid_mp3_frame)));
@@ -1481,6 +1480,7 @@ TEST_CASE("godot audio: Vorbis header validation rejects inconsistent prefixes",
 
 TEST_CASE("godot audio: a sink exception propagates unchanged", "[godot][audio]")
 {
+    const std::vector<std::uint8_t> valid_mp3_frame = complete_mp3_frame();
     const auto throwing_sink = [](const std::span<const std::byte>) { throw std::runtime_error("sink boom"); };
     SECTION("WAVE output")
     {
@@ -2072,7 +2072,7 @@ TEST_CASE("godot audio: streamed QOA rejects damaged later frame headers", "[god
 {
     const std::vector<std::int16_t> pcm(6000, 0);
     const std::vector<std::byte> valid = make_qoa(1, 8000, pcm);
-    const std::size_t second = 8 + (std::to_integer<unsigned>(valid[14]) << 8) + std::to_integer<unsigned>(valid[15]);
+    const std::size_t second = 8 + (std::to_integer<unsigned>(valid[14]) << 8U) + std::to_integer<unsigned>(valid[15]);
     REQUIRE(second + 8 < valid.size());
     binary_resource metadata =
         read(build_resource(wave_document(4, "AudioStreamWAV", to_resource(valid), 3, 8000, false)));
@@ -2095,7 +2095,7 @@ TEST_CASE("godot audio: streamed QOA rejects damaged later frame headers", "[god
     {
         const std::size_t oversized = source_bytes.size() - second + 1;
         REQUIRE(oversized < 8192);
-        source_bytes[second + 6] = static_cast<std::byte>(oversized >> 8);
+        source_bytes[second + 6] = static_cast<std::byte>(oversized >> 8U);
         source_bytes[second + 7] = static_cast<std::byte>(oversized);
     }
     SECTION("second frame declares fewer bytes than its header")

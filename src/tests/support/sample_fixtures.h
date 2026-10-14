@@ -1,4 +1,5 @@
-#pragma once
+#ifndef UNPACKRAT_TESTS_SUPPORT_SAMPLE_FIXTURES_H
+#define UNPACKRAT_TESTS_SUPPORT_SAMPLE_FIXTURES_H
 
 #include <cstddef>
 #include <cstdint>
@@ -27,3 +28,4 @@ namespace test::support
     [[nodiscard]] std::vector<std::byte> make_ima_stereo(std::span<const std::byte> left_packed,
                                                          std::span<const std::byte> right_packed);
 } // namespace test::support
+#endif

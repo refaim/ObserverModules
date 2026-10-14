@@ -31,14 +31,14 @@ namespace unpackrat::godot
     {
         constexpr std::uint32_t pack_magic = 0x43504447U; // "GDPC"
         constexpr std::uint32_t max_format_version = 4;
-        constexpr std::uint32_t pack_flag_directory_encrypted = 1U << 0;
-        constexpr std::uint32_t pack_flag_relative_base = 1U << 1;
-        constexpr std::uint32_t pack_flag_sparse_bundle = 1U << 2;
+        constexpr std::uint32_t pack_flag_directory_encrypted = 1U << 0U;
+        constexpr std::uint32_t pack_flag_relative_base = 1U << 1U;
+        constexpr std::uint32_t pack_flag_sparse_bundle = 1U << 2U;
         constexpr std::uint32_t known_pack_flags =
             pack_flag_directory_encrypted | pack_flag_relative_base | pack_flag_sparse_bundle;
-        constexpr std::uint32_t file_flag_encrypted = 1U << 0;
-        constexpr std::uint32_t file_flag_removal = 1U << 1;
-        constexpr std::uint32_t file_flag_delta = 1U << 2;
+        constexpr std::uint32_t file_flag_encrypted = 1U << 0U;
+        constexpr std::uint32_t file_flag_removal = 1U << 1U;
+        constexpr std::uint32_t file_flag_delta = 1U << 2U;
         constexpr std::uint32_t known_file_flags = file_flag_encrypted | file_flag_removal | file_flag_delta;
 
         constexpr std::uint16_t dos_signature = 0x5A4DU;    // "MZ"

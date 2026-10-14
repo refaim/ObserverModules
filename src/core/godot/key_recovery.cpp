@@ -3,6 +3,7 @@
 #include "../io/bounded_stream.h"
 #include <algorithm>
 #include <array>
+#include <exception>
 #include <limits>
 #include <optional>
 #include <span>
@@ -15,7 +16,7 @@ namespace unpackrat::godot
         // Recognition only: no machine state, instruction execution, branch evaluation or imports.
         // Candidates are untrusted until the archive session validates the complete plaintext MD5
         // and index. Only executable PE sections are searched; embedded game data is never scanned.
-        struct allowance_exhausted final
+        struct allowance_exhausted final : std::exception
         {
         };
         bool charge(std::uint64_t &used, std::uint64_t amount, std::uint64_t limit)
@@ -88,7 +89,7 @@ namespace unpackrat::godot
                     entry.raw_offset = integer(row, 20, 4);
                     entry.raw_size = integer(row, 16, 4);
                     entry.virtual_size = std::max(integer(row, 8, 4), entry.raw_size);
-                    entry.executable = (integer(row, 36, 4) & 0x20000000) != 0;
+                    entry.executable = (integer(row, 36, 4) & 0x20000000U) != 0;
                     if (rva > std::numeric_limits<std::uint64_t>::max() - base_ ||
                         entry.virtual_size > std::numeric_limits<std::uint64_t>::max() - base_ - rva)
                         throw key_recovery_error("PE virtual range overflow");

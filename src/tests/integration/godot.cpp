@@ -54,7 +54,7 @@ namespace
         result.reserve(path.size());
         for (const wchar_t character : path) {
             const wchar_t value = character == L'\\' ? L'/' : character;
-            result.push_back(static_cast<char>(value & 0xFF));
+            result.push_back(static_cast<char>(static_cast<unsigned>(value) & 0xFFU));
         }
         return result;
     }
@@ -118,7 +118,7 @@ namespace
                 const int high = hex_value(field[index + 1]);
                 const int low = hex_value(field[index + 2]);
                 if (high >= 0 && low >= 0) {
-                    out.push_back(static_cast<char>((high << 4) | low));
+                    out.push_back(static_cast<char>((static_cast<unsigned>(high) << 4U) | static_cast<unsigned>(low)));
                     index += 2;
                     continue;
                 }
@@ -414,7 +414,7 @@ TEST_CASE("godot integration: escaped names are recorded in the generated name m
     REQUIRE(manifest != nullptr);
     const std::string document = extract_bytes(*manifest, destination);
     REQUIRE(!document.empty());
-    REQUIRE(document.ends_with("\n"));
+    REQUIRE(document.ends_with('\n'));
 
     // The generated manifest is a generated metadata entry carrying its own byte counts rather than
     // a source-backed one, so the panel reports its own honest size: both the stored and the logical
@@ -815,9 +815,9 @@ TEST_CASE("godot integration: synthetic QOA resources restore omitted engine def
         const auto byte = [&output](const std::size_t at) {
             return static_cast<std::uint32_t>(static_cast<unsigned char>(output.at(at)));
         };
-        CHECK((byte(22) | byte(23) << 8) == expected.channels);
-        CHECK((byte(24) | byte(25) << 8 | byte(26) << 16 | byte(27) << 24) == expected.rate);
-        CHECK((byte(34) | byte(35) << 8) == 16);
+        CHECK((byte(22) | byte(23) << 8U) == expected.channels);
+        CHECK((byte(24) | byte(25) << 8U | byte(26) << 16U | byte(27) << 24U) == expected.rate);
+        CHECK((byte(34) | byte(35) << 8U) == 16);
         for (std::uint32_t channel = 0; channel < expected.channels; ++channel) {
             const std::size_t offset = 44 + static_cast<std::size_t>(channel) * 2;
             CHECK(byte(offset) == 1);

@@ -1,4 +1,5 @@
-#pragma once
+#ifndef UNPACKRAT_MODULES_GODOT_VIRTUAL_TREE_H
+#define UNPACKRAT_MODULES_GODOT_VIRTUAL_TREE_H
 
 // Godot PCK virtual presentation tree.
 //
@@ -85,3 +86,4 @@ namespace unpackrat::godot
                                                  std::span<const conversion_hint> hints,
                                                  const tree_limits &limits = {});
 } // namespace unpackrat::godot
+#endif

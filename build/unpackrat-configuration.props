@@ -3,6 +3,9 @@
   <PropertyGroup Label="Configuration">
     <!-- The repository imports vcpkg explicitly; never depend on per-user global integration. -->
     <VCPkgLocalAppDataDisabled>true</VCPkgLocalAppDataDisabled>
+    <!-- Keep production and instrumented builds on the retained 10.0.26100.0 SDK family: a
+         newly installed 10.0.28000 SDK must not retarget the shipped binaries in this scope. -->
+    <WindowsTargetPlatformVersion>10.0.26100.0</WindowsTargetPlatformVersion>
     <ConfigurationType>$(unpackratConfigurationType)</ConfigurationType>
     <UseDebugLibraries Condition="'$(Configuration)' != 'Release' And '$(Configuration)' != 'ASan' And '$(Configuration)' != 'Fuzz' And '$(Configuration)' != 'UBSan'">true</UseDebugLibraries>
     <UseDebugLibraries Condition="'$(Configuration)' == 'Release' Or '$(Configuration)' == 'ASan' Or '$(Configuration)' == 'Fuzz' Or '$(Configuration)' == 'UBSan'">false</UseDebugLibraries>

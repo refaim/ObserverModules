@@ -1,4 +1,5 @@
-#pragma once
+#ifndef UNPACKRAT_TESTS_SUPPORT_GODOT_FIXTURES_H
+#define UNPACKRAT_TESTS_SUPPORT_GODOT_FIXTURES_H
 
 // Repository-owned Godot PCK fixture builder. Every byte is generated here; no external
 // archive or engine artefact is read. The builders intentionally expose the raw header
@@ -18,7 +19,7 @@ namespace test::support
 
     // Godot's packed-file magic header: "GDPC" in little-endian byte order.
     inline constexpr std::uint32_t godot_pck_magic = 0x43504447U;
-    inline constexpr std::uint32_t godot_pack_flag_relative_base = 1U << 1;
+    inline constexpr std::uint32_t godot_pack_flag_relative_base = 1U << 1U;
 
     struct godot_entry_options final
     {
@@ -78,3 +79,4 @@ namespace test::support
     void patch_u32(godot_bytes &bytes, std::size_t offset, std::uint32_t value);
     void patch_u64(godot_bytes &bytes, std::size_t offset, std::uint64_t value);
 } // namespace test::support
+#endif

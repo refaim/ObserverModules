@@ -87,6 +87,8 @@ class PipelineRun:
         if capture:
             if "vswhere" in name:
                 return subprocess.CompletedProcess(list(recorded), 0, self._vswhere)
+            if name == "clang-format.exe":
+                return subprocess.CompletedProcess(list(recorded), 0, "clang-format version 23.1.3\n")
             if name == "dumpbin.exe" and self._dumpbin is not None:
                 return subprocess.CompletedProcess(list(recorded), 0, self._dumpbin(recorded))
             if "llvm-cov" in name:
@@ -139,6 +141,12 @@ class DriverCase(unittest.TestCase):
         self.asan.write_bytes(b"x")
         self.msbuild = self.root / "MSBuild.exe"
         self.vcpkg = self.root / "vcpkg.exe"
+        self.vs_install = self.root / "vs"
+        # The driver selects the legacy 14.44 servicing toolset from the chosen VS install.
+        cl = (self.vs_install / "VC" / "Tools" / "MSVC" / "14.44.35307"
+              / "bin" / "Hostx64" / "x64" / "cl.exe")
+        cl.parent.mkdir(parents=True, exist_ok=True)
+        cl.write_bytes(b"x")
 
     def tools(self, run: PipelineRun):
         return mock.patch.multiple(
@@ -147,10 +155,14 @@ class DriverCase(unittest.TestCase):
             run=run,
             _native_tools=mock.Mock(return_value=(self.msbuild, self.vcpkg)),
             _llvm=mock.Mock(return_value=self.llvm),
+            _clang_tidy=mock.Mock(return_value=self.root / "clang-tidy.exe"),
             _find_dumpbin=mock.Mock(return_value=self.root / "dumpbin.exe"),
             _find_umdh=mock.Mock(return_value=self.root / "umdh.exe"),
             _asan_runtime=mock.Mock(return_value=self.asan),
             _find_binskimm=mock.Mock(return_value=self.root / "binskim.exe"),
+            # Debug tests and the coverage unit scope launch the fatal cleanup probe; the tool
+            # fake must never let that escape into a real subprocess.
+            _cleanup_fatal_probe=mock.Mock(),
         )
 
     def make_module(self, module: str = "renpy", version: str = "1.2.3") -> None:
@@ -179,14 +191,14 @@ class DriverCase(unittest.TestCase):
     # ----- finding 3: fresh-tree JUnit report directories ---------------------------------
 
     def test_coverage_creates_the_junit_report_directory(self) -> None:
-        run = PipelineRun(junit_parents=True)
+        run = PipelineRun(vswhere=str(self.vs_install), junit_parents=True)
         with self.tools(run):
             main._coverage(self.repo, "x64", self.msbuild, self.vcpkg, self.llvm)
         reports = self.repo / "out" / "native" / "reports" / "tests" / "x64" / "Coverage" / "unit"
         self.assertTrue(reports.is_dir(), "coverage must create the JUnit report directory before the suite runs")
 
     def test_sanitizer_creates_the_junit_report_directory(self) -> None:
-        run = PipelineRun(junit_parents=True)
+        run = PipelineRun(vswhere=str(self.vs_install), junit_parents=True)
         with self.tools(run):
             main._sanitizer(self.repo, "asan", "x64", self.msbuild, self.vcpkg, self.llvm)
         reports = self.repo / "out" / "native" / "reports" / "tests" / "x64" / "ASan" / "asan"
@@ -215,7 +227,7 @@ class DriverCase(unittest.TestCase):
             "version": "2.1.0",
             "runs": [{"results": [{"ruleId": "BA2001", "level": "warning", "message": {"text": "load config"}}]}],
         }
-        run = PipelineRun(dumpbin=_dumpbin, sarif=warning)
+        run = PipelineRun(vswhere=str(self.vs_install), dumpbin=_dumpbin, sarif=warning)
         with self.tools(run), self.assertRaises(main.BuildError):
             main.ci_arch(["x64"], repository=self.repo)
 
@@ -226,7 +238,7 @@ class DriverCase(unittest.TestCase):
             "version": "2.1.0",
             "runs": [{"results": [{"ruleId": "BA2001", "message": {"text": "no level"}}]}],
         }
-        run = PipelineRun(dumpbin=_dumpbin, sarif=omitted)
+        run = PipelineRun(vswhere=str(self.vs_install), dumpbin=_dumpbin, sarif=omitted)
         with self.tools(run), self.assertRaises(main.BuildError):
             main.ci_arch(["x64"], repository=self.repo)
         # ...while only the BA2027 *warning* is the single documented exception.
@@ -234,7 +246,7 @@ class DriverCase(unittest.TestCase):
             "version": "2.1.0",
             "runs": [{"results": [{"ruleId": "BA2027", "level": "warning", "message": {"text": "exempt"}}]}],
         }
-        run = PipelineRun(dumpbin=_dumpbin, sarif=exempt)
+        run = PipelineRun(vswhere=str(self.vs_install), dumpbin=_dumpbin, sarif=exempt)
         with self.tools(run):
             main.ci_arch(["x64"], repository=self.repo)
 
@@ -352,10 +364,13 @@ class DriverCase(unittest.TestCase):
         llvm_bin = install / "VC" / "Tools" / "Llvm" / "x64" / "bin"
         llvm_bin.mkdir(parents=True)
         (llvm_bin / "clang-cl.exe").write_bytes(b"x")
-        (llvm_bin / "clang-format.exe").write_bytes(b"x")
-        (install / "VC" / "Tools" / "Llvm" / "x64" / "lib" / "clang" / "19.1.5" / "lib" / "windows").mkdir(parents=True)
-        dumpbin = install / "VC" / "Tools" / "MSVC" / "14.4" / "bin" / "Hostx64" / "x64" / "dumpbin.exe"
-        dumpbin.parent.mkdir(parents=True)
+        (install / "VC" / "Tools" / "Llvm" / "x64" / "lib" / "clang" / "19" / "lib" / "windows").mkdir(parents=True)
+        # The standalone formatter is installed on the standard PATH, never in a private cache.
+        formatter = self.root / "path" / "clang-format.exe"
+        formatter.parent.mkdir(parents=True)
+        formatter.write_bytes(b"x")
+        dumpbin = install / "VC" / "Tools" / "MSVC" / "14.44.35307" / "bin" / "Hostx64" / "x64" / "dumpbin.exe"
+        dumpbin.parent.mkdir(parents=True, exist_ok=True)
         dumpbin.write_bytes(b"x")
         pf86 = self.root / "pf86"
         vswhere = pf86 / "Microsoft Visual Studio" / "Installer" / "vswhere.exe"
@@ -363,22 +378,35 @@ class DriverCase(unittest.TestCase):
         vswhere.write_bytes(b"x")
 
         def which(name: str):
-            # An ordinary console: none of the VS/LLVM tools are on PATH.
+            # An ordinary console: only the standalone formatter is on the standard PATH.
+            if name == "clang-format.exe":
+                return str(formatter)
             return str(self.root / f"{name}.exe") if name in ("cppcheck", "pwsh") else None
 
         run = PipelineRun(vswhere=str(install))
         with mock.patch.object(main, "run", run), mock.patch("shutil.which", side_effect=which), mock.patch.dict(
-            os.environ, {"ProgramFiles(x86)": str(pf86)}
+            os.environ,
+            {
+                "ProgramFiles(x86)": str(pf86),
+                "LOCALAPPDATA": str(self.root / "localappdata"),
+                "UNPACKRAT_CLANG_FORMAT": "",
+            },
         ):
             tools = main._source_tools()
             directory = main._llvm_dir()
             found_dumpbin = main._find_dumpbin()
 
-        self.assertEqual(tools.clang_format, llvm_bin / "clang-format.exe")
+        # The format gate uses the separately pinned standalone formatter from the PATH, not the
+        # VS bundle and not the private user cache.
+        self.assertEqual(tools.clang_format, formatter.resolve())
+        self.assertFalse((self.root / "localappdata").exists())
         self.assertEqual(directory, install / "VC" / "Tools" / "Llvm" / "x64")
         self.assertEqual(found_dumpbin, dumpbin)
         # The lookup must use the installed tools, never install anything.
-        self.assertTrue(all(os.path.basename(call[0]).lower() == "vswhere.exe" for call in run.calls), run.tools())
+        self.assertTrue(
+            all(os.path.basename(call[0]).lower() in ("vswhere.exe", "clang-format.exe") for call in run.calls),
+            run.tools(),
+        )
 
 
 class _StallingProbe:

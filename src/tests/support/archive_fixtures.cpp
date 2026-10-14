@@ -75,9 +75,9 @@ namespace test::support
         void append_u32(byte_buffer &output, const std::uint32_t value)
         {
             output.push_back(static_cast<std::uint8_t>(value));
-            output.push_back(static_cast<std::uint8_t>(value >> 8));
-            output.push_back(static_cast<std::uint8_t>(value >> 16));
-            output.push_back(static_cast<std::uint8_t>(value >> 24));
+            output.push_back(static_cast<std::uint8_t>(value >> 8U));
+            output.push_back(static_cast<std::uint8_t>(value >> 16U));
+            output.push_back(static_cast<std::uint8_t>(value >> 24U));
         }
 
         void append_bytes(byte_buffer &output, const std::string_view value)
@@ -182,7 +182,8 @@ namespace test::support
         path_ = std::filesystem::temp_directory_path() /
                 std::format("unpackrat-{}-{}-{}.bin", label, GetCurrentProcessId(), sequence.fetch_add(1));
 
-        std::ofstream output(path_, std::ios::binary | std::ios::trunc);
+        std::ofstream output(path_, static_cast<std::ios_base::openmode>(static_cast<unsigned>(std::ios::binary) |
+                                                                         static_cast<unsigned>(std::ios::trunc)));
         if (!output.is_open()) {
             throw std::runtime_error(std::format("Failed to create fixture: {}", path_.string()));
         }

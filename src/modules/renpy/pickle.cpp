@@ -7,6 +7,61 @@
 
 namespace pickle
 {
+    std::size_t value::checked_child_depth(const value_ptr &child)
+    {
+        if (!child) {
+            throw std::runtime_error("Null pickle child");
+        }
+        if (child->depth_ >= max_depth) {
+            throw std::runtime_error("Pickle nesting limit exceeded");
+        }
+        return child->depth_ + 1;
+    }
+
+    std::size_t value::container_depth(const pickle::list &children)
+    {
+        return std::accumulate(children.begin(), children.end(), std::size_t{1},
+                               [](const std::size_t depth, const value_ptr &child) {
+                                   return std::max(depth, checked_child_depth(child));
+                               });
+    }
+
+    std::size_t value::container_depth(const pickle::dict &children)
+    {
+        std::size_t result = 1;
+        for (const auto &[key, child] : children) {
+            result = std::max(result, checked_child_depth(child));
+        }
+        return result;
+    }
+
+    void value::append(value_ptr child)
+    {
+        const auto depth = std::max(depth_, checked_child_depth(child));
+        std::get<pickle::list>(data_).push_back(std::move(child));
+        depth_ = depth;
+    }
+
+    void value::append(pickle::list children)
+    {
+        const auto depth = std::max(depth_, container_depth(children));
+        auto &target = std::get<pickle::list>(data_);
+        target.insert(target.end(), std::make_move_iterator(children.begin()), std::make_move_iterator(children.end()));
+        depth_ = depth;
+    }
+
+    void value::set(std::string key, value_ptr child)
+    {
+        const auto child_depth = checked_child_depth(child);
+        auto &target = std::get<pickle::dict>(data_);
+        bool recompute = false;
+        if (const auto existing = target.find(key); existing != target.end()) {
+            recompute = existing->second->depth_ + 1 == depth_ && child_depth < depth_;
+        }
+        target.insert_or_assign(std::move(key), std::move(child));
+        depth_ = recompute ? container_depth(target) : std::max(depth_, child_depth);
+    }
+
     namespace
     {
         list clone_list(const list &source)
@@ -115,7 +170,7 @@ namespace pickle
         if (pos_ + 2 > data_.size()) {
             throw std::runtime_error("Unexpected end of pickle data");
         }
-        const uint16_t result = static_cast<uint16_t>(data_[pos_]) | static_cast<uint16_t>(data_[pos_ + 1]) << 8;
+        const uint16_t result = static_cast<uint16_t>(data_[pos_]) | static_cast<uint32_t>(data_[pos_ + 1]) << 8U;
         pos_ += 2;
         return result;
     }
@@ -125,9 +180,9 @@ namespace pickle
         if (pos_ + 4 > data_.size()) {
             throw std::runtime_error("Unexpected end of pickle data");
         }
-        const uint32_t result = static_cast<uint32_t>(data_[pos_]) | static_cast<uint32_t>(data_[pos_ + 1]) << 8 |
-                                static_cast<uint32_t>(data_[pos_ + 2]) << 16 |
-                                static_cast<uint32_t>(data_[pos_ + 3]) << 24;
+        const uint32_t result = static_cast<uint32_t>(data_[pos_]) | static_cast<uint32_t>(data_[pos_ + 1]) << 8U |
+                                static_cast<uint32_t>(data_[pos_ + 2]) << 16U |
+                                static_cast<uint32_t>(data_[pos_ + 3]) << 24U;
         pos_ += 4;
         return result;
     }
@@ -138,10 +193,10 @@ namespace pickle
             throw std::runtime_error("Unexpected end of pickle data");
         }
         const uint64_t result =
-            static_cast<uint64_t>(data_[pos_]) | static_cast<uint64_t>(data_[pos_ + 1]) << 8 |
-            static_cast<uint64_t>(data_[pos_ + 2]) << 16 | static_cast<uint64_t>(data_[pos_ + 3]) << 24 |
-            static_cast<uint64_t>(data_[pos_ + 4]) << 32 | static_cast<uint64_t>(data_[pos_ + 5]) << 40 |
-            static_cast<uint64_t>(data_[pos_ + 6]) << 48 | static_cast<uint64_t>(data_[pos_ + 7]) << 56;
+            static_cast<uint64_t>(data_[pos_]) | static_cast<uint64_t>(data_[pos_ + 1]) << 8U |
+            static_cast<uint64_t>(data_[pos_ + 2]) << 16U | static_cast<uint64_t>(data_[pos_ + 3]) << 24U |
+            static_cast<uint64_t>(data_[pos_ + 4]) << 32U | static_cast<uint64_t>(data_[pos_ + 5]) << 40U |
+            static_cast<uint64_t>(data_[pos_ + 6]) << 48U | static_cast<uint64_t>(data_[pos_ + 7]) << 56U;
         pos_ += 8;
         return result;
     }
@@ -303,8 +358,7 @@ namespace pickle
             if (list_val->get_type() != value::type::list) {
                 throw std::runtime_error("APPEND target is not a list");
             }
-            auto &list_data = const_cast<list &>(list_val->as_list());
-            list_data.push_back(std::move(item));
+            list_val->append(std::move(item));
             break;
         }
 
@@ -317,8 +371,7 @@ namespace pickle
             if (list_val->get_type() != value::type::list) {
                 throw std::runtime_error("APPENDS target is not a list");
             }
-            auto &list_data = const_cast<list &>(list_val->as_list());
-            std::ranges::move(items, std::back_inserter(list_data));
+            list_val->append(std::move(items));
             break;
         }
 
@@ -421,8 +474,7 @@ namespace pickle
                 throw std::runtime_error("Dict key must be string");
             }
 
-            auto &dict_data = const_cast<dict &>(dict_val->as_dict());
-            dict_data[key->as_string()] = std::move(val);
+            dict_val->set(key->as_string(), std::move(val));
             break;
         }
 
@@ -439,13 +491,15 @@ namespace pickle
                 throw std::runtime_error("SETITEMS target is not a dict");
             }
 
-            auto &dict_data = const_cast<dict &>(dict_val->as_dict());
             for (size_t i = 0; i < items.size(); i += 2) {
                 if (items[i]->get_type() != value::type::string) {
                     throw std::runtime_error("Dict key must be string");
                 }
+                value::checked_child_depth(items[i + 1]);
+            }
+            for (size_t i = 0; i < items.size(); i += 2) {
                 std::string key = items[i]->as_string();
-                dict_data[std::move(key)] = std::move(items[i + 1]);
+                dict_val->set(std::move(key), std::move(items[i + 1]));
             }
             break;
         }
@@ -512,12 +566,12 @@ namespace pickle
                 const std::string bytes_data = read_string(length);
                 auto bits = std::accumulate(bytes_data.rbegin(), bytes_data.rend(), std::uint64_t{0},
                                             [](const std::uint64_t current, const char byte) {
-                                                return current << 8 | static_cast<std::uint8_t>(byte);
+                                                return current << 8U | static_cast<std::uint8_t>(byte);
                                             });
 
                 // Handle two's complement for negative numbers
-                if (length < sizeof(bits) && (static_cast<std::uint8_t>(bytes_data.back()) & 0x80) != 0) {
-                    bits |= ~std::uint64_t{0} << length * 8;
+                if (length < sizeof(bits) && (static_cast<std::uint8_t>(bytes_data.back()) & 0x80U) != 0) {
+                    bits |= ~std::uint64_t{0} << length * 8U;
                 }
 
                 stack_.push_back(value::int64(std::bit_cast<std::int64_t>(bits)));

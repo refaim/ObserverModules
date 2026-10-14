@@ -35,12 +35,12 @@ namespace unpackrat::codecs
         {
             std::uint64_t packed = 0;
             for (std::size_t index = 0; index < 8; ++index) {
-                packed = (packed << 8) | std::to_integer<std::uint64_t>(bytes[index]);
+                packed = (packed << 8U) | std::to_integer<std::uint64_t>(bytes[index]);
             }
             return qoa_frame_header{
-                static_cast<std::uint32_t>((packed >> 56) & 0xffU),
-                static_cast<std::uint32_t>((packed >> 32) & 0xffffffU),
-                static_cast<std::uint32_t>((packed >> 16) & 0xffffU),
+                static_cast<std::uint32_t>((packed >> 56U) & 0xffU),
+                static_cast<std::uint32_t>((packed >> 32U) & 0xffffffU),
+                static_cast<std::uint32_t>((packed >> 16U) & 0xffffU),
                 static_cast<std::uint32_t>(packed & 0xffffU),
             };
         }

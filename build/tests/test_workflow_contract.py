@@ -93,11 +93,17 @@ class WorkflowContractTests(unittest.TestCase):
         oidc = sorted(name for name, entries in grants.items() if "id-token" in entries)
         self.assertEqual(oidc, ["coverage-x64", "coverage-x86", "source-checks"])
         callers = (
-            "source-checks", "native-x86", "native-x64", "coverage-x86", "coverage-x64",
-            "asan-x86", "asan-x64", "ubsan-x64", "fuzz-x86", "fuzz-x64", "leaks-x64",
+            "source-checks",
+            "native-debug-x86", "native-debug-x64", "native-release-x86", "native-release-x64",
+            "msvc-analysis-x86", "msvc-analysis-x64", "clang-tidy-x86", "clang-tidy-x64",
+            "coverage-x86", "coverage-x64", "asan-x86", "asan-x64", "ubsan-x64",
+            "fuzz-x86", "fuzz-x64", "leaks-x64",
         )
         for job in callers:
             expected = {"contents": "read", "id-token": "write"} if job in oidc else {"contents": "read"}
+            if job in {"source-checks", "msvc-analysis-x86", "msvc-analysis-x64",
+                       "clang-tidy-x86", "clang-tidy-x64"}:
+                expected["security-events"] = "write"
             with self.subTest(job=job):
                 self.assertEqual(grants[job], expected)
 
@@ -136,7 +142,7 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertNotIn("schedule:", workflow)
         self.assertNotIn("pull_request_target", workflow)
         self.assertIn("cancel-in-progress: ${{ github.event_name == 'pull_request' }}", workflow)
-        self.assertIn("runs-on: windows-2022", workflow)
+        self.assertIn("runs-on: windows-2025-vs2026", workflow)
         self.assertNotIn("continue-on-error", workflow)
 
     def test_no_aggregate_gate_jobs_or_bash_result_scripts_remain(self) -> None:
@@ -157,29 +163,48 @@ class WorkflowContractTests(unittest.TestCase):
     def test_slices_are_independent_reusable_calls(self) -> None:
         workflow = self.main_workflow()
 
-        self.assertEqual(workflow.count("uses: ./.github/workflows/ci-check.yml"), 11)
+        self.assertEqual(workflow.count("uses: ./.github/workflows/ci-check.yml"), 17)
         jobs = (
-            "source-checks", "native-x86", "native-x64", "coverage-x86", "coverage-x64",
-            "asan-x86", "asan-x64", "ubsan-x64", "fuzz-x86", "fuzz-x64", "leaks-x64",
+            "source-checks",
+            "native-debug-x86", "native-debug-x64", "native-release-x86", "native-release-x64",
+            "msvc-analysis-x86", "msvc-analysis-x64", "clang-tidy-x86", "clang-tidy-x64",
+            "coverage-x86", "coverage-x64", "asan-x86", "asan-x64", "ubsan-x64",
+            "fuzz-x86", "fuzz-x64", "leaks-x64",
         )
         blocks = self.job_blocks(workflow)
-        # The whole job set is exactly the eleven real reusable-workflow calls plus the tag-gated
-        # packaging and release jobs; no aggregate gate survives.
-        self.assertEqual(sorted(blocks), sorted([*jobs, "packaging", "release"]))
+        # The whole job set is exactly the eleven real reusable-workflow calls plus the one real
+        # instrumentation-tools provisioning job and the tag-gated packaging and release jobs; no
+        # aggregate gate survives.
+        self.assertEqual(
+            sorted(blocks),
+            sorted([*jobs, "instrumentation-tools", "packaging", "release"]),
+        )
         for job in jobs:
             with self.subTest(job=job):
                 self.assertIn(f"\n  {job}:\n", workflow)
-        # The leak measurement depends only on the architecture it measures, never on a whole
-        # matrix of both architectures.
-        self.assertEqual(self.job_needs(blocks["leaks-x64"]), ["native-x64"])
+        # The instrumentation-tools job provisions the shared toolchain; it is a provisioning
+        # step, not an aggregate verdict over the other jobs.
+        self.assertIn("uses: ./.github/workflows/ci-instrumentation.yml", workflow)
+        self.assertEqual(self.job_needs(blocks["instrumentation-tools"]), [])
+        # The leak measurement depends only on the x64 Release slice that built the tree it
+        # measures, never on a whole matrix of both architectures.
+        self.assertEqual(self.job_needs(blocks["leaks-x64"]), ["native-release-x64"])
         self.assertNotIn("matrix:", workflow)
-        # No verification slice waits on another; every job except the leak measurement starts
-        # immediately and only packaging fans the results back in.
+        # No verification slice waits on another except the instrumentation stages, which wait on
+        # the shared toolchain provisioning, and the leak measurement. Only packaging fans the
+        # real gates back in.
+        instrumentation = {
+            "coverage-x86", "coverage-x64", "ubsan-x64", "fuzz-x86", "fuzz-x64",
+        }
         for job in jobs:
-            if job == "leaks-x64":
-                continue
             with self.subTest(job=job):
-                self.assertEqual(self.job_needs(blocks[job]), [])
+                if job in instrumentation:
+                    self.assertEqual(self.job_needs(blocks[job]), ["instrumentation-tools"])
+                elif job == "leaks-x64":
+                    self.assertEqual(self.job_needs(blocks[job]), ["native-release-x64"])
+                else:
+                    # The MSVC 14.44 dynamic ASan slices build without the LLVM 19 toolchain.
+                    self.assertEqual(self.job_needs(blocks[job]), [])
 
     def test_release_publishes_three_selected_archives_from_verified_outputs(self) -> None:
         workflow = self.main_workflow()
@@ -192,8 +217,11 @@ class WorkflowContractTests(unittest.TestCase):
             sorted(self.job_needs(self.job_blocks(workflow)["packaging"])),
             sorted(
                 [
-                    "source-checks", "native-x86", "native-x64", "coverage-x86", "coverage-x64",
-                    "asan-x86", "asan-x64", "ubsan-x64", "fuzz-x86", "fuzz-x64", "leaks-x64",
+                    "source-checks",
+                    "native-debug-x86", "native-debug-x64", "native-release-x86", "native-release-x64",
+                    "msvc-analysis-x86", "msvc-analysis-x64", "clang-tidy-x86", "clang-tidy-x64",
+                    "coverage-x86", "coverage-x64", "asan-x86", "asan-x64", "ubsan-x64",
+                    "fuzz-x86", "fuzz-x64", "leaks-x64",
                 ]
             ),
         )
@@ -243,26 +271,31 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn("./build.ps1 ci-arch", check)
         self.assertIn("-Stage '${{ inputs.stage }}'", check)
         self.assertEqual(check.count("./build.ps1 ci-source"), 1)
-        self.assertEqual(check.count("./build.ps1 ci-arch"), 1)
+        self.assertEqual(check.count("./build.ps1 ci-arch"), 2)
 
         # The build machinery (vcpkg baseline, uv, MSBuild side) is prepared only for a build or
         # source stage; leaks runs only the Python environment and the measurement tools.
         self.assertEqual(check.count("if: inputs.stage != 'leaks'"), 3)
-        self.assertIn("bootstrap-vcpkg.bat", check)
+        # vcpkg itself is a pinned prebuilt binary; the old in-tree bootstrap that would
+        # rebuild and overwrite it must not run.
+        self.assertNotIn("bootstrap-vcpkg.bat", check)
+        self.assertIn("2a4ae1467b9e797964c60c919d057b9e5dc1ec03f4b9632c1150026db25201f2", check.lower())
         self.assertIn("uv sync --project build --frozen", check)
         self.assertIn("Cache vcpkg binaries", check)
-        self.assertIn("uses: actions/cache@", check)
+        self.assertIn("uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9", check)
         self.assertIn("id: runner-image", check)
         self.assertIn("${{ steps.runner-image.outputs.identity }}", check)
 
         # The source tools are installed only for the source stage.
         self.assertIn("if: inputs.stage == 'source'", check)
-        self.assertIn("choco install cppcheck --version=2.19.0", check)
-        self.assertIn("C:\\Program Files\\Cppcheck", check)
+        self.assertIn("2.22", check)
+        self.assertIn("3929162bab7e71d1b9b18708ec054fb0188bfc8ea1660979ed95837f5a9f547b", check.lower())
+        self.assertIn("Cppcheck", check)
         self.assertIn("Install-Module PSScriptAnalyzer -RequiredVersion 1.25.0", check)
 
-        # BinSkim is installed only for the native stage.
-        self.assertIn("if: inputs.stage == 'native'", check)
+        # BinSkim is installed only for the native Release stage, the one stage that audits the
+        # shipped binaries.
+        self.assertIn("if: inputs.stage == 'native-release'", check)
         self.assertIn("Microsoft.CodeAnalysis.BinSkim -Version 4.4.9.11", check)
 
         # UMDH is provisioned only for the leak stage, and the stage downloads this run's tree.
@@ -279,11 +312,51 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn("name: release-x64", check)
         self.assertIn("path: out/native/bin/x64/Release", check)
         # No cross-run or cached binaries: a plain same-run artifact download only.
-        self.assertNotIn("actions/cache/restore@", check)
-        self.assertNotIn("actions/cache/save@", check)
+        # The tool caches are restored early and saved before the build gates, so a failed
+        # gate still leaves the verified tools cached for the next run.
+        self.assertIn("actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9", check)
+        self.assertIn("actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9", check)
         self.assertNotIn("out/cas", check)
-        self.assertNotIn("upload-sarif", self.all_workflows())
-        self.assertNotIn("codeql-action", self.all_workflows())
+        self.assertEqual(check.count("github/codeql-action/upload-sarif@"), 3)
+
+    def test_code_scanning_publishes_existing_source_and_msvc_reports(self) -> None:
+        check = self.check_workflow()
+        self.assertIn("Sarif.Multitool --version 5.8.0", check)
+        self.assertIn("inputs.stage == 'msvc-analysis'", check)
+        self.assertIn("$sarif = Join-Path $env:RUNNER_TEMP 'sarif-tools/sarif.exe'", check)
+        self.assertIn("& $sarif merge", check)
+        self.assertIn("--recurse --merge-empty-logs", check)
+        self.assertIn("out/native/obj-analysis/$arch/Release/*.sarif", check)
+        self.assertIn('msvc-$arch.sarif', check)
+        self.assertIn("category: msvc-analysis-${{ inputs.arch }}", check)
+        self.assertIn("category: cppcheck-source", check)
+        self.assertIn("sarif_file: out/native/analysis/cppcheck.sarif", check)
+        self.assertIn("sarif_file: out/native/analysis/msvc-${{ inputs.arch }}.sarif", check)
+        self.assertEqual(check.count("checkout_path: ${{ github.workspace }}"), 3)
+        self.assertNotIn("continue-on-error:", check)
+        self.assertNotIn("pull_request_target:", self.main_workflow())
+
+    def test_failed_fuzz_stage_retains_existing_inputs_without_running_more_tools(self) -> None:
+        check = self.check_workflow()
+        marker = "      - name: Retain the fuzz failure inputs\n"
+        self.assertEqual(check.count(marker), 1)
+        step = check.split(marker, 1)[1].partition("\n      - name:")[0]
+        self.assertIn("        if: failure() && inputs.stage == 'fuzz'\n", step)
+        self.assertIn(
+            "uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9", step)
+        self.assertIn("name: fuzz-failure-${{ inputs.arch }}\n", step)
+        self.assertIn(
+            "          path: |\n"
+            "            out/native/fuzz/${{ inputs.arch }}\n"
+            "            crash-*\n"
+            "            oom-*\n"
+            "            timeout-*\n", step)
+        self.assertIn("if-no-files-found: ignore\n", step)
+        self.assertIn("retention-days: 14\n", step)
+        self.assertNotIn("run:", step)
+        self.assertNotIn("continue-on-error:", check)
+        self.assertLess(check.index("      - name: Verify one stage for one architecture\n"),
+                        check.index(marker))
 
     def test_only_approved_pinned_actions_are_used(self) -> None:
         workflow = self.all_workflows()
@@ -292,12 +365,14 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertEqual(
             actions,
             {
-                "actions/checkout": "d23441a48e516b6c34aea4fa41551a30e30af803",
-                "astral-sh/setup-uv": "08807647e7069bb48b6ef5acd8ec9567f424441b",
-                "actions/cache": "caa296126883cff596d87d8935842f9db880ef25",
-                "actions/upload-artifact": "043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
-                "actions/download-artifact": "3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+                "actions/checkout": "3d3c42e5aac5ba805825da76410c181273ba90b1",
+                "astral-sh/setup-uv": "1c37ad07a6a961277cf70c0d37d6f313000f5884",
+                "actions/cache/restore": "55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
+                "actions/cache/save": "55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
+                "actions/upload-artifact": "cf430e030ddbb5b0abf93d22962f4752f3646cd9",
+                "actions/download-artifact": "9000827ccba6bdab643e8b6fd33ac0654aef8333",
                 "codecov/codecov-action": "303a32d7a59b442fa8d48b6a1cc6825c09c847a5",
+                "github/codeql-action/upload-sarif": "24c54180a607b1449ed407dd24f251e4e9147c8d",
             },
         )
         for action, revision in actions.items():
@@ -306,7 +381,7 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn("persist-credentials: false", workflow)
         self.assertEqual(workflow.count('version: "0.13.0"'), 2)
         pyproject = tomllib.loads((REPOSITORY / "build/pyproject.toml").read_text(encoding="utf-8"))
-        self.assertEqual(pyproject["project"]["requires-python"], "==3.14.7")
+        self.assertEqual(pyproject["project"]["requires-python"], "==3.15.0")
 
     def test_release_display_name_is_the_module_and_version_for_every_module_tag(self) -> None:
         publish_step = self.main_workflow().split("      - name: Publish the module release\n", 1)[1]

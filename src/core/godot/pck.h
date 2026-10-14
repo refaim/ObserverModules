@@ -1,4 +1,5 @@
-#pragma once
+#ifndef UNPACKRAT_CORE_GODOT_PCK_H
+#define UNPACKRAT_CORE_GODOT_PCK_H
 
 // Platform-neutral Reader for Godot PCK packs (versions 0-4) plus the standalone, PE
 // embedded-section and trailing-footer location strategies.
@@ -100,3 +101,4 @@ namespace unpackrat::godot
     [[nodiscard]] pck_index read_pack(std::istream &stream, const pack_location &location,
                                       const pck_limits &limits = {}, const codecs::key256 *key = nullptr);
 } // namespace unpackrat::godot
+#endif

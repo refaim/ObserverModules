@@ -1,4 +1,5 @@
-#pragma once
+#ifndef UNPACKRAT_CORE_CODECS_OGG_CODEC_H
+#define UNPACKRAT_CORE_CODECS_OGG_CODEC_H
 
 #include <cstddef>
 #include <cstdint>
@@ -62,3 +63,4 @@ namespace unpackrat::codecs
                          const std::function<void(std::size_t, std::uint64_t, std::span<std::byte>)> &fetch,
                          const std::function<void(std::span<const std::byte>)> &sink, const ogg_limits &limits = {});
 } // namespace unpackrat::codecs
+#endif

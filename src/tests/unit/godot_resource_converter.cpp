@@ -444,7 +444,7 @@ namespace
         pos_type seekoff(const off_type offset, const std::ios_base::seekdir direction,
                          const std::ios_base::openmode mode) override
         {
-            if ((mode & std::ios_base::in) == 0) {
+            if ((static_cast<unsigned>(mode) & static_cast<unsigned>(std::ios_base::in)) == 0) {
                 return pos_type(off_type(-1));
             }
             std::int64_t base = 0;
@@ -540,7 +540,7 @@ namespace
         pos_type seekoff(const off_type offset, const std::ios_base::seekdir direction,
                          const std::ios_base::openmode mode) override
         {
-            if ((mode & std::ios_base::in) == 0) {
+            if ((static_cast<unsigned>(mode) & static_cast<unsigned>(std::ios_base::in)) == 0) {
                 return pos_type(off_type(-1));
             }
             if (direction == std::ios_base::cur && offset == 0) {
@@ -592,9 +592,6 @@ namespace
       private:
         fault_streambuf buffer_;
     };
-
-    // The 8-byte PNG signature: the smallest encoded level the texture prober preserves verbatim.
-    const godot_bytes png_signature = {0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A};
 
     // A Godot 4 ``AudioStreamWAV`` document whose record carries the canonical sample properties.
     godot_resource_bytes audio_wave_resource(const std::int64_t format, const std::int64_t mix_rate,
@@ -1329,7 +1326,8 @@ TEST_CASE("godot resource converter: a source stream fault is reported as a sour
     {
         fault_stream stream(std::string("GDST") + std::string(28, '\0'), 32);
         stream.buffer().fail_end_seek = true;
-        stream.exceptions(std::ios::failbit | std::ios::badbit);
+        stream.exceptions(static_cast<std::ios_base::iostate>(static_cast<unsigned>(std::ios::failbit) |
+                                                              static_cast<unsigned>(std::ios::badbit)));
         CHECK_THROWS_AS(probe_resource(stream, byte_range{0, 32}), resource_source_error);
     }
     SECTION("a seek past the physical stream is a source fault")
@@ -1340,7 +1338,8 @@ TEST_CASE("godot resource converter: a source stream fault is reported as a sour
     SECTION("a read that raises the stream exception is a source fault")
     {
         unreadable_stream stream(64);
-        stream.exceptions(std::ios::failbit | std::ios::badbit);
+        stream.exceptions(static_cast<std::ios_base::iostate>(static_cast<unsigned>(std::ios::failbit) |
+                                                              static_cast<unsigned>(std::ios::badbit)));
         CHECK_THROWS_AS(probe_resource(stream, byte_range{0, 64}), resource_source_error);
     }
 }
@@ -1372,7 +1371,8 @@ TEST_CASE("godot resource converter: a source that runs dry mid-read is a source
     SECTION("the underlying stream raises on the short read")
     {
         fault_stream stream(prefix, full.size());
-        stream.exceptions(std::ios::failbit | std::ios::badbit);
+        stream.exceptions(static_cast<std::ios_base::iostate>(static_cast<unsigned>(std::ios::failbit) |
+                                                              static_cast<unsigned>(std::ios::badbit)));
         CHECK_THROWS_AS(probe_resource(stream, whole(full)), resource_source_error);
     }
     SECTION("the underlying stream delivers nothing and the reader traps it")
@@ -1489,6 +1489,8 @@ TEST_CASE("godot resource converter: a malformed audio descriptor and a bodiless
 TEST_CASE("godot resource converter: a preserved level ending exactly at the window end reads fully",
           "[godot][resource-converter]")
 {
+    // The 8-byte PNG signature: the smallest encoded level the texture prober preserves verbatim.
+    const godot_bytes png_signature = {0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A};
     // The single level is exactly the 8-byte PNG signature, so the level-signature read consumes the
     // last bytes of the window with nothing left over; the converted view is that exact body.
     const godot_bytes image = gdst_png_texture({png_signature});
@@ -1583,7 +1585,8 @@ TEST_CASE("godot resource converter: binary source position and seek failures st
     {
         fault_stream stream("RSRC", 4);
         stream.buffer().fail_end_seek = true;
-        stream.exceptions(std::ios::failbit | std::ios::badbit);
+        stream.exceptions(static_cast<std::ios_base::iostate>(static_cast<unsigned>(std::ios::failbit) |
+                                                              static_cast<unsigned>(std::ios::badbit)));
         CHECK_THROWS_AS(
             write_resource(stream, byte_range{0, 4}, resource_descriptor{resource_kind::image, ".png"}, sink),
             resource_source_error);

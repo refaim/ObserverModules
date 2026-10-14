@@ -1,4 +1,5 @@
-#pragma once
+#ifndef UNPACKRAT_CORE_CODECS_IMAGE_TYPES_H
+#define UNPACKRAT_CORE_CODECS_IMAGE_TYPES_H
 
 #include <cstddef>
 #include <cstdint>
@@ -51,3 +52,4 @@ namespace unpackrat::codecs
         bc7,
     };
 } // namespace unpackrat::codecs
+#endif

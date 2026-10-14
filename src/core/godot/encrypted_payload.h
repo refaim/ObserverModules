@@ -1,4 +1,5 @@
-#pragma once
+#ifndef UNPACKRAT_CORE_GODOT_ENCRYPTED_PAYLOAD_H
+#define UNPACKRAT_CORE_GODOT_ENCRYPTED_PAYLOAD_H
 
 #include "../codecs/crypto_codec.h"
 #include "pck.h"
@@ -73,3 +74,4 @@ namespace unpackrat::godot
         std::istream view_;
     };
 } // namespace unpackrat::godot
+#endif

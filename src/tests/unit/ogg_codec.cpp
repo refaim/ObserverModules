@@ -38,7 +38,7 @@ namespace
         std::uint32_t state = seed;
         for (auto &byte : data) {
             state = state * 1664525u + 1013904223u;
-            byte = static_cast<std::byte>(state >> 24);
+            byte = static_cast<std::byte>(state >> 24U);
         }
         return data;
     }
@@ -59,7 +59,7 @@ namespace
     {
         std::uint32_t value = 0;
         for (int i = 0; i < 4; ++i) {
-            value |= static_cast<std::uint32_t>(data[i]) << (8 * i);
+            value |= static_cast<std::uint32_t>(data[i]) << static_cast<std::uint32_t>(8 * i);
         }
         return value;
     }

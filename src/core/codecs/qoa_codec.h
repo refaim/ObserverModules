@@ -1,4 +1,5 @@
-#pragma once
+#ifndef UNPACKRAT_CORE_CODECS_QOA_CODEC_H
+#define UNPACKRAT_CORE_CODECS_QOA_CODEC_H
 
 #include "audio_types.h"
 
@@ -26,3 +27,4 @@ namespace unpackrat::codecs
     [[nodiscard]] std::uint32_t decode_qoa_frame(std::span<const std::byte> frame, std::uint32_t channels,
                                                  std::uint32_t sample_rate, std::span<std::int16_t> output);
 } // namespace unpackrat::codecs
+#endif

@@ -37,7 +37,8 @@ namespace extractor
     }
 
     archive_info extractor::get_archive_info(
-        std::istream &, const std::span<const std::byte> &data, [[maybe_unused]] const std::filesystem::path &path,
+        [[maybe_unused]] std::istream &stream, const std::span<const std::byte> &data,
+        [[maybe_unused]] const std::filesystem::path &path,
         [[maybe_unused]] const std::string_view password) // NOLINT(*-convert-member-functions-to-static)
     {
         static_cast<void>(data);
@@ -77,7 +78,9 @@ namespace extractor
             const auto index_offset = read_int64(stream);
             const auto encryption_key = read_int64(stream);
             return {index_offset, [encryption_key](int64_t offset, int64_t length) {
-                        return std::make_pair(offset ^ encryption_key, length ^ encryption_key);
+                        const auto key_bits = static_cast<std::uint64_t>(encryption_key);
+                        return std::make_pair(static_cast<int64_t>(static_cast<std::uint64_t>(offset) ^ key_bits),
+                                              static_cast<int64_t>(static_cast<std::uint64_t>(length) ^ key_bits));
                     }};
         }
 

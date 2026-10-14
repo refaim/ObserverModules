@@ -1120,7 +1120,8 @@ TEST_CASE("godot texture: a source-stream fault is a distinct texture_source_err
     SECTION("unreadable stream with exceptions enabled")
     {
         unreadable_stream stream(64);
-        stream.exceptions(std::ios::failbit | std::ios::badbit);
+        stream.exceptions(static_cast<std::ios_base::iostate>(static_cast<unsigned>(std::ios::failbit) |
+                                                              static_cast<unsigned>(std::ios::badbit)));
         CHECK_THROWS_AS(probe_texture(stream, byte_range{0, 64}), texture_source_error);
     }
 

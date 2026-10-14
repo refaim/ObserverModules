@@ -208,7 +208,7 @@ namespace unpackrat::godot
 
                 if (escape_byte) {
                     out.push_back('%');
-                    out.push_back(hex_digits[byte >> 4]);
+                    out.push_back(hex_digits[byte >> 4U]);
                     out.push_back(hex_digits[byte & 0x0FU]);
                 } else {
                     out.push_back(static_cast<char>(byte));
@@ -364,7 +364,7 @@ namespace unpackrat::godot
                 const unsigned char byte = static_cast<unsigned char>(current);
                 if (field_byte_escaped(valid, byte)) {
                     out.push_back('%');
-                    out.push_back(hex_digits[byte >> 4]);
+                    out.push_back(hex_digits[byte >> 4U]);
                     out.push_back(hex_digits[byte & 0x0FU]);
                 } else {
                     out.push_back(current);

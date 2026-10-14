@@ -589,7 +589,7 @@ TEST_CASE("godot image resource: preserves a Godot 2 embedded PNG stream")
     const binary_resource resource = read_resource(g2_encoded_texture(2, envelope));
     const auto extension = image_resource_extension(resource);
     REQUIRE(extension.has_value());
-    REQUIRE(*extension == ".png");
+    REQUIRE(extension == ".png");
 
     const auto stream = write_resource(resource);
     REQUIRE(stream == as_byte_vector(inner));
@@ -608,7 +608,7 @@ TEST_CASE("godot image resource: preserves a Godot 2 embedded WebP stream")
     const binary_resource resource = read_resource(g2_encoded_texture(3, envelope));
     const auto extension = image_resource_extension(resource);
     REQUIRE(extension.has_value());
-    REQUIRE(*extension == ".webp");
+    REQUIRE(extension == ".webp");
     REQUIRE(write_resource(resource) == as_byte_vector(webp));
 }
 
@@ -650,7 +650,7 @@ TEST_CASE("godot image resource: converts a Godot 2 raw embedded image")
     const binary_resource resource = read_resource(g2_raw_texture(2, 1, 0, format, data));
     const auto extension = image_resource_extension(resource);
     REQUIRE(extension.has_value());
-    REQUIRE(*extension == ".png");
+    REQUIRE(extension == ".png");
     const auto decoded = decode_png(write_resource(resource));
     REQUIRE(decoded.width == 2);
     REQUIRE(decoded.height == 1);
@@ -1723,7 +1723,7 @@ TEST_CASE("godot image streaming: raw RGBA geometry rejects a 64-bit byte overfl
 TEST_CASE("godot image streaming: a logical raw row beyond x86 address space fails before source reads",
           "[godot][image-streaming][bounds]")
 {
-    constexpr std::uint32_t width = 1U << 30;
+    constexpr std::uint32_t width = 1U << 30U;
     constexpr std::uint64_t row_bytes = static_cast<std::uint64_t>(width) * 4;
     std::size_t reads = 0;
     const unpackrat::io::byte_source source{row_bytes, [&](std::uint64_t, std::span<std::byte>) { ++reads; }};

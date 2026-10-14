@@ -138,8 +138,9 @@ namespace unpackrat::codecs
         }
         stream_state state{sink, limits.max_output_bytes};
         const auto context = create_encoder(state, width, height);
-        const int initialized =
-            spng_encode_image(context.get(), nullptr, 0, SPNG_FMT_PNG, SPNG_ENCODE_PROGRESSIVE | SPNG_ENCODE_FINALIZE);
+        const int initialized = spng_encode_image(context.get(), nullptr, 0, SPNG_FMT_PNG,
+                                                  static_cast<int>(static_cast<unsigned>(SPNG_ENCODE_PROGRESSIVE) |
+                                                                   static_cast<unsigned>(SPNG_ENCODE_FINALIZE)));
         if (initialized != SPNG_OK) {
             encoding_error(initialized, state);
         }

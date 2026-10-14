@@ -1,4 +1,5 @@
-#pragma once
+#ifndef UNPACKRAT_TESTS_SUPPORT_AUDIO_FIXTURES_H
+#define UNPACKRAT_TESTS_SUPPORT_AUDIO_FIXTURES_H
 
 #include <cstddef>
 #include <cstdint>
@@ -28,3 +29,4 @@ namespace test::support
     // ``std::runtime_error`` when the structure or its sizes do not match.
     [[nodiscard]] wav_view parse_pcm16_wav(std::span<const std::byte> bytes);
 } // namespace test::support
+#endif

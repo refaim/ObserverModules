@@ -1,4 +1,5 @@
-#pragma once
+#ifndef UNPACKRAT_CORE_CODECS_GODOT_IMA_CODEC_H
+#define UNPACKRAT_CORE_CODECS_GODOT_IMA_CODEC_H
 
 #include "audio_types.h"
 
@@ -60,3 +61,4 @@ namespace unpackrat::codecs
                                              std::uint32_t sample_rate, std::uint64_t declared_frames,
                                              const audio_limits &limits = {});
 } // namespace unpackrat::codecs
+#endif

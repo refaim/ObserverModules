@@ -7,9 +7,19 @@
 #include <cstdint>
 #include <span>
 #include <string>
+#include <string_view>
+#include <type_traits>
 #include <vector>
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers.hpp>
+
+static_assert(!std::is_copy_constructible_v<pickle::value>);
+static_assert(!std::is_copy_assignable_v<pickle::value>);
+static_assert(!std::is_move_constructible_v<pickle::value>);
+static_assert(!std::is_move_assignable_v<pickle::value>);
+static_assert(std::is_move_constructible_v<pickle::value_ptr>);
+static_assert(std::is_move_assignable_v<pickle::value_ptr>);
 
 namespace
 {
@@ -42,7 +52,170 @@ namespace
             bytes.size(),
         });
     }
+
+    struct container_encoding
+    {
+        std::string_view name;
+        std::string_view prefix;
+        std::string_view suffix;
+    };
+
+    constexpr std::array<container_encoding, 10> container_encodings{{
+        {"LIST", "(", "l"},
+        {"APPEND", "]", "a"},
+        {"APPENDS", "](", "e"},
+        {"TUPLE", "(", "t"},
+        {"TUPLE1", "", "\x85"},
+        {"TUPLE2", "", "N\x86"},
+        {"TUPLE3", "", "NN\x87"},
+        {"DICT", "(U\x01k", "d"},
+        {"SETITEM", "}U\x01k", "s"},
+        {"SETITEMS", "}(U\x01k", "u"},
+    }};
+
+    std::string nested_value(const std::size_t depth, const container_encoding &encoding)
+    {
+        std::string result = "N";
+        for (std::size_t level = 0; level < depth; ++level) {
+            std::string wrapped(encoding.prefix);
+            wrapped.append(result);
+            wrapped.append(encoding.suffix);
+            result = std::move(wrapped);
+        }
+        return result;
+    }
+
+    pickle::value_ptr list_container(pickle::value_ptr child)
+    {
+        pickle::list children;
+        children.push_back(std::move(child));
+        return pickle::value::list(std::move(children));
+    }
+
+    pickle::value_ptr tuple_container(pickle::value_ptr child)
+    {
+        pickle::list children;
+        children.push_back(std::move(child));
+        return pickle::value::tuple(std::move(children));
+    }
+
+    pickle::value_ptr dict_container(pickle::value_ptr child)
+    {
+        pickle::dict children;
+        children.emplace("key", std::move(child));
+        return pickle::value::dict(std::move(children));
+    }
+
+    constexpr std::array<pickle::value_ptr (*)(pickle::value_ptr), 3> container_factories{
+        list_container, tuple_container, dict_container};
 } // namespace
+
+TEST_CASE("pickle: container nesting is bounded before ownership grows")
+{
+    for (const auto &encoding : container_encodings) {
+        DYNAMIC_SECTION(encoding.name)
+        {
+            REQUIRE(pickle::loads(nested_value(64, encoding) + ".") != nullptr);
+            REQUIRE_THROWS_WITH(pickle::loads(nested_value(65, encoding) + "."), "Pickle nesting limit exceeded");
+        }
+    }
+}
+
+TEST_CASE("pickle: container factories reject excessive depth and null children")
+{
+    for (const auto factory : container_factories) {
+        REQUIRE(factory(pickle::loads(nested_value(63, container_encodings[4]) + ".")) != nullptr);
+        REQUIRE_THROWS_WITH(factory(pickle::loads(nested_value(64, container_encodings[4]) + ".")),
+                            "Pickle nesting limit exceeded");
+        REQUIRE_THROWS_WITH(factory(nullptr), "Null pickle child");
+    }
+}
+
+TEST_CASE("pickle: rejected depth mutations preserve the existing target")
+{
+    const auto child = nested_value(64, container_encodings[4]);
+    const std::array<std::string, 4> inputs{{
+        "]K\x07"
+        "a" +
+            child + "a.",
+        "]K\x07"
+        "a(N" +
+            child + "e.",
+        "}U\x01kK\x07sU\x01k" + child + "s.",
+        "}U\x01kK\x07s(U\x01xNU\x01k" + child + "u.",
+    }};
+    for (std::size_t index = 0; index < inputs.size(); ++index) {
+        const auto &input = inputs[index];
+        pickle::parser parser(std::as_bytes(std::span(input)));
+        REQUIRE_THROWS_WITH(parser.parse(), "Pickle nesting limit exceeded");
+        const auto preserved = parser.parse();
+        if (index < 2) {
+            REQUIRE(preserved->as_list().size() == 1);
+            REQUIRE(preserved->as_list()[0]->as_int64() == 7);
+        } else {
+            REQUIRE(preserved->as_dict().size() == 1);
+            REQUIRE(preserved->as_dict().at("k")->as_int64() == 7);
+        }
+    }
+}
+
+TEST_CASE("pickle: memo clones retain the bounded subtree height")
+{
+    const std::array<std::string, 3> stores{
+        {std::string("q\0", 2), std::string("r\0\0\0\0", 5), std::string(1, '\x94')}};
+    const std::array<std::string, 2> gets{{std::string("h\0", 2), std::string("j\0\0\0\0", 5)}};
+    for (const auto &store : stores) {
+        for (const auto &get : gets) {
+            std::string prefix = "]";
+            prefix.append(nested_value(63, container_encodings[4]));
+            prefix.append(store);
+            prefix.push_back('a');
+            prefix.append(get);
+            const auto value = pickle::loads(prefix + "a.");
+            REQUIRE(value->as_list().size() == 2);
+            REQUIRE(value->as_list()[0].get() != value->as_list()[1].get());
+            REQUIRE_THROWS_WITH(pickle::loads(prefix + std::string(1, '\x85') + "a."), "Pickle nesting limit exceeded");
+        }
+    }
+}
+
+TEST_CASE("pickle: dictionary replacements update the exact height")
+{
+    const std::string deep = nested_value(63, container_encodings[4]);
+    for (const auto &replacement : {std::string("U\x01kK\x07s"), std::string("(U\x01kK\x07u")}) {
+        std::string replaced = "}U\x01k";
+        replaced.append(deep);
+        replaced.push_back('s');
+        replaced.append(replacement);
+        REQUIRE(pickle::loads(replaced + std::string(63, '\x85') + ".") != nullptr);
+        REQUIRE_THROWS_WITH(pickle::loads(replaced + std::string(64, '\x85') + "."), "Pickle nesting limit exceeded");
+    }
+    // Replacing one tallest child must keep the other tallest child's contribution.
+    const auto two_deep = "}U\x01k" + deep + "sU\x01j" + deep + "sU\x01kNs";
+    REQUIRE_THROWS_WITH(pickle::loads(two_deep + std::string(1, '\x85') + "."), "Pickle nesting limit exceeded");
+    const auto replaced_shallow = two_deep + "U\x01kK\x08s";
+    REQUIRE(pickle::loads(replaced_shallow + ".")->as_dict().at("k")->as_int64() == 8);
+    REQUIRE_THROWS_WITH(pickle::loads(replaced_shallow + std::string(1, '\x85') + "."),
+                        "Pickle nesting limit exceeded");
+    // Replacing a shallow child by a taller one must raise the parent's cached height.
+    REQUIRE_THROWS_WITH(pickle::loads("}U\x01kNsU\x01k" + deep + "s" + std::string(1, '\x85') + "."),
+                        "Pickle nesting limit exceeded");
+}
+
+TEST_CASE("pickle: mixed trees and empty containers use the same depth boundary")
+{
+    auto tree = pickle::value::none();
+    for (std::size_t depth = 0; depth < 64; ++depth) {
+        tree = container_factories[depth % container_factories.size()](std::move(tree));
+    }
+    const auto copy = pickle::clone(*tree);
+    REQUIRE(copy->get_type() == tree->get_type());
+    REQUIRE_THROWS_WITH(container_factories[0](pickle::clone(*copy)), "Pickle nesting limit exceeded");
+    for (const auto &empty : {std::string("]"), std::string(")"), std::string("}")}) {
+        REQUIRE(pickle::loads(empty + std::string(63, '\x85') + ".") != nullptr);
+        REQUIRE_THROWS_WITH(pickle::loads(empty + std::string(64, '\x85') + "."), "Pickle nesting limit exceeded");
+    }
+}
 
 TEST_CASE("pickle: scalar values")
 {

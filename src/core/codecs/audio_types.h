@@ -1,4 +1,5 @@
-#pragma once
+#ifndef UNPACKRAT_CORE_CODECS_AUDIO_TYPES_H
+#define UNPACKRAT_CORE_CODECS_AUDIO_TYPES_H
 
 #include <cstddef>
 #include <cstdint>
@@ -36,3 +37,4 @@ namespace unpackrat::codecs
         using std::runtime_error::runtime_error;
     };
 } // namespace unpackrat::codecs
+#endif

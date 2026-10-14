@@ -1,4 +1,5 @@
-#pragma once
+#ifndef UNPACKRAT_CORE_CODECS_MP3_CODEC_H
+#define UNPACKRAT_CORE_CODECS_MP3_CODEC_H
 
 #include "audio_types.h"
 
@@ -39,3 +40,4 @@ namespace unpackrat::codecs
     // performs.
     [[nodiscard]] pcm_audio decode_mp3(std::span<const std::byte> input, const audio_limits &limits = {});
 } // namespace unpackrat::codecs
+#endif
