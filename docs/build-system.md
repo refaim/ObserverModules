@@ -117,6 +117,36 @@ message rather than being skipped.
   and Godot-fork QOA static-library overlays. vcpkg verifies downloaded header hashes before building;
   the decoder implementations no longer expand inside first-party adapter translation units.
 
+## Dependency monitoring
+
+`.github/dependabot.yml` enables weekly vcpkg version updates on Monday at 09:00
+`Asia/Vladivostok`, with at most one open update PR. Dependabot proposes a new root
+`vcpkg.json` `builtin-baseline`; it does not update the source revisions or hashes in the local
+overlay ports. The configuration uses JSON syntax, which is valid YAML and can be checked with the
+Python standard library already used by the build contracts.
+
+`.github/renovate.json` configures the hosted [Renovate GitHub app](https://github.com/apps/renovate)
+to keep a Dependency Dashboard issue in this repository. The account owner must install the app
+for `refaim/unpackrat`, and both configuration files must be on the default branch before the bots
+can use them. Renovate requires dashboard approval before opening an update branch or PR, and
+automatic merging is disabled. The issue is a pending-work list; editing its body does not promise
+a separate GitHub notification for every newly discovered update.
+
+The Renovate custom managers read the dependency versions from the root manifest and the overlay
+manifests or source URLs. Registry dependency checks compare upstream tags with the declared
+`version>=` requirements, not the versions resolved by a later baseline. Keep those requirements
+current when adopting an upgrade. zlib follows zlib-ng, and QOA follows stable Godot releases
+because this project uses Godot's fork. Commit-based checks report upstream repository changes;
+they do not establish that the particular decoder headers changed or are compatible.
+FastLZ's dependency entry carries `$upstream-ref`, the source commit corresponding to its calendar
+version. vcpkg treats this as metadata; it does not pin or override dependency resolution. Update
+this annotation together with FastLZ's declared version when adopting a new upstream revision.
+
+Dependency upgrades remain deliberate work: review upstream changes, update the baseline or port
+metadata and source revisions, recompute download hashes, update the pin contracts and notices,
+and add compatibility regression tests before changing production code. The monitoring configuration
+does not change the currently selected dependency versions.
+
 ## Invariants
 
 - **MSBuild owns incremental state.** Each build asks MSBuild for one project with an explicit

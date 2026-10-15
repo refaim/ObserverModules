@@ -1,0 +1,156 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "enabledManagers": ["custom.regex"],
+  "dependencyDashboard": true,
+  "dependencyDashboardApproval": true,
+  "dependencyDashboardTitle": "Dependency updates",
+  "dependencyDashboardHeader": "Upstream library updates for manual review. Approving an item creates a draft PR; overlay checksums, versions, source filenames and regression tests still require manual updates. Branch monitors report repository changes, which may not touch the headers we use.",
+  "automerge": false,
+  "draftPR": true,
+  "customManagers": [
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^vcpkg\\.json$/"],
+      "matchStrings": ["\"name\"\\s*:\\s*\"catch2\"[^{}]*?\"version>=\"\\s*:\\s*\"(?<currentValue>[^\"]+)\""],
+      "depNameTemplate": "catch2",
+      "packageNameTemplate": "catchorg/Catch2",
+      "datasourceTemplate": "github-tags",
+      "versioningTemplate": "semver",
+      "extractVersionTemplate": "^v?(?<version>\\d+\\.\\d+\\.\\d+)$"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^vcpkg\\.json$/"],
+      "matchStrings": ["\"name\"\\s*:\\s*\"nlohmann-json\"[^{}]*?\"version>=\"\\s*:\\s*\"(?<currentValue>[^\"]+)\""],
+      "depNameTemplate": "nlohmann-json",
+      "packageNameTemplate": "nlohmann/json",
+      "datasourceTemplate": "github-tags",
+      "versioningTemplate": "semver",
+      "extractVersionTemplate": "^v?(?<version>\\d+\\.\\d+\\.\\d+)$"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^vcpkg\\.json$/"],
+      "matchStrings": ["\"name\"\\s*:\\s*\"xxhash\"[^{}]*?\"version>=\"\\s*:\\s*\"(?<currentValue>[^\"]+)\""],
+      "depNameTemplate": "xxhash",
+      "packageNameTemplate": "Cyan4973/xxHash",
+      "datasourceTemplate": "github-tags",
+      "versioningTemplate": "semver",
+      "extractVersionTemplate": "^v?(?<version>\\d+\\.\\d+\\.\\d+)$"
+    },
+    {
+      "customType": "regex",
+      "description": "The zlib package is supplied by our zlib-ng compatibility overlay.",
+      "managerFilePatterns": ["/^vcpkg\\.json$/"],
+      "matchStrings": ["\"name\"\\s*:\\s*\"zlib\"[^{}]*?\"version>=\"\\s*:\\s*\"(?<currentValue>[^\"]+)\""],
+      "depNameTemplate": "zlib",
+      "packageNameTemplate": "zlib-ng/zlib-ng",
+      "datasourceTemplate": "github-tags",
+      "versioningTemplate": "semver",
+      "extractVersionTemplate": "^v?(?<version>\\d+\\.\\d+\\.\\d+)$"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^vcpkg\\.json$/"],
+      "matchStrings": ["\"name\"\\s*:\\s*\"libspng\"[^{}]*?\"version>=\"\\s*:\\s*\"(?<currentValue>[^\"]+)\""],
+      "depNameTemplate": "libspng",
+      "packageNameTemplate": "randy408/libspng",
+      "datasourceTemplate": "github-tags",
+      "versioningTemplate": "semver",
+      "extractVersionTemplate": "^v?(?<version>\\d+\\.\\d+\\.\\d+)$"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^vcpkg\\.json$/"],
+      "matchStrings": ["\"name\"\\s*:\\s*\"libogg\"[^{}]*?\"version>=\"\\s*:\\s*\"(?<currentValue>[^\"]+)\""],
+      "depNameTemplate": "libogg",
+      "packageNameTemplate": "xiph/ogg",
+      "datasourceTemplate": "github-tags",
+      "versioningTemplate": "semver",
+      "extractVersionTemplate": "^v?(?<version>\\d+\\.\\d+\\.\\d+)$"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^vcpkg\\.json$/"],
+      "matchStrings": ["\"name\"\\s*:\\s*\"brotli\"[^{}]*?\"version>=\"\\s*:\\s*\"(?<currentValue>[^\"]+)\""],
+      "depNameTemplate": "brotli",
+      "packageNameTemplate": "google/brotli",
+      "datasourceTemplate": "github-tags",
+      "versioningTemplate": "semver",
+      "extractVersionTemplate": "^v?(?<version>\\d+\\.\\d+\\.\\d+)$"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^vcpkg\\.json$/"],
+      "matchStrings": ["\"name\"\\s*:\\s*\"zstd\"[^{}]*?\"version>=\"\\s*:\\s*\"(?<currentValue>[^\"]+)\""],
+      "depNameTemplate": "zstd",
+      "packageNameTemplate": "facebook/zstd",
+      "datasourceTemplate": "github-tags",
+      "versioningTemplate": "semver",
+      "extractVersionTemplate": "^v?(?<version>\\d+\\.\\d+\\.\\d+)$"
+    },
+    {
+      "customType": "regex",
+      "description": "FastLZ uses a calendar version in vcpkg; $upstream-ref records its corresponding source commit.",
+      "managerFilePatterns": ["/^vcpkg\\.json$/"],
+      "matchStrings": ["\"name\"\\s*:\\s*\"fastlz\"[^{}]*?\"\\$upstream-ref\"\\s*:\\s*\"(?<currentDigest>[a-f0-9]{40})\""],
+      "depNameTemplate": "fastlz",
+      "packageNameTemplate": "https://github.com/ariya/FastLZ",
+      "datasourceTemplate": "git-refs",
+      "versioningTemplate": "exact",
+      "currentValueTemplate": "master"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^vcpkg\\.json$/"],
+      "matchStrings": ["\"name\"\\s*:\\s*\"zydis\"[^{}]*?\"version>=\"\\s*:\\s*\"(?<currentValue>[^\"]+)\""],
+      "depNameTemplate": "zydis",
+      "packageNameTemplate": "zyantific/zydis",
+      "datasourceTemplate": "github-tags",
+      "versioningTemplate": "semver",
+      "extractVersionTemplate": "^v?(?<version>\\d+\\.\\d+\\.\\d+)$"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^vcpkg\\.json$/"],
+      "matchStrings": ["\"name\"\\s*:\\s*\"mbedtls\"[^{}]*?\"version>=\"\\s*:\\s*\"(?<currentValue>[^\"]+)\""],
+      "depNameTemplate": "mbedtls",
+      "packageNameTemplate": "Mbed-TLS/mbedtls",
+      "datasourceTemplate": "github-tags",
+      "versioningTemplate": "semver",
+      "extractVersionTemplate": "^v?(?<version>\\d+\\.\\d+\\.\\d+)$"
+    },
+    {
+      "customType": "regex",
+      "description": "Watch bcdec main; the source is pinned by commit rather than an upstream release tag.",
+      "managerFilePatterns": ["/^build/vcpkg/ports/bcdec/portfile\\.cmake$/"],
+      "matchStrings": ["https://raw\\.githubusercontent\\.com/iOrange/bcdec/(?<currentDigest>[a-f0-9]{40})/bcdec\\.h"],
+      "depNameTemplate": "bcdec",
+      "packageNameTemplate": "https://github.com/iOrange/bcdec",
+      "datasourceTemplate": "git-refs",
+      "versioningTemplate": "exact",
+      "currentValueTemplate": "main"
+    },
+    {
+      "customType": "regex",
+      "description": "Watch dr_libs master for both headers; unrelated repository commits can also appear.",
+      "managerFilePatterns": ["/^build/vcpkg/ports/drlibs/portfile\\.cmake$/"],
+      "matchStrings": ["https://raw\\.githubusercontent\\.com/mackron/dr_libs/(?<currentDigest>[a-f0-9]{40})/dr_(?:mp3|wav)\\.h"],
+      "depNameTemplate": "drlibs",
+      "packageNameTemplate": "https://github.com/mackron/dr_libs",
+      "datasourceTemplate": "git-refs",
+      "versioningTemplate": "exact",
+      "currentValueTemplate": "master"
+    },
+    {
+      "customType": "regex",
+      "description": "The QOA decoder comes from Godot stable releases; inspect thirdparty/misc/qoa.h before upgrading.",
+      "managerFilePatterns": ["/^build/vcpkg/ports/qoa/vcpkg\\.json$/"],
+      "matchStrings": ["\"version-string\"\\s*:\\s*\"(?<currentValue>[^\"]+)\""],
+      "depNameTemplate": "qoa",
+      "packageNameTemplate": "godotengine/godot",
+      "datasourceTemplate": "github-tags",
+      "versioningTemplate": "regex:^(?<major>\\d+)\\.(?<minor>\\d+)(?:\\.(?<patch>\\d+))?-stable$"
+    }
+  ]
+}

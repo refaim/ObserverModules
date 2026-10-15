@@ -38,7 +38,8 @@
     },
     {
       "name": "fastlz",
-      "version>=": "2024-08-02"
+      "version>=": "2024-08-02",
+      "$upstream-ref": "b1342dabcf5257ab303743c9332fe75e9147a011"
     },
     {
       "name": "zydis",
