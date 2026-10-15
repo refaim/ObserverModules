@@ -43,7 +43,7 @@ A Windows 11 host with:
   are compiled against; no SDK 28000 target is used;
 - PowerShell 7.4 or newer, the shell `build.ps1` targets;
 - `uv` 0.13.0 to run the pinned
-  [Python 3.15.0](https://www.python.org/downloads/release/python-3150/) environment under
+  [Python 3.14.7](https://www.python.org/downloads/release/python-3147/) environment under
   `build/.venv` (coverage 7.16.2, filelock 4.1.1, psutil 7.2.2, pywin32 312). `build.ps1` invokes
   `uv run --frozen --no-sync --no-python-downloads`, so the environment must already exist: it never
   creates the venv, syncs the dependencies or downloads an interpreter;

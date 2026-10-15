@@ -381,7 +381,7 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn("persist-credentials: false", workflow)
         self.assertEqual(workflow.count('version: "0.13.0"'), 2)
         pyproject = tomllib.loads((REPOSITORY / "build/pyproject.toml").read_text(encoding="utf-8"))
-        self.assertEqual(pyproject["project"]["requires-python"], "==3.15.0")
+        self.assertEqual(pyproject["project"]["requires-python"], "==3.14.7")
 
     def test_release_display_name_is_the_module_and_version_for_every_module_tag(self) -> None:
         publish_step = self.main_workflow().split("      - name: Publish the module release\n", 1)[1]
