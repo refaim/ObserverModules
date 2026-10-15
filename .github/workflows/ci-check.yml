@@ -426,7 +426,7 @@ jobs:
             throw 'Unable to prepare the pinned SARIF merger.'
           }
 
-      # The report converter is separate from the build's pinned Python 3.15 environment.
+      # The report converter is separate from the build's pinned Python 3.14 environment.
       # Cache only this CI report tool tree; the analyzer's LLVM cache is unchanged.
       - name: Restore the pinned clang report tools
         if: inputs.stage == 'clang-tidy'

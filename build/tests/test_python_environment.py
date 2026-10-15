@@ -16,8 +16,8 @@ import unittest
 REPOSITORY = Path(__file__).resolve().parents[2]
 BUILD = REPOSITORY / "build"
 
-REQUIRES_PYTHON = "==3.15.0"
-PROJECT_VERSION = "0.5.0"
+REQUIRES_PYTHON = "==3.14.7"
+PROJECT_VERSION = "0.5.1"
 DEPENDENCIES = {
     "coverage": "7.16.2",
     "filelock": "4.1.1",
