@@ -5,6 +5,15 @@
       "package-ecosystem": "vcpkg",
       "directory": "/",
       "open-pull-requests-limit": 1,
+      "allow": [
+        {"dependency-name": "github.com/microsoft/vcpkg"}
+      ],
+      "ignore": [
+        {
+          "dependency-name": "github.com/microsoft/vcpkg",
+          "versions": ["<=2026.10.15"]
+        }
+      ],
       "schedule": {
         "interval": "weekly",
         "day": "monday",

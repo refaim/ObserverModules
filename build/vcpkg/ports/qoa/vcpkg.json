@@ -1,7 +1,7 @@
 {
   "name": "qoa",
-  "version-string": "4.5-stable",
-  "description": "Godot 4.5-stable QOA reference header used by the Godot module",
+  "version-string": "4.7.2-stable",
+  "description": "Godot 4.7.2-stable QOA reference header used by the Godot module",
   "homepage": "https://github.com/godotengine/godot",
   "license": "MIT",
   "dependencies": [

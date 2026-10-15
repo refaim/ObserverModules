@@ -1,7 +1,7 @@
 # Use Godot's tested fork, not a later phoboslab/qoa header with changed decoder behavior.
 vcpkg_download_distfile(QOA_HEADER
-    URLS "https://raw.githubusercontent.com/godotengine/godot/876b290332ec6f2e6d173d08162a02aa7e6ca46d/thirdparty/misc/qoa.h"
-    FILENAME "godot-876b290332ec6f2e6d173d08162a02aa7e6ca46d-qoa.h"
+    URLS "https://raw.githubusercontent.com/godotengine/godot/ed1daf0bf001b61586d9930840f2f1394092c079/thirdparty/misc/qoa.h"
+    FILENAME "godot-ed1daf0bf001b61586d9930840f2f1394092c079-qoa.h"
     SHA512 4fc49c5fa4b9af72d4e1c33c9202e227b5cbb5024ec26cb5d6a11b295af3dfdeeeb0e7fa8f4d06fecafbd7e568b21d04a1ef8edf572f3df244bb49273a692b17
 )
 

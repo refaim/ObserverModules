@@ -1,7 +1,7 @@
-Mbed TLS 3.6.5 cryptographic library (mbedcrypto)
+TF-PSA-Crypto 1.1.1, distributed with Mbed TLS 4.1.1 LTS
 Copyright The Mbed TLS Contributors.
 Distributed by unpackrat under the Apache-2.0 option of its dual license.
-Source: https://github.com/Mbed-TLS/mbedtls/tree/mbedtls-3.6.5
+Source: https://github.com/Mbed-TLS/mbedtls/releases/tag/mbedtls-4.1.1
 
                                  Apache License
                            Version 2.0, January 2004

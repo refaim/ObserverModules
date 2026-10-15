@@ -1,3 +1,8 @@
+Version 1.0.1
+-------------
+ * Updated the cryptographic dependency to Mbed TLS 4.1.1 LTS and its public PSA API.
+ * Refreshed the QOA source pin to Godot 4.7.2-stable; the decoder bytes remain unchanged.
+
 Version 1.0.0
 -------------
  + Added the Godot module for standalone PCK archives, embedded PCKs and same-stem EXE sidecars.

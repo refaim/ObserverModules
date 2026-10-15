@@ -1,0 +1,17 @@
+diff --git a/library/CMakeLists.txt b/library/CMakeLists.txt
+--- a/library/CMakeLists.txt
++++ b/library/CMakeLists.txt
+@@ -333,11 +333,11 @@ foreach(target IN LISTS tf_psa_crypto_library_targets)
+                     $<TARGET_FILE_NAME:${target}>
+             COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                     $<TARGET_FILE:${target}>
+-                    "libmbedcrypto.a"
++                    "${CMAKE_STATIC_LIBRARY_PREFIX}mbedcrypto${CMAKE_STATIC_LIBRARY_SUFFIX}"
+         )
+         install(FILES $<TARGET_FILE:${target}>
+                 DESTINATION ${CMAKE_INSTALL_LIBDIR}
+-                RENAME "libmbedcrypto.a"
++                RENAME "${CMAKE_STATIC_LIBRARY_PREFIX}mbedcrypto${CMAKE_STATIC_LIBRARY_SUFFIX}"
+         )
+     else()
+         # Copy the crypto shared library from tf-psa-crypto:

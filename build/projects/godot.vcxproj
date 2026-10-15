@@ -27,7 +27,7 @@
   <ItemDefinitionGroup>
     <Link>
       <ModuleDefinitionFile>$(RepositoryRoot)src\modules\godot\godot.def</ModuleDefinitionFile>
-      <AdditionalDependencies>bcdec.lib;drlibs.lib;qoa.lib;spng_static.lib;ogg.lib;mbedcrypto.lib;Zydis.lib;Zycore.lib;zstd.lib;fastlz.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>bcdec.lib;drlibs.lib;qoa.lib;spng_static.lib;ogg.lib;tfpsacrypto.lib;bcrypt.lib;ws2_32.lib;Zydis.lib;Zycore.lib;zstd.lib;fastlz.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>

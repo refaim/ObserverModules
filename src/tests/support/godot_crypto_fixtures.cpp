@@ -6,8 +6,34 @@
 #include <cstdint>
 #include <stdexcept>
 
-#include <mbedtls/aes.h>
-#include <mbedtls/md5.h>
+#include <psa/crypto.h>
+
+namespace
+{
+    void fixture_status(const psa_status_t status)
+    {
+        if (status != PSA_SUCCESS) {
+            throw std::runtime_error("fixture PSA operation failed");
+        }
+    }
+
+    struct fixture_cipher final
+    {
+        fixture_cipher() = default;
+        ~fixture_cipher()
+        {
+            static_cast<void>(psa_cipher_abort(&operation));
+            static_cast<void>(psa_destroy_key(key));
+            psa_reset_key_attributes(&attributes);
+        }
+        fixture_cipher(const fixture_cipher &) = delete;
+        fixture_cipher &operator=(const fixture_cipher &) = delete;
+
+        psa_key_attributes_t attributes = PSA_KEY_ATTRIBUTES_INIT;
+        mbedtls_svc_key_id_t key = 0;
+        psa_cipher_operation_t operation = PSA_CIPHER_OPERATION_INIT;
+    };
+} // namespace
 
 namespace test::support
 {
@@ -22,10 +48,13 @@ namespace test::support
 
     godot_bytes encrypted_envelope(const std::span<const std::uint8_t> plaintext, const unpackrat::codecs::key256 &key)
     {
+        // Fixture construction is sequential. Concurrent adapter tests create their
+        // independent NIST vectors before starting any worker threads.
+        fixture_status(psa_crypto_init());
         std::array<unsigned char, 16> digest{};
-        if (mbedtls_md5(plaintext.data(), plaintext.size(), digest.data()) != 0) {
-            throw std::runtime_error("fixture MD5 failed");
-        }
+        std::size_t digest_bytes = 0;
+        fixture_status(psa_hash_compute(PSA_ALG_MD5, plaintext.data(), plaintext.size(), digest.data(), digest.size(),
+                                        &digest_bytes));
         std::array<unsigned char, 16> iv{};
         for (std::size_t index = 0; index < iv.size(); ++index) {
             iv[index] = static_cast<unsigned char>(0xa0 + index);
@@ -33,17 +62,21 @@ namespace test::support
         godot_bytes padded(plaintext.begin(), plaintext.end());
         padded.resize((padded.size() + 15) & ~std::size_t{15}, 0);
         godot_bytes ciphertext(padded.size());
-        mbedtls_aes_context context;
-        mbedtls_aes_init(&context);
-        static_cast<void>(mbedtls_aes_setkey_enc(&context, reinterpret_cast<const unsigned char *>(key.data()), 256));
-        auto state_iv = iv;
-        std::size_t offset = 0;
-        const int result = mbedtls_aes_crypt_cfb128(&context, MBEDTLS_AES_ENCRYPT, padded.size(), &offset,
-                                                    state_iv.data(), padded.data(), ciphertext.data());
-        mbedtls_aes_free(&context);
-        if (result != 0) {
-            throw std::runtime_error("fixture AES failed");
-        }
+        fixture_cipher cipher;
+        psa_set_key_type(&cipher.attributes, PSA_KEY_TYPE_AES);
+        psa_set_key_bits(&cipher.attributes, 256);
+        psa_set_key_usage_flags(&cipher.attributes, PSA_KEY_USAGE_ENCRYPT);
+        psa_set_key_algorithm(&cipher.attributes, PSA_ALG_CFB);
+        fixture_status(psa_import_key(&cipher.attributes, reinterpret_cast<const unsigned char *>(key.data()),
+                                      key.size(), &cipher.key));
+        fixture_status(psa_cipher_encrypt_setup(&cipher.operation, cipher.key, PSA_ALG_CFB));
+        fixture_status(psa_cipher_set_iv(&cipher.operation, iv.data(), iv.size()));
+        std::size_t written = 0;
+        fixture_status(psa_cipher_update(&cipher.operation, padded.data(), padded.size(), ciphertext.data(),
+                                         ciphertext.size(), &written));
+        std::array<std::uint8_t, PSA_CIPHER_FINISH_OUTPUT_SIZE(PSA_KEY_TYPE_AES, PSA_ALG_CFB)> tail{};
+        std::size_t tail_bytes = 0;
+        fixture_status(psa_cipher_finish(&cipher.operation, tail.data(), tail.size(), &tail_bytes));
         godot_bytes output(digest.begin(), digest.end());
         const auto length = static_cast<std::uint64_t>(plaintext.size());
         for (unsigned shift = 0; shift < 64; shift += 8) {

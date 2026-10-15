@@ -7,6 +7,13 @@
   "dependencyDashboardHeader": "Upstream library updates for manual review. Approving an item creates a draft PR; overlay checksums, versions, source filenames and regression tests still require manual updates. Branch monitors report repository changes, which may not touch the headers we use.",
   "automerge": false,
   "draftPR": true,
+  "packageRules": [
+    {
+      "description": "Keep Mbed TLS on the supported 4.1 LTS series.",
+      "matchPackageNames": ["Mbed-TLS/mbedtls"],
+      "allowedVersions": ">=4.1.0 <4.2.0"
+    }
+  ],
   "customManagers": [
     {
       "customType": "regex",
