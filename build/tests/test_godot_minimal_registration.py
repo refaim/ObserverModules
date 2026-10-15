@@ -6,8 +6,8 @@ The behaviour it pins is the *observable* integration contract:
 
 * Godot is the fourth module of the default selection that drives the native audit
   and packaging routes (``main.MODULES`` / ``main.MODULE_BINARIES`` / ``main.LICENSES``);
-* the default packaging route ships ``godot-1.0.0-bin-x64.zip``,
-  ``godot-1.0.0-bin-x86.zip`` and ``godot-1.0.0-pdb.zip`` with the shipped
+* the default packaging route ships ``godot-1.0.1-bin-x64.zip``,
+  ``godot-1.0.1-bin-x86.zip`` and ``godot-1.0.1-pdb.zip`` with the shipped
   payload, registration and notices;
 * ``build/projects/tests.vcxproj`` references ``godot.vcxproj`` with the fixed
   project GUID and ``LinkLibraryDependencies=false``;
@@ -43,9 +43,9 @@ PROJECTS = REPOSITORY_ROOT / "build" / "projects"
 NS = {"msb": "http://schemas.microsoft.com/developer/msbuild/2003"}
 
 GODOT = "godot"
-GODOT_VERSION = "1.0.0"
+GODOT_VERSION = "1.0.1"
 GODOT_GUID = "{9C2F5E4A-7B31-4D58-8E27-1A6C4F0B9D34}"
-BASELINE = "9e593bb18ea69cc5095e012465dcd675a822ed0d"
+BASELINE = "20ceb8adbf0504d4b0d5e4058a32f9d4fc896391"
 
 # Independent fixture bytes: the shipped payloads are compared against these
 # literals, never against a value rederived from the same source they came from.
@@ -54,8 +54,8 @@ GODOT_SO_X86 = b"fake godot module x86 payload\n"
 GODOT_PDB_X64 = b"fake godot x64 program database\n"
 GODOT_PDB_X86 = b"fake godot x86 program database\n"
 GODOT_OBSERVER_INI = b"[Modules]\nGodot=modules\\godot.so\n"
-GODOT_CHANGELOG_EN = b"Version 1.0.0\n-------------\n + Godot module added.\n"
-GODOT_CHANGELOG_RU = b"Version 1.0.0\n-------------\n + Godot module added.\n"
+GODOT_CHANGELOG_EN = f"Version {GODOT_VERSION}\n-------------\n + Godot module added.\n".encode()
+GODOT_CHANGELOG_RU = f"Version {GODOT_VERSION}\n-------------\n + Godot module added.\n".encode()
 
 # Required notices for the Godot module.  The set below is a subset of the
 # registered notices; the vendored libraries (bcdec, dr_libs, qoa) are checked
@@ -227,9 +227,9 @@ class GodotRegistration(GuardedCase):
         created = main.package(repository=repository, output=repository / "out" / "packages")
         names = {Path(path).name for path in created}
         expected = {
-            "godot-1.0.0-bin-x64.zip",
-            "godot-1.0.0-bin-x86.zip",
-            "godot-1.0.0-pdb.zip",
+            f"godot-{GODOT_VERSION}-bin-x64.zip",
+            f"godot-{GODOT_VERSION}-bin-x86.zip",
+            f"godot-{GODOT_VERSION}-pdb.zip",
         }
         self.assertTrue(
             expected <= names,
@@ -237,7 +237,7 @@ class GodotRegistration(GuardedCase):
         )
         self.assertEqual(
             sorted(name for name in names if name.startswith("godot-")),
-            ["godot-1.0.0-bin-x64.zip", "godot-1.0.0-bin-x86.zip", "godot-1.0.0-pdb.zip"],
+            [f"godot-{GODOT_VERSION}-bin-x64.zip", f"godot-{GODOT_VERSION}-bin-x86.zip", f"godot-{GODOT_VERSION}-pdb.zip"],
             "the pdb archive must sort last lexicographically",
         )
 
@@ -536,15 +536,15 @@ class GodotDocsContract(GuardedCase):
         self.assertNotIn("### Format references", readme)
         self.assertIn("`.rgssad` (XP, RGSS1), `.rgss2a` (VX, RGSS2), `.rgss3a`", readme)
 
-    def test_godot_initial_release_keeps_version_1_0_0(self) -> None:
+    def test_godot_dependency_update_has_a_patch_version(self) -> None:
         self.assertEqual(main.read_version(REPOSITORY_ROOT, GODOT), GODOT_VERSION)
 
-    def test_godot_initial_release_has_one_changelog_section(self) -> None:
+    def test_godot_dependency_update_preserves_initial_release_notes(self) -> None:
         for language in ("en", "ru"):
             with self.subTest(language=language):
                 notes = (REPOSITORY_ROOT / f"src/modules/godot/ChangeLog.{language}.txt").read_text(encoding="utf-8")
                 versions = re.findall(r"^(?:Version|Версия)\s+(\S+)\s*$", notes, re.MULTILINE)
-                self.assertEqual(versions, [GODOT_VERSION])
+                self.assertEqual(versions, [GODOT_VERSION, "1.0.0"])
 
 
 if __name__ == "__main__":  # pragma: no cover

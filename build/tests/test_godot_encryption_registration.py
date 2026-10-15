@@ -16,15 +16,16 @@ class EncryptionRegistration(unittest.TestCase):
         manifest = json.loads((ROOT / "vcpkg.json").read_text(encoding="utf-8"))
         deps = {item["name"]: item.get("version>=") for item in manifest["dependencies"]}
         self.assertEqual(deps.get("zydis"), "4.1.1")
-        self.assertEqual(deps.get("mbedtls"), "3.6.5")
+        self.assertEqual(deps.get("mbedtls"), "4.1.1")
 
     def test_production_and_tests_link_only_crypto_and_static_decoder(self):
         for name in ("godot", "tests"):
             with self.subTest(project=name):
                 tree = ET.parse(ROOT / "build/projects" / (name + ".vcxproj"))
                 links = ";".join(x.text or "" for x in tree.findall(".//m:Link/m:AdditionalDependencies", NS))
-                for library in ("mbedcrypto.lib", "Zydis.lib", "Zycore.lib"):
+                for library in ("tfpsacrypto.lib", "bcrypt.lib", "ws2_32.lib", "Zydis.lib", "Zycore.lib"):
                     self.assertIn(library, links)
+                self.assertNotIn("mbedcrypto.lib", links)
                 self.assertNotIn("mbedtls.lib", links)
                 self.assertNotIn("mbedx509.lib", links)
 

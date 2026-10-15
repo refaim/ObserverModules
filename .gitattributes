@@ -1,4 +1,6 @@
 * text eol=crlf
+# Port patches must retain LF so Git can parse empty context lines after checkout.
+build/vcpkg/ports/**/*.patch text eol=lf
 # Vendored single-header libraries are pinned by their canonical LF byte digest so the
 # working-tree bytes stay byte-identical to the verified upstream blobs.
 third_party/**/*.h text eol=lf

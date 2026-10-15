@@ -9,7 +9,7 @@
 
 // The pinned QOA overlay builds Godot's reference implementation as a C static library. Its types
 // stay private to this adapter, which uses caller-owned buffers for frame decoding.
-//   godot @ 876b290332ec6f2e6d173d08162a02aa7e6ca46d, thirdparty/misc/qoa.h
+//   godot @ ed1daf0bf001b61586d9930840f2f1394092c079, thirdparty/misc/qoa.h
 //   sha256 ab501e91f4afd18c811e689713e5fd3956030562bf80cda784d304af17133f01
 #pragma warning(push, 0)
 #include <qoa.h>

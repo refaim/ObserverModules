@@ -121,8 +121,13 @@ message rather than being skipped.
 
 `.github/dependabot.yml` enables weekly vcpkg version updates on Monday at 09:00
 `Asia/Vladivostok`, with at most one open update PR. Dependabot proposes a new root
-`vcpkg.json` `builtin-baseline`; it does not update the source revisions or hashes in the local
-overlay ports. The configuration uses JSON syntax, which is valid YAML and can be checked with the
+`vcpkg.json` `builtin-baseline` when a newer vcpkg release tag is available. Its allow list selects
+only the registry baseline; Renovate tracks individual library versions below. The current baseline
+is an October 15, 2026 snapshot newer than the latest tagged release, so an ignore rule excludes
+release versions through `2026.10.15` to prevent a rollback. When deliberately selecting another
+snapshot baseline, advance this floor to that commit's date. Future release dates remain eligible.
+Dependabot does not update the source revisions or hashes in the local overlay ports. The configuration uses JSON
+syntax, which is valid YAML and can be checked with the
 Python standard library already used by the build contracts.
 
 `.github/renovate.json` configures the hosted [Renovate GitHub app](https://github.com/apps/renovate)
@@ -141,6 +146,13 @@ they do not establish that the particular decoder headers changed or are compati
 FastLZ's dependency entry carries `$upstream-ref`, the source commit corresponding to its calendar
 version. vcpkg treats this as metadata; it does not pin or override dependency resolution. Update
 this annotation together with FastLZ's declared version when adopting a new upstream revision.
+Mbed TLS follows the 4.1 LTS series, supported through March 2029; Renovate offers patches within
+that series. Review its next supported series before that date. Catch2 and Mbed TLS use local
+overlay ports while the registry trails the adopted upstream releases. The Mbed TLS port downloads
+the official complete release archive, including its TF-PSA-Crypto dependency and generated files;
+GitHub's automatically generated source archives omit those files. Godot links only the static
+TF-PSA-Crypto provider, not the TLS or X.509 libraries. Its project-owned adapter uses the public
+PSA API and serializes access to the provider's shared runtime.
 
 Dependency upgrades remain deliberate work: review upstream changes, update the baseline or port
 metadata and source revisions, recompute download hashes, update the pin contracts and notices,

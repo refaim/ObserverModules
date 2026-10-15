@@ -21,8 +21,9 @@ namespace unpackrat::codecs
 
     void erase_key(key256 &key) noexcept;
 
-    // Owns the expanded AES key; mbedTLS erases its context on release. Input and output may
-    // alias exactly. Arbitrary chunk boundaries preserve CFB128's byte offset and feedback IV.
+    // Owns a volatile AES key and operation; the provider erases both on release. Input and
+    // output may alias exactly, and arbitrary chunks preserve CFB128 feedback. Separate objects
+    // may run concurrently; an individual object requires exclusive access by its caller.
     class aes256_cfb128 final
     {
       public:

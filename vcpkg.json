@@ -2,11 +2,11 @@
   "name": "unpackrat",
   "version-string": "1.0.0",
   "license": "MIT",
-  "builtin-baseline": "9e593bb18ea69cc5095e012465dcd675a822ed0d",
+  "builtin-baseline": "20ceb8adbf0504d4b0d5e4058a32f9d4fc896391",
   "dependencies": [
     {
       "name": "catch2",
-      "version>=": "3.15.3"
+      "version>=": "3.16.1"
     },
     {
       "name": "nlohmann-json",
@@ -14,7 +14,7 @@
     },
     {
       "name": "xxhash",
-      "version>=": "0.8.3"
+      "version>=": "0.8.4"
     },
     {
       "name": "zlib",
@@ -47,7 +47,7 @@
     },
     {
       "name": "mbedtls",
-      "version>=": "3.6.5"
+      "version>=": "4.1.1"
     },
     {
       "name": "bcdec"

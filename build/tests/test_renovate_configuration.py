@@ -58,7 +58,11 @@ class RenovateConfigurationTests(unittest.TestCase):
         self.assertEqual(self.configuration["enabledManagers"], ["custom.regex"])
         self.assertNotIn("extends", self.configuration)
         self.assertNotIn("postUpgradeTasks", self.configuration)
-        self.assertNotIn("packageRules", self.configuration)
+        self.assertEqual(self.configuration.get("packageRules"), [{
+            "description": "Keep Mbed TLS on the supported 4.1 LTS series.",
+            "matchPackageNames": ["Mbed-TLS/mbedtls"],
+            "allowedVersions": ">=4.1.0 <4.2.0",
+        }])
 
     def test_every_direct_dependency_has_a_live_version_or_source_ref(self) -> None:
         self.assertEqual(set(self.managers), {dependency["name"] for dependency in self.manifest["dependencies"]})

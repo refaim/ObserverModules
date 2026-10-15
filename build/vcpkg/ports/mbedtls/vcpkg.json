@@ -1,0 +1,17 @@
+{
+  "name": "mbedtls",
+  "version": "4.1.1",
+  "description": "Mbed TLS 4.1 LTS with its pinned TF-PSA-Crypto provider, built statically for unpackrat",
+  "homepage": "https://www.trustedfirmware.org/projects/mbed-tls/",
+  "license": "Apache-2.0 OR GPL-2.0-or-later",
+  "dependencies": [
+    {
+      "name": "vcpkg-cmake",
+      "host": true
+    },
+    {
+      "name": "vcpkg-cmake-config",
+      "host": true
+    }
+  ]
+}

@@ -24,8 +24,8 @@
   <ItemDefinitionGroup>
     <Link>
       <AdditionalLibraryDirectories>$(VcpkgInstalledDir)$(VcpkgTriplet)\$(unpackratVcpkgDebugPrefix)lib\manual-link;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies Condition="'$(UseDebugLibraries)' == 'true'">Catch2d.lib;bcdec.lib;drlibs.lib;qoa.lib;xxhash.lib;spng_static.lib;ogg.lib;mbedcrypto.lib;Zydis.lib;Zycore.lib;fastlz.lib;zstd.lib;brotlienc.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <AdditionalDependencies Condition="'$(UseDebugLibraries)' != 'true'">Catch2.lib;bcdec.lib;drlibs.lib;qoa.lib;xxhash.lib;spng_static.lib;ogg.lib;mbedcrypto.lib;Zydis.lib;Zycore.lib;fastlz.lib;zstd.lib;brotlienc.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies Condition="'$(UseDebugLibraries)' == 'true'">Catch2d.lib;bcdec.lib;drlibs.lib;qoa.lib;xxhash.lib;spng_static.lib;ogg.lib;tfpsacrypto.lib;bcrypt.lib;ws2_32.lib;Zydis.lib;Zycore.lib;fastlz.lib;zstd.lib;brotlienc.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies Condition="'$(UseDebugLibraries)' != 'true'">Catch2.lib;bcdec.lib;drlibs.lib;qoa.lib;xxhash.lib;spng_static.lib;ogg.lib;tfpsacrypto.lib;bcrypt.lib;ws2_32.lib;Zydis.lib;Zycore.lib;fastlz.lib;zstd.lib;brotlienc.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
@@ -35,6 +35,9 @@
     </ClCompile>
     <ClCompile Include="$(RepositoryRoot)src\tests\support\godot_key_fixtures.cpp" />
     <ClCompile Include="$(RepositoryRoot)src\core\codecs\crypto_codec.cpp" />
+    <ClCompile Include="$(RepositoryRoot)src\tests\unit\crypto_codec.cpp">
+      <ObjectFileName>$(IntDir)crypto_codec_unit.obj</ObjectFileName>
+    </ClCompile>
     <ClCompile Include="$(RepositoryRoot)src\core\godot\encrypted_payload.cpp" />
     <ClCompile Include="$(RepositoryRoot)src\core\godot\key_recovery.cpp" />
     <ClCompile Include="$(RepositoryRoot)src\core\codecs\x86_decoder.cpp" />
