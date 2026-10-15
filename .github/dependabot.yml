@@ -1,0 +1,16 @@
+{
+  "version": 2,
+  "updates": [
+    {
+      "package-ecosystem": "vcpkg",
+      "directory": "/",
+      "open-pull-requests-limit": 1,
+      "schedule": {
+        "interval": "weekly",
+        "day": "monday",
+        "time": "09:00",
+        "timezone": "Asia/Vladivostok"
+      }
+    }
+  ]
+}
