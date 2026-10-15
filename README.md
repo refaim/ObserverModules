@@ -68,6 +68,7 @@ module.
 | [nlohmann/json](https://github.com/nlohmann/json) | [MIT](licenses/json.txt) | Tests only |
 | [catchorg/Catch2](https://github.com/catchorg/Catch2) | [BSL-1.0](licenses/Catch2.txt) | Tests only |
 | [lazyhamster/Observer](https://github.com/lazyhamster/Observer) | [LGPL-3.0](licenses/Observer.txt) plus [GPL-3.0](licenses/GPL-3.0.txt) | Ren'Py, RPG Maker, Zanzarah, Godot |
+| [YY-Thunks](https://github.com/Chuyu-Team/YY-Thunks) | [MIT](licenses/YY-Thunks.txt) | Ren'Py, RPG Maker, Zanzarah, Godot |
 | [Cyan4973/xxHash](https://github.com/Cyan4973/xxHash) | [BSD-2-Clause](licenses/xxHash.txt) | Tests only |
 | [zlib-ng](https://github.com/zlib-ng/zlib-ng) | [Zlib](licenses/zlib-ng.txt) | Ren'Py, Godot |
 | [godotengine/godot](https://github.com/godotengine/godot) | [MIT](licenses/godot.txt) | Godot |

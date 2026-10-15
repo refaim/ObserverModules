@@ -17,6 +17,20 @@
   "customManagers": [
     {
       "customType": "regex",
+      "managerFilePatterns": [
+        "/^vcpkg\\.json$/"
+      ],
+      "matchStrings": [
+        "\"name\"\\s*:\\s*\"yy-thunks\"[^{}]*?\"version>=\"\\s*:\\s*\"(?<currentValue>[^\"]+)\""
+      ],
+      "depNameTemplate": "yy-thunks",
+      "packageNameTemplate": "Chuyu-Team/YY-Thunks",
+      "datasourceTemplate": "github-tags",
+      "versioningTemplate": "semver",
+      "extractVersionTemplate": "^v?(?<version>\\d+\\.\\d+\\.\\d+)$"
+    },
+    {
+      "customType": "regex",
       "managerFilePatterns": ["/^vcpkg\\.json$/"],
       "matchStrings": ["\"name\"\\s*:\\s*\"catch2\"[^{}]*?\"version>=\"\\s*:\\s*\"(?<currentValue>[^\"]+)\""],
       "depNameTemplate": "catch2",

@@ -103,6 +103,15 @@ def step_condition(step: str) -> str:
 
 
 class NativeJobDecompositionTests(unittest.TestCase):
+    def test_step_reader_is_bounded_and_rejects_missing_steps_or_stage_gates(self) -> None:
+        workflow = "steps:\n  - name: first\n    run: one\n  - name: last\n    run: two"
+        self.assertEqual(step_block(workflow, "last"), "  - name: last\n    run: two")
+        self.assertEqual(step_block("  - name: alone", "alone"), "  - name: alone")
+        with self.assertRaisesRegex(AssertionError, "workflow step not found"):
+            step_block(workflow, "absent")
+        with self.assertRaisesRegex(AssertionError, "no stage selector"):
+            stage_selector(step_block(workflow, "first"))
+
     def setUp(self) -> None:
         self.main = MAIN.read_text(encoding="utf-8")
         self.check = CHECK.read_text(encoding="utf-8")
@@ -139,8 +148,8 @@ class NativeJobDecompositionTests(unittest.TestCase):
             with self.subTest(job=name):
                 self.assertIn(name, needs)
 
-    def test_the_msvc_and_spectre_preflight_covers_every_new_stage(self) -> None:
-        step = step_block(self.check, "Verify the legacy MSVC toolset and Spectre libraries")
+    def test_the_msvc_preflight_covers_every_new_stage(self) -> None:
+        step = step_block(self.check, "Verify the installed MSVC v145 toolset")
         selected = stage_selector(step)
         for stage in (*BUILD_STAGES, *ANALYSIS_STAGES):
             with self.subTest(stage=stage):
@@ -168,7 +177,7 @@ class NativeJobDecompositionTests(unittest.TestCase):
             with self.subTest(stage=stage):
                 self.assertNotIn(stage, condition)
 
-    def test_the_llvm_19_instrumentation_stages_are_unchanged(self) -> None:
+    def test_the_llvm_21_instrumentation_stages_are_unchanged(self) -> None:
         download = stage_selector(step_block(self.check, "Collect the instrumentation toolchain"))
         self.assertEqual(download, {"coverage", "ubsan", "fuzz"})
 

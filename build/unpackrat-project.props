@@ -86,7 +86,7 @@
            report-only path stay on their own switches. -->
       <EnablePREfast Condition="'$(unpackratCompileAnalysis)' == 'true'">true</EnablePREfast>
       <!-- Compile-only analysis keeps /Qspectre without selecting unused Spectre libraries. -->
-      <SpectreMitigation Condition="'$(unpackratCompileAnalysis)' == 'true'">Spectre</SpectreMitigation>
+      <SpectreMitigation Condition="'$(Configuration)' == 'Release' Or '$(unpackratCompileAnalysis)' == 'true'">Spectre</SpectreMitigation>
       <!-- The compile-analysis actor sets only unpackratCompileAnalysis, so PREfast must
            take the strict ruleset directly; CodeAnalysisRuleSet is defined only by the
            report-only switch and would otherwise resolve empty here. -->
@@ -140,4 +140,5 @@
       </ClCompile>
     </ItemGroup>
   </Target>
+  <Import Project="$(MSBuildThisFileDirectory)unpackrat-vista.props" />
 </Project>

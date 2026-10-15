@@ -67,13 +67,6 @@ class _CleanProbe:
     def poll(self) -> int | None:
         return self.returncode
 
-    def children(self, *, recursive: bool) -> list[object]:
-        return []
-
-    def kill(self) -> None:
-        self.killed = True
-        self.returncode = -9
-
 
 class _FakeStream:
     def __init__(self, text: str = "") -> None:
@@ -82,9 +75,6 @@ class _FakeStream:
 
     def readline(self) -> str:
         return self._stream.readline()
-
-    def read(self) -> str:
-        return self._stream.read()
 
     def write(self, text: str) -> int:
         return self._stream.write(text)
@@ -219,7 +209,7 @@ def _build_package_repository(repo: Path) -> None:
     (repo / "LICENSE.txt").write_bytes(b"MIT license text\n")
     licenses = repo / "licenses"
     licenses.mkdir()
-    for name in ("Observer.txt", "GPL-3.0.txt", "rpatool.txt", "serde-pickle.txt", "zlib-ng.txt"):
+    for name in ("Observer.txt", "GPL-3.0.txt", "rpatool.txt", "serde-pickle.txt", "zlib-ng.txt", "VC-LTL5.txt", "YY-Thunks.txt"):
         (licenses / name).write_bytes(name.encode() + b" notice")
     for architecture in main.ARCHITECTURES:
         stage = repo / "out" / "native" / "bin" / architecture / "Release"

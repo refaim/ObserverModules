@@ -1,14 +1,9 @@
 """Behavioral contract for architecture-specific LLVM instrumentation-toolchain resolution.
 
-The instrumentation stages (coverage, ASan, UBSan, fuzz) need one matched LLVM 19.1.5 family:
-the compiler, the coverage and profile tools, the headers and the per-architecture runtime
-libraries.  A hosted image's globally installed LLVM on ``PATH`` has no 32-bit ``profile-i386``
-runtime, so the driver must never borrow it.  Two selectors exist: the explicit, absolute
-``UNPACKRAT_LLVM_INSTRUMENTATION`` root the CI prep job publishes, or, locally, the LLVM 19.1.5
-bundled with the Visual Studio 2022 installation.  For both, the x64 runtime comes from the
-``x64`` home beside the compiler and the x86 runtime from the sibling ``Llvm`` root, and the
-driver validates every tool version, the headers and every required runtime library before it
-forwards anything to MSBuild.
+Coverage, UBSan and fuzz use a matched LLVM21 pair selected only through the explicit,
+absolute ``UNPACKRAT_LLVM_INSTRUMENTATION`` root. The x64 distribution supplies host tools;
+each architecture retains its own resource/runtime directory. No PATH LLVM or old Visual
+Studio installation may silently satisfy this contract. Local missing tools fail closed.
 
 ``ci_arch`` must hand each architecture its own resolved ``Llvm`` object so a single 64-bit
 runtime is never reused for both architectures.
@@ -26,24 +21,26 @@ from unittest import mock
 import main
 
 
-VERSION = "19"
+VERSION = "21"
 X64_RUNTIMES = (
     "clang_rt.profile-x86_64.lib",
     "clang_rt.fuzzer-x86_64.lib",
-    "clang_rt.asan-x86_64.lib",
-    "clang_rt.asan_cxx-x86_64.lib",
+    "clang_rt.asan_dynamic-x86_64.lib",
+    "clang_rt.asan_static_runtime_thunk-x86_64.lib",
+    "clang_rt.asan_dynamic-x86_64.dll",
     "clang_rt.ubsan_standalone-x86_64.lib",
     "clang_rt.ubsan_standalone_cxx-x86_64.lib",
 )
 I386_RUNTIMES = (
     "clang_rt.profile-i386.lib",
     "clang_rt.fuzzer-i386.lib",
-    "clang_rt.asan-i386.lib",
-    "clang_rt.asan_cxx-i386.lib",
+    "clang_rt.asan_dynamic-i386.lib",
+    "clang_rt.asan_static_runtime_thunk-i386.lib",
+    "clang_rt.asan_dynamic-i386.dll",
 )
 
 
-def _tool_runner(version: str = "19.1.5"):
+def _tool_runner(version: str = "21.1.8"):
     """A ``main.run`` stand-in that reports one natural ``--version`` response."""
 
     def runner(argv, **options: object) -> subprocess.CompletedProcess[str]:
@@ -68,9 +65,9 @@ def seed_home(home: Path, runtimes: tuple[str, ...]) -> None:
 
 
 def seed_sibling(install: Path, runtimes: tuple[str, ...] = I386_RUNTIMES) -> Path:
-    """Create the sibling ``VC/Tools/Llvm`` root that carries the 32-bit runtime only."""
+    """Create the paired x86 runtime root."""
 
-    windows = install / "VC" / "Tools" / "Llvm" / "lib" / "clang" / VERSION / "lib" / "windows"
+    windows = install / "x86" / "lib" / "clang" / VERSION / "lib" / "windows"
     windows.mkdir(parents=True, exist_ok=True)
     for library in runtimes:
         (windows / library).write_bytes(b"x")
@@ -84,8 +81,8 @@ class LlvmArchitectureResolutionTests(unittest.TestCase):
         self.root = Path(temporary.name)
         self.install = self.root / "vs"
 
-    def test_bundled_visual_studio_wins_over_a_path_llvm_for_both_architectures(self) -> None:
-        x64 = self.install / "VC" / "Tools" / "Llvm" / "x64"
+    def test_explicit_pair_wins_over_a_path_llvm_for_both_architectures(self) -> None:
+        x64 = self.install / "x64"
         seed_home(x64, X64_RUNTIMES)
         sibling = seed_sibling(self.install)
 
@@ -95,7 +92,7 @@ class LlvmArchitectureResolutionTests(unittest.TestCase):
         (path_bin / "clang-cl.exe").write_bytes(b"x")
         (self.root / "llvm20" / "lib" / "clang" / "20" / "lib" / "windows").mkdir(parents=True)
 
-        with mock.patch.object(main, "_llvm_installation", return_value=self.install), mock.patch(
+        with mock.patch.dict(os.environ, {main.LLVM_INSTRUMENTATION_ENV: str(self.install)}, clear=True), mock.patch(
             "shutil.which", return_value=str(path_bin / "clang-cl.exe")
         ), mock.patch.object(main, "run", side_effect=_tool_runner()):
             x64_llvm = main._llvm("x64")
@@ -117,40 +114,40 @@ class LlvmArchitectureResolutionTests(unittest.TestCase):
         self.assertEqual(x86_llvm.runtime.parent.parent.name, x64_llvm.runtime.parent.parent.name)
 
     def test_x86_runtime_requires_the_sibling_root(self) -> None:
-        x64 = self.install / "VC" / "Tools" / "Llvm" / "x64"
+        x64 = self.install / "x64"
         seed_home(x64, X64_RUNTIMES)
 
-        with mock.patch.object(main, "_llvm_installation", return_value=self.install), mock.patch.object(
+        with mock.patch.dict(os.environ, {main.LLVM_INSTRUMENTATION_ENV: str(self.install)}, clear=True), mock.patch.object(
             main, "run", side_effect=_tool_runner()
         ):
             # The x64 root alone cannot serve the 32-bit runtime.
-            self.assertFalse((self.install / "VC" / "Tools" / "Llvm" / "lib" / "clang").exists())
+            self.assertFalse((self.install / "x86" / "lib" / "clang").exists())
             with self.assertRaises(FileNotFoundError):
                 main._llvm("x86")
             # The compiler directory still resolves for its own architecture.
             self.assertEqual(main._llvm("x64").directory, x64)
 
         runtime = seed_sibling(self.install)
-        with mock.patch.object(main, "_llvm_installation", return_value=self.install), mock.patch.object(
+        with mock.patch.dict(os.environ, {main.LLVM_INSTRUMENTATION_ENV: str(self.install)}, clear=True), mock.patch.object(
             main, "run", side_effect=_tool_runner()
         ):
             self.assertEqual(main._llvm("x86").runtime, runtime)
 
     def test_the_load_bearing_tool_versions_headers_and_runtimes_are_all_required(self) -> None:
-        x64 = self.install / "VC" / "Tools" / "Llvm" / "x64"
+        x64 = self.install / "x64"
         seed_home(x64, X64_RUNTIMES)
         seed_sibling(self.install)
 
         def resolve():
-            with mock.patch.object(main, "_llvm_installation", return_value=self.install), mock.patch.object(
+            with mock.patch.dict(os.environ, {main.LLVM_INSTRUMENTATION_ENV: str(self.install)}, clear=True), mock.patch.object(
                 main, "run", side_effect=_tool_runner()
             ):
                 return main._llvm("x64")
 
         self.assertEqual(resolve().runtime.name, "windows")
         # A tool that reports a different version must fail closed rather than mix versions.
-        with mock.patch.object(main, "_llvm_installation", return_value=self.install), mock.patch.object(
-            main, "run", side_effect=_tool_runner("19.1.6")
+        with mock.patch.dict(os.environ, {main.LLVM_INSTRUMENTATION_ENV: str(self.install)}, clear=True), mock.patch.object(
+            main, "run", side_effect=_tool_runner("21.1.9")
         ), self.assertRaises(main.BuildError):
             main._llvm("x64")
         # A missing header breaks the same contract.
@@ -165,7 +162,7 @@ class LlvmArchitectureResolutionTests(unittest.TestCase):
 
 
 class LlvmInstrumentationSelectorTests(unittest.TestCase):
-    """The explicit env root and the local Visual Studio 2022 fallback."""
+    """The explicit paired root is the only instrumentation selector."""
 
     def setUp(self) -> None:
         temporary = tempfile.TemporaryDirectory()
@@ -174,7 +171,7 @@ class LlvmInstrumentationSelectorTests(unittest.TestCase):
 
     def _seed_root(self, root: Path) -> None:
         seed_home(root / "x64", X64_RUNTIMES)
-        sibling = root / "lib" / "clang" / VERSION / "lib" / "windows"
+        sibling = root / "x86" / "lib" / "clang" / VERSION / "lib" / "windows"
         sibling.mkdir(parents=True, exist_ok=True)
         for library in I386_RUNTIMES:
             (sibling / library).write_bytes(b"x")
@@ -185,14 +182,14 @@ class LlvmInstrumentationSelectorTests(unittest.TestCase):
         with mock.patch.dict(
             os.environ, {"UNPACKRAT_LLVM_INSTRUMENTATION": str(root)}, clear=True
         ), mock.patch.object(
-            main, "_llvm_installation", side_effect=AssertionError("must not consult Visual Studio")
+            main, "_vs_installation", side_effect=AssertionError("must not consult Visual Studio")
         ), mock.patch.object(main, "run", side_effect=_tool_runner()):
             self.assertEqual(main._llvm_dir(), root / "x64")
             self.assertEqual(
                 main._llvm("x64").runtime, root / "x64" / "lib" / "clang" / VERSION / "lib" / "windows"
             )
             self.assertEqual(
-                main._llvm("x86").runtime, root / "lib" / "clang" / VERSION / "lib" / "windows"
+                main._llvm("x86").runtime, root / "x86" / "lib" / "clang" / VERSION / "lib" / "windows"
             )
 
     def test_a_relative_env_root_fails_closed(self) -> None:
@@ -201,43 +198,11 @@ class LlvmInstrumentationSelectorTests(unittest.TestCase):
         ), self.assertRaises(FileNotFoundError):
             main._llvm_dir()
 
-    def test_default_selects_the_visual_studio_2022_llvm_installation(self) -> None:
-        install = self.root / "vs2022"
-        with mock.patch.object(main, "_llvm_installation", return_value=install), mock.patch.dict(
-            os.environ, {}, clear=True
-        ):
-            self.assertEqual(main._llvm_dir(), install / "VC" / "Tools" / "Llvm" / "x64")
-
-    def test_default_fails_closed_when_no_installed_llvm_is_found(self) -> None:
-        with mock.patch.object(
-            main, "_llvm_installation", side_effect=FileNotFoundError("no LLVM")
-        ), mock.patch.dict(os.environ, {}, clear=True), self.assertRaises(FileNotFoundError):
-            main._llvm_dir()
-
-
-class LlvmInstallationLookupTests(unittest.TestCase):
-    def test_vswhere_requires_the_visual_studio_2022_llvm_component(self) -> None:
-        with mock.patch.dict(os.environ, {"ProgramFiles(x86)": r"C:\PF86"}, clear=True), \
-             mock.patch.object(
-                 main, "run",
-                 return_value=subprocess.CompletedProcess([], 0, r"C:\VS2022"),
-             ) as invoked:
-            installation = main._llvm_installation()
-
-        self.assertEqual(installation, Path(r"C:\VS2022"))
-        argv = invoked.call_args.args[0]
-        self.assertIn("-version", argv)
-        self.assertIn("[17.0,18.0)", argv)
-        self.assertIn("Microsoft.VisualStudio.Component.VC.Llvm.Clang", argv)
-        self.assertEqual(argv[argv.index("-property") + 1], "installationPath")
-
-    def test_missing_program_files_or_no_installation_fails_closed(self) -> None:
-        with mock.patch.dict(os.environ, {}, clear=True), self.assertRaises(FileNotFoundError):
-            main._llvm_installation()
-        with mock.patch.dict(os.environ, {"ProgramFiles(x86)": r"C:\PF86"}, clear=True), \
-             mock.patch.object(main, "run", return_value=subprocess.CompletedProcess([], 0, "")), \
-             self.assertRaises(FileNotFoundError):
-            main._llvm_installation()
+    def test_missing_explicit_root_fails_without_consulting_or_installing_tools(self) -> None:
+        with mock.patch.dict(os.environ, {}, clear=True), mock.patch.object(main, "run") as runner:
+            with self.assertRaisesRegex(FileNotFoundError, "UNPACKRAT_LLVM_INSTRUMENTATION"):
+                main._llvm_dir()
+        runner.assert_not_called()
 
 
 class CiArchLlvmRoutingTests(unittest.TestCase):
@@ -284,11 +249,11 @@ class CiArchLlvmRoutingTests(unittest.TestCase):
         self.assertIs(ubsan[0].args[5], resolved["x64"])
 
     def test_msvc_asan_stage_needs_no_llvm_while_ubsan_still_requires_it(self) -> None:
-        # ASan is the MSVC 14.44 dynamic ASan build, not the LLVM 19 clang sanitizer, so an
+        # ASan is the MSVC 14.51 dynamic ASan build, not the LLVM 21 clang sanitizer, so an
         # unavailable LLVM instrumentation toolchain must not block the asan stage. UBSan still
-        # depends on the matched LLVM 19 runtime and must fail closed without it.
+        # depends on the matched LLVM 21 runtime and must fail closed without it.
         def unavailable(architecture: str = "x64") -> mock.Mock:
-            raise FileNotFoundError("no LLVM 19.1.5 instrumentation toolchain")
+            raise FileNotFoundError("no LLVM 21.1.8 instrumentation toolchain")
 
         sanitizer = mock.Mock()
         with mock.patch.multiple(

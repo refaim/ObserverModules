@@ -584,7 +584,7 @@ class RepositoryMetadataTests(unittest.TestCase):
     def test_build_documentation_states_the_toolchain_prerequisites(self) -> None:
         docs = (REPOSITORY / "docs" / "build-system.md").read_text(encoding="utf-8")
         requirements = (
-            "Build Tools 2022", "v143", "Spectre", "Windows 11 SDK",
+            "Build Tools 2026", "v145", "LLVM 21.1.8", "Spectre", "Windows 11 SDK",
             "PowerShell 7.4", "uv", "vcpkg", "VCPKG_ROOT",
         )
         for requirement in requirements:

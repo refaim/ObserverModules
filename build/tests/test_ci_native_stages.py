@@ -82,7 +82,7 @@ class StageCase(unittest.TestCase):
         self.tidy.with_name("run-clang-tidy").write_text("# installed LLVM script", encoding="utf-8")
         # ``_msbuild_command`` forwards the selected legacy servicing toolset.
         self.vs = self.root / "vs"
-        (self.vs / "VC" / "Tools" / "MSVC" / "14.44.35307").mkdir(parents=True)
+        (self.vs / "VC" / "Tools" / "MSVC" / "14.51.36231").mkdir(parents=True)
 
     def tools(self, run: RecordingRun):
         """Patch the tool-lookup seams and the single ``main.run`` entry."""
@@ -113,6 +113,7 @@ class StageCase(unittest.TestCase):
         self.assertEqual(properties["unpackratRunCodeAnalysis"], "true")
         self.assertEqual(properties["EnableClangTidyCodeAnalysis"], "true")
         self.assertEqual(properties["unpackratEnableClangTidy"], "true")
+        self.assertNotIn("unpackratStandaloneClangTidy", properties)
         self.assertEqual(properties["ClangTidyToolExeAdditionalOptions"], "-warnings-as-errors=*")
 
         run = RecordingRun()
@@ -218,6 +219,7 @@ class StageCase(unittest.TestCase):
         self.assertEqual(properties["unpackratRunCodeAnalysis"], "false")
         self.assertEqual(properties["RunCodeAnalysis"], "false")
         self.assertEqual(properties["EnableMicrosoftCodeAnalysis"], "false")
+        self.assertEqual(properties["unpackratStandaloneClangTidy"], "true")
         self.assertEqual(properties["unpackratEnableClangTidy"], "true")
         self.assertEqual(properties["EnableClangTidyCodeAnalysis"], "true")
         self.assertNotIn("MaxNumberOfProcesses", properties)

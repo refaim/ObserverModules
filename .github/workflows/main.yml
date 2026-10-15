@@ -34,8 +34,8 @@ jobs:
       arch: none
       stage: source
 
-  # One real tool-provisioning job publishes the matched LLVM 19.1.5 instrumentation toolchain the
-  # coverage, UBSan and fuzz stages need. ASan is the MSVC 14.44 dynamic ASan build and needs no
+  # One real tool-provisioning job publishes the matched LLVM 21.1.8 instrumentation toolchain the
+  # coverage, UBSan and fuzz stages need. ASan is the MSVC 14.51 dynamic ASan build and needs no
   # LLVM toolchain, so it does not wait on this job. It is a provisioning step rather than an
   # aggregate gate, and it never rebuilds LLVM from source; each instrumentation slice downloads
   # the same-run artifact it publishes. The native, source, ASan and leak stages never wait on it.

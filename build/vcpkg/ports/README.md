@@ -1,4 +1,15 @@
-# vcpkg overlay ports
+# Dependency overlays
+
+Release compatibility uses the pinned `yy-thunks` 1.2.3 source port, revision 1.
+It verifies the official source archive SHA-512 and applies the reviewed ordinal and hardened
+build patches. The upstream BuildObj/FixObj path builds one XP-targeted object per architecture
+with `/W4 /GS /Qspectre`, using an explicitly installed LibMaker from `PATH`. The port never
+acquires developer tools, invokes machine integration scripts or installs the optional analyzer.
+Only `share/yy-thunks/objs/<arch>/YY_Thunks_for_WinXP.obj` and the MIT copyright notice are installed.
+Release uses the ordinary static MSVC Spectre CRT; VC-LTL is not a dependency. The packaged notice
+is retained in `licenses/YY-Thunks.txt`.
+
+## Godot decoder overlays
 
 The decoder ports build the exact single-header decoders that were tested for Godot 1.0.0. Each port
 downloads only its pinned header files, checks their SHA-512 hashes, builds a static library for the

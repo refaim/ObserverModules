@@ -132,10 +132,13 @@ class MainCliCase(unittest.TestCase):
             cov=self.root / "llvm-cov.exe",
             profdata=self.root / "llvm-profdata.exe",
         )
+        self.llvm.runtime.mkdir(parents=True)
+        for name in main._ASAN_RUNTIMES.values():
+            (self.llvm.runtime / name).write_bytes(b'matched-llvm21')
         self.asan = self.root / "asan.dll"
         self.asan.write_bytes(b"x")
-        # The driver forwards the legacy 14.44 servicing toolset selected from the VS install.
-        cl = (self.root / "vs" / "VC" / "Tools" / "MSVC" / "14.44.35307"
+        # The driver forwards the selected 14.51 servicing toolset selected from the VS install.
+        cl = (self.root / "vs" / "VC" / "Tools" / "MSVC" / "14.51.36231"
               / "bin" / "Hostx64" / "x64" / "cl.exe")
         cl.parent.mkdir(parents=True, exist_ok=True)
         cl.write_bytes(b"x")
@@ -170,7 +173,7 @@ class MainCliCase(unittest.TestCase):
         (self.repo / "LICENSE.txt").write_bytes(b"MIT license text\n")
         licenses = self.repo / "licenses"
         licenses.mkdir(exist_ok=True)
-        for name in ("Observer.txt", "GPL-3.0.txt", "rpatool.txt", "serde-pickle.txt", "zlib.txt", "zlib-ng.txt", "rgssad.txt", "zanzapak.txt"):
+        for name in ("Observer.txt", "GPL-3.0.txt", "rpatool.txt", "serde-pickle.txt", "zlib.txt", "zlib-ng.txt", "rgssad.txt", "zanzapak.txt", "VC-LTL5.txt", "YY-Thunks.txt"):
             (licenses / name).write_bytes(name.encode() + b" notice")
         for architecture in main.ARCHITECTURES:
             stage = self.repo / "out" / "native" / "bin" / architecture / "Release"
@@ -324,14 +327,15 @@ class MainCliCase(unittest.TestCase):
         (llvm / "bin").mkdir(parents=True, exist_ok=True)
         for tool in ("clang-cl", "llvm-cov", "llvm-profdata"):
             (llvm / "bin" / f"{tool}.exe").write_bytes(b"x")
-        include = llvm / "lib" / "clang" / "19" / "include"
+        include = llvm / "lib" / "clang" / "21" / "include"
         include.mkdir(parents=True, exist_ok=True)
         (include / "stddef.h").write_bytes(b"x")
-        windows = llvm / "lib" / "clang" / "19" / "lib" / "windows"
+        windows = llvm / "lib" / "clang" / "21" / "lib" / "windows"
         windows.mkdir(parents=True, exist_ok=True)
         for library in (
             "clang_rt.profile-x86_64.lib", "clang_rt.fuzzer-x86_64.lib",
-            "clang_rt.asan-x86_64.lib", "clang_rt.asan_cxx-x86_64.lib",
+            "clang_rt.asan_dynamic-x86_64.lib", "clang_rt.asan_static_runtime_thunk-x86_64.lib",
+            "clang_rt.asan_dynamic-x86_64.dll",
             "clang_rt.ubsan_standalone-x86_64.lib", "clang_rt.ubsan_standalone_cxx-x86_64.lib",
         ):
             (windows / library).write_bytes(b"x")
@@ -339,7 +343,7 @@ class MainCliCase(unittest.TestCase):
 
     def _llvm_version_runner(self):
         def runner(argv, **options: object) -> subprocess.CompletedProcess[str]:
-            return subprocess.CompletedProcess(list(argv), 0, "LLVM version 19.1.5\n")
+            return subprocess.CompletedProcess(list(argv), 0, "LLVM version 21.1.8\n")
 
         return runner
 
@@ -366,23 +370,14 @@ class MainCliCase(unittest.TestCase):
             main._llvm()
 
         with mock.patch.object(
-            main, "_llvm_installation", side_effect=FileNotFoundError("no Visual Studio")
+            main, "_llvm_home", side_effect=FileNotFoundError("no instrumentation root")
         ), self.assertRaises(FileNotFoundError):
             main._llvm_dir()
 
-    def test_llvm_dir_prefers_the_bundled_visual_studio_toolset(self) -> None:
-        install = self.root / "vs"
-        bundled = install / "VC" / "Tools" / "Llvm" / "x64"
-        bundled.mkdir(parents=True)
-        # A PATH clang-cl (for example a global LLVM 20) must not override the toolset that
-        # ships with the selected Visual Studio.
-        path_bin = self.root / "llvm20" / "bin"
-        path_bin.mkdir(parents=True)
-        (path_bin / "clang-cl.exe").write_bytes(b"x")
-        with mock.patch.object(main, "_llvm_installation", return_value=install), mock.patch(
-            "shutil.which", return_value=str(path_bin / "clang-cl.exe")
-        ):
-            self.assertEqual(main._llvm_dir(), bundled)
+    def test_llvm_dir_uses_only_the_explicit_paired_root(self) -> None:
+        root = self.root / "llvm21"
+        with mock.patch.dict(os.environ, {main.LLVM_INSTRUMENTATION_ENV: str(root)}, clear=True):
+            self.assertEqual(main._llvm_dir(), root / "x64")
 
     def test_llvm_rejects_a_directory_without_a_clang_tree(self) -> None:
         empty = self.root / "no-llvm"
@@ -406,7 +401,7 @@ class MainCliCase(unittest.TestCase):
 
     def test_asan_runtime_resolution(self) -> None:
         install = self.root / "vs"
-        bin_dir = install / "VC" / "Tools" / "MSVC" / "14.44.35307" / "bin" / "Hostx64" / "x64"
+        bin_dir = install / "VC" / "Tools" / "MSVC" / "14.51.36231" / "bin" / "Hostx64" / "x64"
         bin_dir.mkdir(parents=True, exist_ok=True)
         runtime = bin_dir / main._ASAN_RUNTIMES["x64"]
         runtime.write_bytes(b"x")
@@ -440,6 +435,11 @@ class MainCliCase(unittest.TestCase):
         self.assertIn(b"MIT license text", document)
         self.assertIn(b"Observer.txt notice", document)
         self.assertIn(b"GPL-3.0.txt notice", document)
+        self.assertNotIn(b"VC-LTL5.txt notice", document)
+        self.assertIn(b"YY-Thunks.txt notice", document)
+        for module in main.MODULES:
+            self.assertNotIn("VC-LTL5.txt", main.LICENSES[module])
+            self.assertIn("YY-Thunks.txt", main.LICENSES[module])
         self.assertTrue(document.endswith(b"\n"))
         # A notice that already ends in a newline is not doubled.
         self.assertTrue(main._license_section("t", b"body\n").endswith(b"body\n"))
@@ -688,6 +688,18 @@ class MainCliCase(unittest.TestCase):
         replay = [call for call in run.calls if any(item.endswith("seed") for item in call.argv)]
         self.assertEqual(len(timed), len(main.FUZZ_TARGETS))
         self.assertEqual(len(replay), len(main.FUZZ_TARGETS))
+        for architecture, name in main._ASAN_RUNTIMES.items():
+            self.assertEqual((main.bin_directory(self.repo, architecture, "Fuzz") / name).read_bytes(),
+                             b'matched-llvm21')
+
+    def test_fuzz_requires_its_matched_runtime_before_starting_a_fuzzer(self) -> None:
+        self.make_module()
+        (self.llvm.runtime / main._ASAN_RUNTIMES["x86"]).unlink()
+        run = FakeRun()
+        with self.tools(run), self.assertRaises(FileNotFoundError):
+            main._fuzz(self.repo, "x86", self.root / "MSBuild.exe", self.root / "vcpkg.exe", self.llvm)
+        self.assertFalse(any('fuzz-' in Path(call.argv[0]).name and call.argv[0].endswith('.exe')
+                             for call in run.calls))
 
     def test_seed_corpus_decodes_hex_and_rejects_empty(self) -> None:
         self.make_module()
@@ -749,6 +761,18 @@ class MainCliCase(unittest.TestCase):
         run = FakeRun(dumpbin=_dumpbin)
         with self.tools(run):
             main._audit(self.repo, "x64")
+
+    def test_xp_release_accepts_system_apis_and_rejects_all_runtime_dlls(self) -> None:
+        exports = "   1    0 00001000 LoadSubModule\n   2    0 00001010 UnloadSubModule"
+        for architecture, headers in (("x64", "8664 machine (x64)"), ("x86", "14C machine (x86)")):
+            dependencies = "    KERNEL32.dll\n    ADVAPI32.dll\n    ole32.dll"
+            with self.subTest(architecture=architecture):
+                main.require_release_pe(architecture, headers, dependencies, exports)
+            for forbidden in ("msvcrt.dll", "vcruntime140.dll", "msvcp140.dll", "ucrtbase.dll",
+                              "api-ms-win-crt-runtime-l1-1-0.dll", "ext-ms-win-crt-runtime-l1-1-0.dll"):
+                with self.subTest(architecture=architecture, forbidden=forbidden), \
+                     self.assertRaisesRegex(main.BuildError, "unexpected DLL dependencies"):
+                    main.require_release_pe(architecture, headers, dependencies + "\n    " + forbidden, exports)
 
     def test_require_release_pe_rejects_bad_machines_imports_and_exports(self) -> None:
         good_headers = "8664 machine (x64)"

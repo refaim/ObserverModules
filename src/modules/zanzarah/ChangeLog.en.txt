@@ -1,3 +1,8 @@
+Version 2.2.0
+-------------
+ * Build Release modules with MSVC v145, the static /MT Spectre CRT and source-built hardened YY-Thunks XP objects, without VC-LTL or extra runtime DLLs.
+ * Ship one binary per architecture, with PE minimum 5.01 (x86) or 5.02 (x64), retaining /GS, /Qspectre and the Observer ABI.
+
 Version 2.1.2
 -------------
  * Fixed misaligned access to the packed Observer output buffer written when reporting general archive information.

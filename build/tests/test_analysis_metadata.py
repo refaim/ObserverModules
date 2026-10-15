@@ -31,7 +31,6 @@ class CompileAnalysisMetadataTests(unittest.TestCase):
     def test_compile_analysis_drives_pure_msvc_native_analysis(self) -> None:
         expected = {
             "EnablePREfast": "true",
-            "SpectreMitigation": "Spectre",
             "PREfastRulesetFile": "$(RepositoryRoot)build\\unpackrat-native-analysis.ruleset",
             "AdditionalOptions": "/analyze:only /analyze:log:format:sarif %(AdditionalOptions)",
         }
@@ -86,11 +85,22 @@ class CompileAnalysisMetadataTests(unittest.TestCase):
             ["%(ObjectFileName)%(FileName).nativecodeanalysis.sarif"],
         )
 
-    def test_ordinary_release_keeps_its_spectre_library_selection(self) -> None:
+    def test_shipping_release_selects_spectre_libraries_but_analysis_does_not(self) -> None:
         configuration = _project("build/unpackrat-configuration.props")
         spectre = configuration.findall(f".//{MSBUILD}SpectreMitigation")
         self.assertEqual([(node.get("Condition"), node.text) for node in spectre],
-                         [("'$(Configuration)' == 'Release'", "Spectre")])
+                         [(None, "false"), ("'$(Configuration)' == 'Release' And '$(unpackratCompileAnalysis)' != 'true' And '$(unpackratStandaloneClangTidy)' != 'true'", "Spectre")])
+
+        # /Qspectre still reaches the compile-only MSVC analysis item itself.  The global
+        # false keeps compile-only analysis from selecting unused Spectre CRT libraries.
+        project = _project(PROPS)
+        compile_spectre = project.findall(
+            f".//{MSBUILD}ItemDefinitionGroup/{MSBUILD}ClCompile/{MSBUILD}SpectreMitigation"
+        )
+        self.assertEqual(
+            [(node.get("Condition"), node.text) for node in compile_spectre],
+            [("'$(Configuration)' == 'Release' Or " + ANALYSIS, "Spectre")],
+        )
 
     def test_compile_analysis_is_disjoint_from_tidy_and_link_analysis(self) -> None:
         # The analysis path must never turn on clang-tidy; tidy keeps its own switch.
