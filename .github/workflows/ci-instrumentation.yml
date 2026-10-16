@@ -448,6 +448,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'The clean UBSan probe path failed.' }
           $overflow = & $probeExe overflow 2>&1 | Out-String
           Assert-UbsanRuntimeDiagnosis -ExitCode $LASTEXITCODE -Output $overflow
+          # The overflow probe is expected to exit nonzero and the diagnosis guard has accepted
+          # it, so clear the residual $LASTEXITCODE before GitHub's pwsh trailer turns it into a
+          # step failure.
+          $global:LASTEXITCODE = 0
 
       - name: Save the pinned LLVM 21.1.8 toolchain
         if: steps.llvm-instrumentation.outputs.cache-hit != 'true'
