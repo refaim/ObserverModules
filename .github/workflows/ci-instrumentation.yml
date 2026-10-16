@@ -165,7 +165,17 @@ jobs:
           $tarball = Join-Path $worktree 'llvm-project-21.1.8.src.tar'
           if (-not (Test-Path -LiteralPath $tarball -PathType Leaf)) { throw 'Missing extracted LLVM source tarball.' }
           New-Item -ItemType Directory -Force -Path $sourceRoot | Out-Null
-          & 7z x $tarball "-o$sourceRoot" '-y'
+          # The upstream tar ships six relative symlinks under the unrelated clang and lldb test
+          # trees; 7-Zip refuses those dangerous link paths and exits nonzero. The rebuild only
+          # needs the cmake, compiler-rt, runtimes and llvm component trees, so unpack exactly
+          # those four whole trees and never touch the rest of the archive.
+          $sourceTrees = @(
+            'llvm-project-21.1.8.src/cmake/*'
+            'llvm-project-21.1.8.src/compiler-rt/*'
+            'llvm-project-21.1.8.src/runtimes/*'
+            'llvm-project-21.1.8.src/llvm/*'
+          )
+          & 7z x $tarball "-o$sourceRoot" '-y' @sourceTrees
           if ($LASTEXITCODE -ne 0) { throw 'LLVM source tar extraction failed.' }
           $source = Join-Path $sourceRoot 'llvm-project-21.1.8.src'
           if (-not (Test-Path -LiteralPath (Join-Path $source 'runtimes/CMakeLists.txt') -PathType Leaf)) {
