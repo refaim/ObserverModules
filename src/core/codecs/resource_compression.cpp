@@ -98,7 +98,7 @@ namespace unpackrat::codecs
             std::uint64_t produced = 0;
             std::ptrdiff_t ip = 1;
             std::uint32_t ctrl = byte_at(0) & 31U;
-            while (true) {
+            for (;;) {
                 if (ctrl >= 32U) {
                     std::uint64_t len = static_cast<std::uint64_t>((ctrl >> 5U) - 1U);
                     const std::uint32_t ofs = (ctrl & 31U) << 8U;
@@ -229,7 +229,7 @@ namespace unpackrat::codecs
             std::vector<std::byte> chunk(stream_chunk_bytes);
             std::size_t input_offset = 0;
 
-            while (true) {
+            for (;;) {
                 if (stream.avail_in == 0 && input_offset < input.size()) {
                     const auto feed = std::min(input.size() - input_offset,
                                                static_cast<std::size_t>(std::numeric_limits<uInt>::max()));
@@ -319,7 +319,7 @@ namespace unpackrat::codecs
             std::size_t total_out = 0;
             std::vector<std::byte> chunk(stream_chunk_bytes);
 
-            while (true) {
+            for (;;) {
                 auto *next_out = reinterpret_cast<std::uint8_t *>(chunk.data());
                 std::size_t avail_out = chunk.size();
                 const BrotliDecoderResult result = BrotliDecoderDecompressStream(context.state(), &avail_in, &next_in,

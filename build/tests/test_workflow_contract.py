@@ -113,7 +113,9 @@ class WorkflowContractTests(unittest.TestCase):
         # The source stage is dispatched with arch "none" yet restores the x64 Debug dependency
         # cache, so the key's architecture field must normalize "none" to "x64" through a GitHub
         # expression instead of embedding the raw caller input. The runner image, the
-        # standard/asan selector and the dependency hash stay part of the same key.
+        # standard/asan/fuzz selector and the dependency hash stay part of the same key. Fuzz
+        # gets its own cache because its standalone static-CRT dependency tree must not share an
+        # entry with the ASan dynamic-CRT tree.
         self.assertIn("      arch: none\n      stage: source\n", self.main_workflow())
         key = next(
             line.strip()
@@ -123,7 +125,7 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn("${{ steps.runner-image.outputs.identity }}", key)
         self.assertIn("${{ inputs.arch == 'none' && 'x64' || inputs.arch }}", key)
         self.assertIn(
-            "${{ (inputs.stage == 'asan' || inputs.stage == 'fuzz') && 'asan' || 'standard' }}",
+            "${{ inputs.stage == 'ubsan' && 'ubsan' || inputs.stage == 'asan' && 'asan' || inputs.stage == 'fuzz' && 'fuzz' || 'standard' }}",
             key,
         )
         # A changed overlay recipe must get a new Actions cache so its new ABI binaries can be saved.
@@ -584,7 +586,7 @@ class RepositoryMetadataTests(unittest.TestCase):
     def test_build_documentation_states_the_toolchain_prerequisites(self) -> None:
         docs = (REPOSITORY / "docs" / "build-system.md").read_text(encoding="utf-8")
         requirements = (
-            "Build Tools 2022", "v143", "Spectre", "Windows 11 SDK",
+            "Build Tools 2026", "v145", "LLVM 21.1.8", "Spectre", "Windows 11 SDK",
             "PowerShell 7.4", "uv", "vcpkg", "VCPKG_ROOT",
         )
         for requirement in requirements:

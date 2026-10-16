@@ -34,104 +34,33 @@ jobs:
         with:
           persist-credentials: false
 
-      # The hosted VS2026 image does not guarantee the legacy v143 14.44 toolset or the
-      # Spectre-mitigated libraries the ordinary Release build needs, and the newer v145 tools are
-      # not yet a substitute. Inspect the selected host instance through the installed vswhere
-      # and, only for the component IDs that are actually missing, run the installed VS
-      # Installer's setup.exe to modify that instance. The step fails closed: a reboot-only result
-      # and any component still absent after the modify both stop the run, because the toolset is
-      # not ready to build with yet. The source stage shares this preflight: ci_source selects the
-      # legacy 14.44 compiler for the vcpkg compiler hash and runs the dependency restore before
-      # any source gate, so it must not reach a clean runner without this toolset either.
-      - name: Verify the legacy MSVC toolset and Spectre libraries
+      # Select the installed VS2026 compiler; CI never modifies Visual Studio components.
+      - name: Verify the installed MSVC v145 toolset
         if: contains(fromJSON('["source","native-debug","native-release","msvc-analysis","clang-tidy","coverage","asan","ubsan","fuzz"]'), inputs.stage)
         id: msvc-toolset
         shell: pwsh
-        env:
-          UNPACKRAT_REQUIRE_SPECTRE: ${{ inputs.stage == 'native-release' }}
         run: |
-          $installerRoot = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer'
+          $installerRoot = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer'
           $vswhere = Join-Path $installerRoot 'vswhere.exe'
-          if (-not (Test-Path -LiteralPath $vswhere -PathType Leaf)) {
-            throw "vswhere.exe was not found: $vswhere"
-          }
-          # Only the stages that link the Spectre-mitigated static runtime need its component and
-          # libraries, so a Debug or instrumented job never pays the extra install time for them.
-          $requiresSpectre = $env:UNPACKRAT_REQUIRE_SPECTRE -eq 'true'
-          $selected = @(& $vswhere -latest -products '*' `
+          if (-not (Test-Path -LiteralPath $vswhere -PathType Leaf)) { throw "Missing vswhere: $vswhere" }
+          $selected = @(& $vswhere -latest -products '*' -version '[18.0,19.0)' `
             -requires 'Microsoft.Component.MSBuild' `
             -requires 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64' `
             -property 'installationPath' | Where-Object { $_ -and $_.Trim() })
-          if ($selected.Count -eq 0) {
-            throw 'vswhere did not report a Visual Studio installation.'
-          }
+          if ($LASTEXITCODE -ne 0 -or $selected.Count -eq 0) { throw 'No installed VS2026 C++ toolset.' }
           $installation = $selected[0].Trim()
-          # The legacy v143 14.44 toolset for x86 and x64 is always required; its matching Spectre
-          # component is added only when the stage actually links the Spectre-mitigated runtime.
-          $required = @('Microsoft.VisualStudio.Component.VC.14.44.17.14.x86.x64')
-          if ($requiresSpectre) {
-            $required += 'Microsoft.VisualStudio.Component.VC.14.44.17.14.x86.x64.Spectre'
-          }
-          $missing = [System.Collections.Generic.List[string]]::new()
-          foreach ($component in $required) {
-            $owners = @(& $vswhere -products '*' -requires $component -property 'installationPath' |
-              Where-Object { $_ -and $_.Trim() } | ForEach-Object { $_.Trim() })
-            if ($owners -notcontains $installation) {
-              [void] $missing.Add($component)
-            }
-          }
-          if ($missing.Count -gt 0) {
-            $setup = Join-Path $installerRoot 'setup.exe'
-            if (-not (Test-Path -LiteralPath $setup -PathType Leaf)) {
-              throw "Visual Studio Installer setup.exe was not found: $setup"
-            }
-            Write-Host "Adding missing Visual Studio components: $($missing -join ', ')"
-            # PowerShell joins the -ArgumentList array with single spaces, so the install path
-            # carries its own quotes; otherwise a Visual Studio under "C:\Program Files\..."
-            # would hand setup.exe only "C:\Program" as the --installPath value.
-            $arguments = @('modify', '--installPath', "`"$installation`"", '--quiet', '--norestart')
-            foreach ($component in $missing) {
-              $arguments += @('--add', $component)
-            }
-            $process = Start-Process -FilePath $setup -ArgumentList $arguments `
-              -WindowStyle Hidden -Wait -PassThru
-            # A reboot-only result is not a ready toolset, so only a clean exit is accepted.
-            if ($process.ExitCode -ne 0) {
-              throw "Visual Studio component installation failed with exit code $($process.ExitCode)."
-            }
-          }
-          # The selected instance must now own every required component ID.
-          foreach ($component in $required) {
-            $owners = @(& $vswhere -products '*' -requires $component -property 'installationPath' |
-              Where-Object { $_ -and $_.Trim() } | ForEach-Object { $_.Trim() })
-            if ($owners -notcontains $installation) {
-              throw "Visual Studio component $component is still missing after setup."
-            }
-          }
-          # And the Spectre-mitigated static libraries must exist on disk for both architectures.
-          # The installed legacy layout is VC\Tools\MSVC\<version>\lib\spectre\<arch>\libcmt.lib,
-          # not ...\lib\<arch>\spectre.  Both architectures must come from the one numeric-maximum
-          # 14.44 servicing directory the build driver forwards, so a stale or mixed-version
-          # x86/x64 pair can never pass.  This physical probe is the other half of the conditional
-          # component: a stage that does not link the Spectre runtime still needs the numeric
-          # toolset directory, but not these libraries.
-          $toolsetRoot = Join-Path $installation 'VC\Tools\MSVC'
-          $toolsets = @(Get-ChildItem -Path $toolsetRoot -Directory -ErrorAction SilentlyContinue |
-            Where-Object { $_.Name -match '^14\.44(?:\.\d+)+$' } |
+          # Select the same numeric servicing version as the driver.
+          $toolsetRoot = Join-Path $installation 'VC/Tools/MSVC'
+          $toolsets = @(Get-ChildItem -LiteralPath $toolsetRoot -Directory -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -match '^14\.51(?:\.\d+)+$' } |
             Sort-Object -Property @{ Expression = { [version] $_.Name } })
-          if ($toolsets.Count -eq 0) {
-            throw "No legacy 14.44 MSVC toolset below $toolsetRoot."
-          }
+          if ($toolsets.Count -eq 0) { throw "No MSVC 14.51 toolset below $toolsetRoot." }
           $toolset = $toolsets[-1].FullName
-          "version=$($toolsets[-1].Name)" | Add-Content -Path $env:GITHUB_OUTPUT
-          if ($requiresSpectre) {
-            foreach ($architecture in @('x86', 'x64')) {
-              $library = Join-Path $toolset "lib\spectre\$architecture\libcmt.lib"
-              if (-not (Test-Path -LiteralPath $library -PathType Leaf)) {
-                throw "Missing Spectre-mitigated $architecture library: $library"
-              }
-            }
+          foreach ($architecture in @('x86', 'x64')) {
+            $compiler = Join-Path $toolset "bin/Hostx64/$architecture/cl.exe"
+            if (-not (Test-Path -LiteralPath $compiler -PathType Leaf)) { throw "Missing MSVC compiler: $compiler" }
           }
+          "version=$($toolsets[-1].Name)" | Add-Content -Path $env:GITHUB_OUTPUT
 
       - name: Set up uv
         uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
@@ -159,7 +88,7 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
-          key: vcpkg-${{ steps.runner-image.outputs.identity }}-${{ inputs.arch == 'none' && 'x64' || inputs.arch }}-${{ (inputs.stage == 'asan' || inputs.stage == 'fuzz') && 'asan' || 'standard' }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'build/vcpkg/ports/**', 'build/vcpkg/triplets/*.cmake') }}
+          key: vcpkg-${{ steps.runner-image.outputs.identity }}-${{ inputs.arch == 'none' && 'x64' || inputs.arch }}-${{ inputs.stage == 'ubsan' && 'ubsan' || inputs.stage == 'asan' && 'asan' || inputs.stage == 'fuzz' && 'fuzz' || 'standard' }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'build/vcpkg/ports/**', 'build/vcpkg/triplets/*.cmake') }}
 
       - name: Provision the pinned vcpkg tool
         if: inputs.stage != 'leaks'
@@ -201,6 +130,28 @@ jobs:
           }
           Copy-Item -LiteralPath $tool -Destination (Join-Path $env:VCPKG_ROOT 'vcpkg.exe') -Force
 
+      # Every restoring stage, including ci-source's header restore, uses this shared setup.
+      # The tiny standalone asset needs no separate cache or provisioning job.
+      - name: Provision the pinned LibMaker tool
+        if: contains(fromJSON('["source","native-debug","native-release","msvc-analysis","clang-tidy","coverage","asan","ubsan","fuzz"]'), inputs.stage)
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $directory = Join-Path $env:RUNNER_TEMP 'unpackrat/tools/libmaker/1.0.4'
+          New-Item -ItemType Directory -Force -Path $directory | Out-Null
+          gh release download v1.0.4 --repo Chuyu-Team/LibMaker --pattern 'LibMaker.exe' --dir $directory --clobber
+          if ($LASTEXITCODE -ne 0) { throw "Unable to download the pinned LibMaker tool: $LASTEXITCODE" }
+          $tool = Join-Path $directory 'LibMaker.exe'
+          if ((Get-Item -LiteralPath $tool).Length -ne 236544) { throw 'Unexpected LibMaker asset size.' }
+          # Pin the upstream asset bytes qualified for this build; release metadata has no digest.
+          $expected = '0aa2e9d937e9838d7d69c011897bf066a0cb44402eb562705179be74bf1c0fbd'
+          if ((Get-FileHash -LiteralPath $tool -Algorithm SHA256).Hash -ne $expected) {
+            throw 'Pinned LibMaker SHA-256 validation failed.'
+          }
+          $directory | Add-Content -Path $env:GITHUB_PATH
+
       - name: Prepare the pinned Python environment
         shell: pwsh
         run: |
@@ -208,36 +159,36 @@ jobs:
           "TMP=$env:RUNNER_TEMP" | Add-Content -Path $env:GITHUB_ENV
           uv sync --project build --frozen
 
-      # The instrumentation stages need the matched LLVM 19.1.5 toolchain that the separate
+      # The instrumentation stages need the matched LLVM 21.1.8 toolchain that the separate
       # instrumentation-tools job publishes. They download only this run's artifact and select it
       # through a dedicated variable, never by overriding the standalone clang-tidy/format pin.
-      # Only coverage, UBSan and fuzz consume the LLVM toolchain; ASan is the MSVC 14.44 dynamic
-      # ASan build and needs no LLVM 19 preflight.
+      # Only coverage, UBSan and fuzz consume the LLVM toolchain; ASan is the MSVC 14.51 dynamic
+      # ASan build and needs no LLVM 21 preflight.
       - name: Collect the instrumentation toolchain
         if: contains(fromJSON('["coverage","ubsan","fuzz"]'), inputs.stage)
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: llvm-instrumentation-19.1.5
-          path: ${{ runner.temp }}/unpackrat/tools/llvm/19.1.5
+          name: llvm-instrumentation-21.1.8
+          path: ${{ runner.temp }}/unpackrat/tools/llvm/21.1.8
 
       - name: Select the instrumentation toolchain
         if: contains(fromJSON('["coverage","ubsan","fuzz"]'), inputs.stage)
         shell: pwsh
         run: |
-          $root = Join-Path $env:RUNNER_TEMP 'unpackrat/tools/llvm/19.1.5'
+          $root = Join-Path $env:RUNNER_TEMP 'unpackrat/tools/llvm/21.1.8'
           $llvmCompilerHome = Join-Path $root 'x64'
-          foreach ($tool in @('clang-cl', 'llvm-cov', 'llvm-profdata')) {
+          foreach ($tool in @('clang-cl', 'lld-link', 'llvm-cov', 'llvm-profdata')) {
             $exe = Join-Path $llvmCompilerHome "bin/$tool.exe"
             if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) {
               throw "Missing LLVM instrumentation tool: $exe"
             }
             $version = & $exe --version | Out-String
-            if ($LASTEXITCODE -ne 0 -or $version -notmatch '19\.1\.5') {
+            if ($LASTEXITCODE -ne 0 -or $version -notmatch '21\.1\.8') {
               throw "Unexpected $tool version: $version"
             }
           }
-          if (-not (Test-Path -LiteralPath (Join-Path $llvmCompilerHome 'lib/clang/19/include/stddef.h') -PathType Leaf)) {
-            throw 'Missing LLVM 19.1.5 headers.'
+          if (-not (Test-Path -LiteralPath (Join-Path $llvmCompilerHome 'lib/clang/21/include/stddef.h') -PathType Leaf)) {
+            throw 'Missing LLVM 21.1.8 headers.'
           }
           "UNPACKRAT_LLVM_INSTRUMENTATION=$root" | Add-Content -Path $env:GITHUB_ENV
 
@@ -623,9 +574,9 @@ jobs:
           # The client stores only successful, empty-output calls. Toolchain and image versions
           # scope this tree; a commit key and shared prefix reuse unchanged translation units.
           path: ${{ runner.temp }}/clang-tidy-cache-data/${{ inputs.arch }}/${{ hashFiles('build/main.py', 'build/*.props', 'build/*.targets', 'build/projects/**', 'vcpkg.json', 'vcpkg-configuration.json', 'build/vcpkg/ports/**', 'build/vcpkg/triplets/**') }}
-          key: ctcache-v2-857b14271d3ded5511c2e6a60f2dc20c1e4b5680-llvm23.1.3-9ee6a2192fbb30c776415af529927f76ca6b5d1d55699bb1315f9878e610b5b8-v143${{ steps.msvc-toolset.outputs.version }}-sdk10.0.26100.0-${{ steps.runner-image.outputs.identity }}-${{ inputs.arch }}-${{ hashFiles('build/main.py', 'build/*.props', 'build/*.targets', 'build/projects/**', 'vcpkg.json', 'vcpkg-configuration.json', 'build/vcpkg/ports/**', 'build/vcpkg/triplets/**') }}-${{ github.sha }}
+          key: ctcache-v2-857b14271d3ded5511c2e6a60f2dc20c1e4b5680-llvm23.1.3-9ee6a2192fbb30c776415af529927f76ca6b5d1d55699bb1315f9878e610b5b8-v145${{ steps.msvc-toolset.outputs.version }}-sdk10.0.26100.0-${{ steps.runner-image.outputs.identity }}-${{ inputs.arch }}-${{ hashFiles('build/main.py', 'build/*.props', 'build/*.targets', 'build/projects/**', 'vcpkg.json', 'vcpkg-configuration.json', 'build/vcpkg/ports/**', 'build/vcpkg/triplets/**') }}-${{ github.sha }}
           restore-keys: |
-            ctcache-v2-857b14271d3ded5511c2e6a60f2dc20c1e4b5680-llvm23.1.3-9ee6a2192fbb30c776415af529927f76ca6b5d1d55699bb1315f9878e610b5b8-v143${{ steps.msvc-toolset.outputs.version }}-sdk10.0.26100.0-${{ steps.runner-image.outputs.identity }}-${{ inputs.arch }}-${{ hashFiles('build/main.py', 'build/*.props', 'build/*.targets', 'build/projects/**', 'vcpkg.json', 'vcpkg-configuration.json', 'build/vcpkg/ports/**', 'build/vcpkg/triplets/**') }}-
+            ctcache-v2-857b14271d3ded5511c2e6a60f2dc20c1e4b5680-llvm23.1.3-9ee6a2192fbb30c776415af529927f76ca6b5d1d55699bb1315f9878e610b5b8-v145${{ steps.msvc-toolset.outputs.version }}-sdk10.0.26100.0-${{ steps.runner-image.outputs.identity }}-${{ inputs.arch }}-${{ hashFiles('build/main.py', 'build/*.props', 'build/*.targets', 'build/projects/**', 'vcpkg.json', 'vcpkg-configuration.json', 'build/vcpkg/ports/**', 'build/vcpkg/triplets/**') }}-
 
       - name: Prepare the official clang-tidy cache bridge
         if: inputs.stage == 'clang-tidy'
@@ -921,7 +872,7 @@ jobs:
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/clang-tidy-cache-data/${{ inputs.arch }}/${{ hashFiles('build/main.py', 'build/*.props', 'build/*.targets', 'build/projects/**', 'vcpkg.json', 'vcpkg-configuration.json', 'build/vcpkg/ports/**', 'build/vcpkg/triplets/**') }}
-          key: ctcache-v2-857b14271d3ded5511c2e6a60f2dc20c1e4b5680-llvm23.1.3-9ee6a2192fbb30c776415af529927f76ca6b5d1d55699bb1315f9878e610b5b8-v143${{ steps.msvc-toolset.outputs.version }}-sdk10.0.26100.0-${{ steps.runner-image.outputs.identity }}-${{ inputs.arch }}-${{ hashFiles('build/main.py', 'build/*.props', 'build/*.targets', 'build/projects/**', 'vcpkg.json', 'vcpkg-configuration.json', 'build/vcpkg/ports/**', 'build/vcpkg/triplets/**') }}-${{ github.sha }}
+          key: ctcache-v2-857b14271d3ded5511c2e6a60f2dc20c1e4b5680-llvm23.1.3-9ee6a2192fbb30c776415af529927f76ca6b5d1d55699bb1315f9878e610b5b8-v145${{ steps.msvc-toolset.outputs.version }}-sdk10.0.26100.0-${{ steps.runner-image.outputs.identity }}-${{ inputs.arch }}-${{ hashFiles('build/main.py', 'build/*.props', 'build/*.targets', 'build/projects/**', 'vcpkg.json', 'vcpkg-configuration.json', 'build/vcpkg/ports/**', 'build/vcpkg/triplets/**') }}-${{ github.sha }}
 
       # The vcpkg binary cache is saved only once the gates above have populated it and the job
       # has succeeded, so a failed build never publishes a partial cache.
@@ -930,7 +881,7 @@ jobs:
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
-          key: vcpkg-${{ steps.runner-image.outputs.identity }}-${{ inputs.arch == 'none' && 'x64' || inputs.arch }}-${{ (inputs.stage == 'asan' || inputs.stage == 'fuzz') && 'asan' || 'standard' }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'build/vcpkg/ports/**', 'build/vcpkg/triplets/*.cmake') }}
+          key: vcpkg-${{ steps.runner-image.outputs.identity }}-${{ inputs.arch == 'none' && 'x64' || inputs.arch }}-${{ inputs.stage == 'ubsan' && 'ubsan' || inputs.stage == 'asan' && 'asan' || inputs.stage == 'fuzz' && 'fuzz' || 'standard' }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'build/vcpkg/ports/**', 'build/vcpkg/triplets/*.cmake') }}
 
       - name: Upload the Release binaries
         if: inputs.stage == 'native-release'

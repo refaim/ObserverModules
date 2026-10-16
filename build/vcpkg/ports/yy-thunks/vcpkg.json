@@ -1,0 +1,9 @@
+{
+  "name": "yy-thunks",
+  "version": "1.2.3",
+  "port-version": 1,
+  "description": "YY-Thunks Windows XP WinAPI compatibility object built from pinned source",
+  "homepage": "https://github.com/Chuyu-Team/YY-Thunks",
+  "license": "MIT",
+  "supports": "windows & (x86 | x64)"
+}

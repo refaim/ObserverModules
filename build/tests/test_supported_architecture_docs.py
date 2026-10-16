@@ -12,6 +12,7 @@ from __future__ import annotations
 from pathlib import Path
 import re
 import unittest
+from unittest import mock
 
 
 REPOSITORY = Path(__file__).resolve().parents[2]
@@ -53,6 +54,13 @@ class SupportedArchitectureDocumentTests(unittest.TestCase):
                     if match is not None
                     else document.name,
                 )
+
+    def test_an_arm_target_in_a_document_is_rejected(self) -> None:
+        case = SupportedArchitectureDocumentTests("test_no_document_names_arm_as_a_target_prerequisite_or_release")
+        with mock.patch(__name__ + ".read", return_value="ARM64"), self.assertRaisesRegex(
+            AssertionError, "README.md still mentions ARM"
+        ):
+            case.test_no_document_names_arm_as_a_target_prerequisite_or_release()
 
     def test_readme_advertises_only_x86_and_x64(self) -> None:
         readme = read(README)
@@ -166,16 +174,13 @@ class SupportedArchitectureDocumentTests(unittest.TestCase):
                     self.assertIsNone(_ARM.search("\n".join(lines)), f"{module}/{name} claims ARM")
                     # The unreleased top version keeps its heading and its meaningful entries.
                     self.assertEqual(lines[0], f"{headers[language]} {version}")
-                    headings = tuple(headers.values())
-                    body = lines[2:]
-                    end = next(
-                        (index for index, line in enumerate(body) if line.startswith(headings)),
-                        len(body),
-                    )
-                    entries = [
-                        line for line in body[:end] if line.lstrip().startswith(("*", "+"))
-                    ]
-                    self.assertGreaterEqual(len(entries), 2)
+                    top = read(REPOSITORY / "src" / "modules" / module / name).split("\n\n", 1)[0]
+                    public_entries = {
+                        "en": "* Added support for all Windows versions from XP through Windows 11.",
+                        "ru": "* Поддерживаются все версии Windows от XP до Windows 11.",
+                    }
+                    self.assertEqual([line.strip() for line in top.splitlines()[2:]],
+                                     [public_entries[language]])
                     # The historical 1.0.0 lineage survives.
                     self.assertIn(f"{headers[language]} 1.0.0", "\n".join(lines))
 

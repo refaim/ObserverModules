@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <!-- Retain the legacy property name; shipping Release uses the static CRT and XP thunks. -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Release' And '$(unpackratCompileAnalysis)' != 'true' And '$(unpackratStandaloneClangTidy)' != 'true'">
+    <unpackratVistaCompatibility>true</unpackratVistaCompatibility>
+    <WindowsTargetPlatformMinVersion Condition="'$(Platform)' == 'Win32'">5.1.2600.0</WindowsTargetPlatformMinVersion>
+    <WindowsTargetPlatformMinVersion Condition="'$(Platform)' == 'x64'">5.2.3790.1830</WindowsTargetPlatformMinVersion>
+    <unpackratYYThunksObject>$(VcpkgInstalledDir)$(VcpkgTriplet)\share\yy-thunks\objs\$(PlatformMoniker)\YY_Thunks_for_WinXP.obj</unpackratYYThunksObject>
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(unpackratVistaCompatibility)' == 'true'">
+    <Link>
+      <SubSystem Condition="'$(ConfigurationType)' == 'DynamicLibrary'">Windows</SubSystem>
+      <SubSystem Condition="'$(ConfigurationType)' == 'Application'">Console</SubSystem>
+      <MinimumRequiredVersion Condition="'$(Platform)' == 'Win32'">5.01</MinimumRequiredVersion>
+      <MinimumRequiredVersion Condition="'$(Platform)' == 'x64'">5.02</MinimumRequiredVersion>
+      <EntryPointSymbol Condition="'$(ConfigurationType)' == 'DynamicLibrary'">DllMainCRTStartupForYY_Thunks</EntryPointSymbol>
+      <AdditionalOptions Condition="'$(ConfigurationType)' == 'DynamicLibrary' And '$(Platform)' == 'Win32'">/alternatename:_YY_ThunksOriginalDllMainCRTStartup@12=__DllMainCRTStartup@12 %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions Condition="'$(ConfigurationType)' == 'DynamicLibrary' And '$(Platform)' == 'x64'">/alternatename:YY_ThunksOriginalDllMainCRTStartup=_DllMainCRTStartup %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalDependencies>$(unpackratYYThunksObject);%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+  <Target Name="ValidateunpackratVistaCompatibility" BeforeTargets="PrepareForBuild;GetClCompileCommandLines"
+          Condition="'$(unpackratVistaCompatibility)' == 'true'">
+    <Error Condition="!Exists('$(unpackratYYThunksObject)')"
+           Text="Release requires the pinned source-built YY-Thunks XP object for $(PlatformMoniker); restore the manifest through build.ps1." />
+  </Target>
+</Project>

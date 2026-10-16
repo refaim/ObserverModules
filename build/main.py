@@ -45,13 +45,14 @@ VCPKG_TRIPLETS = "build/vcpkg/triplets"
 # A module ships its own MIT grant, the Observer API header's LGPLv3 notice with the full GPLv3
 # text the LGPL incorporates, and then only that module's own third-party notices.
 LICENSES = {
-    "renpy": ("Observer.txt", "GPL-3.0.txt", "rpatool.txt", "serde-pickle.txt", "zlib-ng.txt"),
-    "rpgmaker": ("Observer.txt", "GPL-3.0.txt", "rgssad.txt"),
-    "zanzarah": ("Observer.txt", "GPL-3.0.txt"),
+    "renpy": ("Observer.txt", "GPL-3.0.txt", "rpatool.txt", "serde-pickle.txt", "zlib-ng.txt",
+              "YY-Thunks.txt"),
+    "rpgmaker": ("Observer.txt", "GPL-3.0.txt", "rgssad.txt", "YY-Thunks.txt"),
+    "zanzarah": ("Observer.txt", "GPL-3.0.txt", "YY-Thunks.txt"),
     "godot": (
         "Observer.txt", "GPL-3.0.txt", "godot.txt", "libspng.txt", "libogg.txt",
         "brotli.txt", "zstd.txt", "fastlz.txt", "zlib-ng.txt", "bcdec.txt", "dr_libs.txt",
-        "qoa.txt", "zydis.txt", "zycore.txt", "mbedcrypto.txt",
+        "qoa.txt", "zydis.txt", "zycore.txt", "mbedcrypto.txt", "YY-Thunks.txt",
     ),
 }
 FUZZ_TARGETS = ("pickle", "renpy", "rpgmaker", "zanzarah")
@@ -79,14 +80,12 @@ CLEANUP_PROBE_EXIT = 0x5A
 # ``test::support::unused_path("cleanup-fatal")``.
 CLEANUP_PROBE_MARKER = "unpackrat-lazy-cleanup-fatal-"
 CLEANUP_PROBE_TIMEOUT = 30
-# The toolset the shipped binaries and the restored dependencies are built with.  The hosted
-# VS2026 image also carries the newer 14.51 (v145) tools, so the driver selects a VS 18.x
-# installation that still provides the legacy component and pins the exact servicing version.
-VS_LEGACY_COMPONENT = "Microsoft.VisualStudio.Component.VC.14.44.17.14.x86.x64"
-LEGACY_TOOLSET_VERSION = "14.44"
-# The legacy glob ``14.44.*`` also matches stray files and ``.backup`` siblings; only a fully
+# The shipped binaries and dependencies use one numeric servicing version of VS2026's v145.
+VS_TOOLSET_COMPONENT = "Microsoft.VisualStudio.Component.VC.Tools.x86.x64"
+TOOLSET_VERSION = "14.51"
+# The family glob also matches stray files and ``.backup`` siblings; only a fully
 # numeric servicing name that is a real directory is a toolset, so nothing displaces the choice.
-_LEGACY_TOOLSET_NAME = re.compile(r"\d+(?:\.\d+)*")
+_TOOLSET_NAME = re.compile(r"\d+(?:\.\d+)*")
 # The standalone analyzer and formatter are provisioned separately from the VS LLVM toolset;
 # the official LLVM 23 x64 archive has no 32-bit runtime, so these stay analyze/format-only.
 LLVM_VERSION = "23.1.3"
@@ -96,27 +95,25 @@ _CLANG_TIDY_RUNNER_BOOTSTRAP = (
     "import runpy,sys;sys.stdout.reconfigure(newline='');sys.stderr.reconfigure(newline='');"
     "sys.argv=sys.argv[1:];runpy.run_path(sys.argv[0],run_name='__main__')"
 )
-# The instrumentation stages need one matched LLVM 19.1.5 family: the compiler, the coverage and
-# profile tools, the headers and the per-architecture runtimes.  CI publishes that exact tree and
-# names it through LLVM_INSTRUMENTATION_ENV; a local run reuses the LLVM 19.1.5 bundled with the
-# Visual Studio 2022 installation.  The official LLVM 23.1.3 archive supplies only the standalone
-# clang-tidy/clang-format, so it never satisfies this selector.
+# Instrumentation uses an explicit, paired LLVM21 installation. Local tool installation is
+# operator-owned; CI supplies the same verified x86/x64 pair through a same-run artifact.
 LLVM_INSTRUMENTATION_ENV = "UNPACKRAT_LLVM_INSTRUMENTATION"
-LLVM_INSTRUMENTATION_COMPONENT = "Microsoft.VisualStudio.Component.VC.Llvm.Clang"
-LLVM_INSTRUMENTATION_VERSION = "19.1.5"
-LLVM_MAJOR_VERSION = "19"
-_LLVM_INSTRUMENTATION_TOOLS = ("clang-cl", "llvm-cov", "llvm-profdata")
+LLVM_INSTRUMENTATION_VERSION = "21.1.8"
+LLVM_MAJOR_VERSION = "21"
+_LLVM_INSTRUMENTATION_TOOLS = ("clang-cl", "lld-link", "llvm-cov", "llvm-profdata")
 _LLVM_VERSION_PATTERN = re.compile(
     rf"(?<![\d.]){re.escape(LLVM_INSTRUMENTATION_VERSION)}(?![\d.])"
 )
 _LLVM_RUNTIMES = {
     "x86": (
         "clang_rt.profile-i386.lib", "clang_rt.fuzzer-i386.lib",
-        "clang_rt.asan-i386.lib", "clang_rt.asan_cxx-i386.lib",
+        "clang_rt.asan_dynamic-i386.lib", "clang_rt.asan_static_runtime_thunk-i386.lib",
+        "clang_rt.asan_dynamic-i386.dll",
     ),
     "x64": (
         "clang_rt.profile-x86_64.lib", "clang_rt.fuzzer-x86_64.lib",
-        "clang_rt.asan-x86_64.lib", "clang_rt.asan_cxx-x86_64.lib",
+        "clang_rt.asan_dynamic-x86_64.lib", "clang_rt.asan_static_runtime_thunk-x86_64.lib",
+        "clang_rt.asan_dynamic-x86_64.dll",
         "clang_rt.ubsan_standalone-x86_64.lib", "clang_rt.ubsan_standalone_cxx-x86_64.lib",
     ),
 }
@@ -137,7 +134,7 @@ COVERAGE_IGNORED = (
     r"([\\/]src[\\/](tests|fuzz)[\\/])|([\\/]vcpkg_installed[\\/])|"
     r"([\\/]Microsoft Visual Studio[\\/])|([\\/]Windows Kits[\\/])|([\\/]third_party[\\/])"
 )
-_ASAN_CONFIGURATIONS = frozenset({"ASan", "Fuzz"})
+_DEPENDENCY_SUFFIXES = {"ASan": "-asan", "Fuzz": "-fuzz", "UBSan": "-ubsan"}
 _ASAN_OPTIONS = "halt_on_error=1:alloc_dealloc_mismatch=1"
 _UBSAN_OPTIONS = "halt_on_error=1:print_stacktrace=1"
 _ASAN_RUNTIMES = {"x86": "clang_rt.asan_dynamic-i386.dll", "x64": "clang_rt.asan_dynamic-x86_64.dll"}
@@ -183,6 +180,7 @@ _MSVC_ANALYSIS_PROPERTIES = (
 # MSBuild's GetCompileCommands must carry the same clang-cl options as its ClangTidy target:
 # the project props use this switch for -Qunused-arguments and the restored vcpkg -imsvc path.
 _CLANG_TIDY_ANALYSIS_PROPERTIES = (
+    "/p:unpackratStandaloneClangTidy=true",
     "/p:unpackratRunCodeAnalysis=false",
     "/p:RunCodeAnalysis=false",
     "/p:EnableMicrosoftCodeAnalysis=false",
@@ -310,7 +308,7 @@ def _vs_installation() -> Path:
             str(vswhere), "-products", "*",
             "-version", "[18.0,19.0)",
             "-requires", "Microsoft.Component.MSBuild",
-            "-requires", VS_LEGACY_COMPONENT,
+            "-requires", VS_TOOLSET_COMPONENT,
             "-property", "installationPath",
         ],
         capture=True,
@@ -324,26 +322,20 @@ def _vs_installation() -> Path:
 
 
 def _msvc_toolset_version(installation: Path) -> str:
-    """Return the newest installed legacy 14.44 servicing toolset below an installation.
-
-    The hosted VS2026 image also ships the newer 14.51 (v145) tools, which the ordinary
-    build is not yet clean under.  Selecting the numeric maximum of the 14.44 family keeps
-    the compiler, the ASan runtime and vcpkg on one servicing version, and a missing 14.44
-    family fails closed instead of silently falling back to 14.51.
-    """
+    """Return the numeric-maximum installed 14.51 servicing toolset; never another family."""
 
     root = Path(installation) / "VC" / "Tools" / "MSVC"
     versions = sorted(
         (
             child.name
-            for child in root.glob(f"{LEGACY_TOOLSET_VERSION}.*")
-            if child.is_dir() and _LEGACY_TOOLSET_NAME.fullmatch(child.name)
+            for child in root.glob(f"{TOOLSET_VERSION}.*")
+            if child.is_dir() and _TOOLSET_NAME.fullmatch(child.name)
         ),
         key=lambda name: tuple(int(part) for part in name.split(".")),
     )
     if not versions:
         raise FileNotFoundError(
-            f"no {LEGACY_TOOLSET_VERSION} MSVC toolset below {root}; the legacy v143 tools are required")
+            f"no {TOOLSET_VERSION} MSVC toolset below {root}; the VS2026 v145 tools are required")
     return versions[-1]
 
 
@@ -369,47 +361,22 @@ def _native_tools() -> tuple[Path, Path]:
     return _find_msbuild(), _find_vcpkg()
 
 
-def _llvm_installation() -> Path:
-    """Return the Visual Studio 2022 that bundles the LLVM 19.1.5 instrumentation toolchain."""
-
-    base = os.environ.get("ProgramFiles(x86)")
-    if not base:
-        raise FileNotFoundError("ProgramFiles(x86) is not set; cannot locate vswhere.exe")
-    vswhere = Path(base) / "Microsoft Visual Studio" / "Installer" / "vswhere.exe"
-    completed = run(
-        [
-            str(vswhere), "-products", "*",
-            "-version", "[17.0,18.0)",
-            "-requires", LLVM_INSTRUMENTATION_COMPONENT,
-            "-property", "installationPath",
-        ],
-        capture=True,
-    )
-    installation = next(
-        (line.strip() for line in (completed.stdout or "").splitlines() if line.strip()), None)
-    if installation is None:
-        raise FileNotFoundError(
-            "vswhere reported no Visual Studio 2022 installation with the LLVM toolset")
-    return Path(installation)
-
-
 def _llvm_home() -> Path:
-    """Return the ``x64`` LLVM home: the explicit CI root, else the VS 2022 LLVM install."""
+    """Return the x64 compiler home from the operator's explicit paired LLVM21 root."""
 
     override = os.environ.get(LLVM_INSTRUMENTATION_ENV)
-    if override:
-        root = Path(override)
-        if not root.is_absolute():
-            raise FileNotFoundError(
-                f"{LLVM_INSTRUMENTATION_ENV} must be an absolute path: {override}")
-        return root / "x64"
-    return _llvm_installation() / "VC" / "Tools" / "Llvm" / "x64"
+    if not override:
+        raise FileNotFoundError(
+            f"set {LLVM_INSTRUMENTATION_ENV} to an installed LLVM {LLVM_INSTRUMENTATION_VERSION} "
+            "paired x86/x64 root; automatic tool installation is disabled")
+    root = Path(override)
+    if not root.is_absolute():
+        raise FileNotFoundError(
+            f"{LLVM_INSTRUMENTATION_ENV} must be an absolute path: {override}")
+    return root / "x64"
 
 
 def _llvm_dir() -> Path:
-    # The instrumentation toolchain is one matched LLVM 19.1.5 family selected by the explicit
-    # CI root or the Visual Studio 2022 install.  A global LLVM on PATH is ignored on purpose:
-    # hosted images ship a version whose clang_rt lacks the 32-bit runtime an x86 build needs.
     return _llvm_home()
 
 
@@ -448,10 +415,8 @@ def _llvm(architecture: str = "x64") -> Llvm:
         raise FileNotFoundError(f"missing LLVM {LLVM_MAJOR_VERSION} runtime below {root}")
     if not (root / "include" / "stddef.h").is_file():
         raise FileNotFoundError(f"missing LLVM {LLVM_MAJOR_VERSION} headers below {root}")
-    # x64 uses the runtime beside the compiler; x86 takes the sibling runtime from the
-    # ``VC/Tools/Llvm`` root that ships the i386 libraries.  Both name the same major version so
-    # the forwarded ``LLVMToolsVersion`` stays consistent with the compiler.
-    runtime_root = directory if architecture == "x64" else directory.parent
+    # Both official distributions keep their architecture-specific runtime under their own root.
+    runtime_root = directory if architecture == "x64" else directory.parent / "x86"
     runtime = runtime_root / "lib" / "clang" / LLVM_MAJOR_VERSION / "lib" / "windows"
     if not runtime.is_dir():
         raise FileNotFoundError(f"missing LLVM {architecture} runtime below {runtime_root}")
@@ -506,7 +471,7 @@ def _asan_runtime(architecture: str) -> Path:
     if installation is None:
         raise FileNotFoundError(f"cannot locate the Visual Studio installation from {msbuild}")
     # The staged ASan runtime must come from the very toolset that produced the binaries, so
-    # it uses the same selected 14.44 servicing version as the compiler rather than the newest.
+    # it uses the same selected 14.51 servicing version as the compiler.
     version = _msvc_toolset_version(installation)
     runtime = (installation / "VC" / "Tools" / "MSVC" / version / "bin" / "Hostx64"
                / architecture / _ASAN_RUNTIMES[architecture])
@@ -526,12 +491,12 @@ def bin_directory(repository: Path | str, architecture: str, configuration: str)
 
 
 def restore_root(repository: Path | str, architecture: str, configuration: str) -> Path:
-    suffix = "-asan" if configuration in _ASAN_CONFIGURATIONS else ""
+    suffix = _DEPENDENCY_SUFFIXES.get(configuration, "")
     return artifacts_root(repository) / "vcpkg_installed" / f"{architecture}{suffix}"
 
 
 def triplet(architecture: str, configuration: str) -> str:
-    suffix = "-asan" if configuration in _ASAN_CONFIGURATIONS else ""
+    suffix = _DEPENDENCY_SUFFIXES.get(configuration, "")
     return f"unpackrat-{architecture}-windows-static{suffix}"
 
 
@@ -540,11 +505,20 @@ def _report_path(repository: Path, architecture: str, configuration: str, scope:
 
 
 def _restore(repository: Path, architecture: str, configuration: str, vcpkg: Path) -> None:
-    suffix = "-asan" if configuration in _ASAN_CONFIGURATIONS else ""
+    suffix = _DEPENDENCY_SUFFIXES.get(configuration, "")
     scratch = artifacts_root(repository) / "vcpkg_scratch" / f"{architecture}{suffix}"
     # Point vcpkg at the same Visual Studio the driver builds with, through the child
     # environment only: two installed Visual Studios must never make vcpkg pick the older one.
-    env = {"VCPKG_VISUAL_STUDIO_PATH": os.fspath(_vs_installation())}
+    installation = _vs_installation()
+    kept_variables = os.environ.get("VCPKG_KEEP_ENV_VARS", "").split(";")
+    if not any(name.casefold() == "path" for name in kept_variables):
+        kept_variables.append("PATH")
+    env = {
+        "VCPKG_VISUAL_STUDIO_PATH": os.fspath(installation),
+        "VCPKG_PLATFORM_TOOLSET_VERSION": _msvc_toolset_version(installation),
+        "VCPKG_FORCE_SYSTEM_BINARIES": "1",
+        "VCPKG_KEEP_ENV_VARS": ";".join(filter(None, kept_variables)),
+    }
     run(
         [
             str(vcpkg), "install",
@@ -579,8 +553,8 @@ def _msbuild_command(
         f"/p:ArtifactsRoot={artifacts_root(repository)}{os.sep}",
         f"/p:VcpkgRoot={vcpkg.parent}",
         "/p:VcpkgManifestInstall=false",
-        # Forward the exact legacy servicing version for every configuration - the MSVC and
-        # the ClangCL toolset alike - so no build silently falls back to the newer 14.51 tools.
+        # Forward the exact selected servicing version for every configuration - the MSVC and
+        # the ClangCL toolset alike - so every configuration uses the same compiler libraries.
         f"/p:VCToolsVersion={_msvc_toolset_version(_vs_installation())}",
     ]
     if llvm is not None:
@@ -992,8 +966,8 @@ def _sanitizer(
 ) -> Path:
     configuration = "ASan" if sanitizer == "asan" else "UBSan"
     _restore(repository, architecture, configuration, vcpkg)
-    # ASan is the MSVC 14.44 dynamic ASan build and takes no LLVM toolchain; only UBSan forwards
-    # the matched LLVM 19 runtime to MSBuild.
+    # ASan is the MSVC 14.51 dynamic ASan build and takes no LLVM toolchain; only UBSan forwards
+    # the matched LLVM 21 runtime to MSBuild.
     props = None if sanitizer == "asan" else llvm
     run(
         _msbuild_command(repository, repository / TEST_PROJECT, architecture, configuration, jobs, msbuild, vcpkg, llvm=props),
@@ -1057,6 +1031,9 @@ def _fuzz(
             cwd=repository,
         )
         executable = bin_directory(repository, architecture, "Fuzz") / f"fuzz-{target}.exe"
+        runtime_name = _ASAN_RUNTIMES[architecture]
+        executable.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(llvm.runtime / runtime_name, executable.parent / runtime_name)
         work = artifacts_root(repository) / "fuzz" / architecture / target
         seeds = _seed_corpus(repository, target, work / "seeds")
         length = FUZZ_MAX_LENGTH[target]
@@ -1402,7 +1379,7 @@ def _dispatch(
             _coverage(repository, architecture, msbuild, vcpkg, _runtime(llvm, architecture), corpus=corpus, jobs=jobs)
     elif stage == "asan":
         for architecture in architectures:
-            # The MSVC 14.44 dynamic ASan build needs no LLVM 19 instrumentation toolchain, so
+            # The MSVC 14.51 dynamic ASan build needs no LLVM 21 instrumentation toolchain, so
             # this stage never has to resolve one.
             _sanitizer(repository, "asan", architecture, msbuild, vcpkg, None, jobs=jobs)
     elif stage == "ubsan":

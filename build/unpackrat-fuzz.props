@@ -25,8 +25,8 @@
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
-      <AdditionalDependencies>$(LLVMRuntimeDir)\clang_rt.asan-$(unpackratFuzzRuntimeSuffix).lib;$(LLVMRuntimeDir)\clang_rt.asan_cxx-$(unpackratFuzzRuntimeSuffix).lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <AdditionalOptions>/WHOLEARCHIVE:"$(LLVMRuntimeDir)\clang_rt.fuzzer-$(unpackratFuzzRuntimeSuffix).lib" /WHOLEARCHIVE:"$(LLVMRuntimeDir)\clang_rt.asan-$(unpackratFuzzRuntimeSuffix).lib" /WHOLEARCHIVE:"$(LLVMRuntimeDir)\clang_rt.asan_cxx-$(unpackratFuzzRuntimeSuffix).lib" /INFERASANLIBS:NO %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalDependencies>$(LLVMRuntimeDir)\clang_rt.asan_dynamic-$(unpackratFuzzRuntimeSuffix).lib;$(LLVMRuntimeDir)\clang_rt.asan_static_runtime_thunk-$(unpackratFuzzRuntimeSuffix).lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalOptions>/WHOLEARCHIVE:"$(LLVMRuntimeDir)\clang_rt.fuzzer-$(unpackratFuzzRuntimeSuffix).lib" /WHOLEARCHIVE:"$(LLVMRuntimeDir)\clang_rt.asan_static_runtime_thunk-$(unpackratFuzzRuntimeSuffix).lib" /INFERASANLIBS:NO %(AdditionalOptions)</AdditionalOptions>
     </Link>
   </ItemDefinitionGroup>
   <Target Name="ValidateFuzzConfiguration" BeforeTargets="PrepareForBuild">

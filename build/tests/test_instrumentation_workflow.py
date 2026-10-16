@@ -1,14 +1,12 @@
-"""One real provisioning job publishes the matched LLVM 19.1.5 instrumentation toolchain.
+"""One real provisioning job publishes the matched LLVM 21.1.8 instrumentation toolchain.
 
-The VS2026 image bundles LLVM 22.1.3, which ships no i386 runtime and no static ASan
-libraries, so it cannot drive the coverage, UBSan or fuzz stages.  The ASan slices are
-unaffected: they are the MSVC 14.44 dynamic AddressSanitizer build and use no LLVM toolchain.
-A single real ``instrumentation-tools`` job downloads the exact official Microsoft payloads,
-hash-verifies and extracts them, verifies the 19.1.5 versions and the runtime libraries for
-both architectures, and publishes the result as a same-run artifact.  The instrumentation
-slices download that same-run artifact and select it through
-``UNPACKRAT_LLVM_INSTRUMENTATION``; nothing reaches a cross-run stash, and no aggregate gate
-re-scores the results.
+Official LLVM21 distributions provide a matched x86/x64 family whose x64 C++ UBSan archive is
+built with the static CRT. The prep job selects the exact MSVC v145 14.51 servicing toolset once,
+hash-verifies both official packages and extracts them with the existing archiver, then rebuilds
+only that one x64 C++ UBSan archive from hash-verified official source with the DLL CRT, records
+provenance, links a real ``/MD`` C++ UBSan probe and re-qualifies the cached toolchain. No local
+tool installation is used, the ASan slices build with MSVC 14.51 directly, and instrumentation
+slices consume only the same-run verified artifact.
 """
 
 from __future__ import annotations
@@ -24,24 +22,14 @@ import unittest
 REPOSITORY = Path(__file__).resolve().parents[2]
 WORKFLOWS = REPOSITORY / ".github" / "workflows"
 PREP_WORKFLOW = WORKFLOWS / "ci-instrumentation.yml"
-ARTIFACT = "llvm-instrumentation-19.1.5"
+ARTIFACT = "llvm-instrumentation-21.1.8"
 
-BASE_URL = (
-    "https://download.visualstudio.microsoft.com/download/pr/"
-    "58af20f6-56e8-48a0-86d3-115fb110097b/"
-    "6a70f2b5677302799b5220afd03d062af72ad8ca869e4537465f8a687810cfa2/payload.vsix"
-)
-BASE_SHA = "6a70f2b5677302799b5220afd03d062af72ad8ca869e4537465f8a687810cfa2"
-BASE_SIZE = "62004420"
-CLANG_URL = (
-    "https://download.visualstudio.microsoft.com/download/pr/"
-    "e98d75fa-91b1-47a1-9cb7-b6556de592c5/"
-    "3f4c2578467784756f3706848d8ebec3f0b1f6705c062b2be769f4138534115f/payload.vsix"
-)
-CLANG_SHA = "3f4c2578467784756f3706848d8ebec3f0b1f6705c062b2be769f4138534115f"
-CLANG_SIZE = "2224434987"
+X86_SHA = "0492c5c292e515ebbbc2533671e54c5895fe209e534812313f64257407233181"
+X64_SHA = "7a5386c26497db1691f320121e5b113364dd0274b98e55f15f4dbc00c0450113"
+X86_SIZE = "349589289"
+X64_SIZE = "374129373"
 
-VERIFY_STEP = "Verify the pinned LLVM 19.1.5 toolchain"
+VERIFY_STEP = "Verify the pinned LLVM 21.1.8 toolchain"
 # The verify step must keep its step-local compiler path out of PowerShell's read-only
 # automatic ``$HOME`` (variable names are case-insensitive, so ``$home`` is ``$HOME``), and it
 # uses this distinct, step-local name instead.
@@ -50,7 +38,7 @@ COMPILER_HOME_VARIABLE = "$llvmCompilerHome"
 INSTRUMENTATION_JOBS = (
     "coverage-x86", "coverage-x64", "ubsan-x64", "fuzz-x86", "fuzz-x64",
 )
-# The MSVC 14.44 dynamic ASan slices build without the LLVM 19 instrumentation toolchain.
+# The MSVC 14.51 dynamic ASan slices build without the LLVM 21 instrumentation toolchain.
 LLVM_FREE_JOBS = ("asan-x86", "asan-x64")
 PREP_JOB = "instrumentation-tools"
 
@@ -168,68 +156,67 @@ class InstrumentationWorkflowTests(unittest.TestCase):
         self.assertIn(f"          name: {ARTIFACT}\n", self.prep)
 
     def test_the_prep_job_downloads_and_hash_verifies_the_official_payloads(self) -> None:
-        self.assertIn(BASE_URL, self.prep)
-        self.assertIn(CLANG_URL, self.prep)
-        self.assertIn(BASE_SHA, self.prep)
-        self.assertIn(CLANG_SHA, self.prep)
-        self.assertIn(BASE_SIZE, self.prep)
-        self.assertIn(CLANG_SIZE, self.prep)
-        # The official Microsoft URLs are not GitHub release assets, so the download is a plain
-        # web request; every payload still passes a size and SHA-256 check.
-        self.assertIn("Invoke-WebRequest", self.prep)
-        self.assertIn("Get-FileHash", self.prep)
-        self.assertIn("SHA256", self.prep)
-
-    def test_the_payload_size_pins_are_the_verified_official_byte_counts(self) -> None:
-        # 62004420 / 2224434987 are the independently rehashed sizes of the two official payload
-        # files behind the pinned URLs; a trimmed or re-cut payload changes them, so both the
-        # exact pins and the loud mismatch guard must stay.
-        self.assertIn(f'LLVM_BASE_SIZE: "{BASE_SIZE}"', self.prep)
-        self.assertIn(f'LLVM_CLANG_SIZE: "{CLANG_SIZE}"', self.prep)
-        self.assertIn("Unexpected $($payload.Name) VSIX size", self.prep)
+        for token in ("gh release download llvmorg-21.1.8 --repo llvm/llvm-project",
+                      "LLVM-21.1.8-win32.exe", "LLVM-21.1.8-win64.exe", X86_SHA, X64_SHA,
+                      X86_SIZE, X64_SIZE, "Get-FileHash", "SHA256"):
+            self.assertIn(token, self.prep)
+        self.assertLess(self.prep.index("Get-FileHash"), self.prep.index("& 7z x"))
+        self.assertNotIn("Start-Process", self.prep)
 
     def test_the_toolchain_cache_uses_the_standard_action_keyed_on_the_payloads(self) -> None:
         self.assertIn("actions/cache/restore@", self.prep)
         self.assertIn("actions/cache/save@", self.prep)
-        self.assertIn(f"{BASE_SHA}-{CLANG_SHA}", self.prep)
+        self.assertIn(f"{X86_SHA}-{X64_SHA}", self.prep)
 
-    def test_the_prep_job_extracts_the_vendor_layout_with_the_stdlib_zipfile(self) -> None:
-        self.assertIn("zipfile", self.prep)
-        self.assertIn("Contents/VC/Tools/Llvm/", self.prep)
-        # The extraction keeps the compiler/coverage tools, the whole x64 ``lib/clang/19`` tree
-        # (headers and libraries) and the sibling 32-bit runtime tree, through prefix matches the
-        # workflow really uses rather than a literal header path.
-        for member in (
-            "x64/bin/clang-cl.exe",
-            "x64/bin/llvm-cov.exe",
-            "x64/bin/llvm-profdata.exe",
-            "x64/lib/clang/19/",
-            "lib/clang/19/lib/windows",
-        ):
-            with self.subTest(member=member):
-                self.assertIn(member, self.prep)
+    def test_the_linker_is_extracted_and_version_checked_by_prep_and_consumers(self) -> None:
+        self.assertIn("'bin/lld-link.exe'", self.prep)
+        for step in (self._step(self.prep, VERIFY_STEP), self._step(self.check, "Select the instrumentation toolchain")):
+            inventory = re.search(r"foreach \(\$tool in @\(([^)]*)\)\)", step)
+            self.assertIsNotNone(inventory)
+            self.assertEqual(re.findall(r"'([^']+)'", inventory.group(1)),
+                             ["clang-cl", "lld-link", "llvm-cov", "llvm-profdata"])
+            self.assertIn("--version | Out-String", step)
+
+    def test_the_linker_inventory_invalidates_the_old_immutable_cache(self) -> None:
+        keys = re.findall(r"^          key: (llvm-instrumentation-.*)$", self.prep, re.MULTILINE)
+        identity = (
+            f"{ARTIFACT}-lld-link-v1-{X86_SHA}-{X64_SHA}"
+            "-ubsan-runtime-md-crt-v1-4633a23617fa31a3"
+            "-v145-${{ steps.ubsan-build-environment.outputs.cache_environment }}"
+        )
+        self.assertEqual(keys, [identity] * 2)
+        self.assertLess(len(identity), 512)
+
+    def test_the_prep_job_extracts_both_official_layouts_with_the_installed_archiver(self) -> None:
+        for token in ("& 7z x", "'-r'", "'bin/clang-cl.exe'", "'bin/llvm-cov.exe'",
+                      "'bin/llvm-profdata.exe'", "'bin/*.dll'", "'lib/clang/21/*'",
+                      "Join-Path $root $payload.Arch", "Pinned LLVM extraction failed"):
+            self.assertIn(token, self.prep)
+        self.assertNotIn("zipfile", self.prep)
 
     def test_the_prep_job_verifies_the_versions_and_runtime_libraries(self) -> None:
         for tool in ("clang-cl", "llvm-cov", "llvm-profdata"):
             with self.subTest(tool=tool):
                 self.assertIn(tool, self.prep)
-        self.assertIn("19\\.1\\.5", self.prep)
+        self.assertIn("21\\.1\\.8", self.prep)
         for arch in ("x86_64", "i386"):
-            for runtime in ("profile", "fuzzer", "asan", "asan_cxx"):
+            for runtime in ("profile", "fuzzer", "asan_dynamic", "asan_static_runtime_thunk"):
                 with self.subTest(arch=arch, runtime=runtime):
                     self.assertIn(f"clang_rt.{runtime}-{arch}.lib", self.prep)
         self.assertIn("clang_rt.ubsan_standalone-x86_64.lib", self.prep)
         self.assertIn("clang_rt.ubsan_standalone_cxx-x86_64.lib", self.prep)
+        for arch in ("i386", "x86_64"):
+            self.assertIn(f"clang_rt.asan_dynamic-{arch}.dll", self.prep)
         self.assertIn("stddef.h", self.prep)
 
     def test_the_verify_step_is_unconditional_and_uses_an_exact_version_boundary(self) -> None:
-        step = self._step(self.prep, "Verify the pinned LLVM 19.1.5 toolchain")
+        step = self._step(self.prep, "Verify the pinned LLVM 21.1.8 toolchain")
         # A restored cache HIT must be re-verified before it is trusted, so the step never
         # depends on the cache-hit output and carries no condition of its own.
         self.assertNotIn("cache-hit", step)
         self.assertNotIn("if:", step)
-        # The version boundary is exact, so a longer token such as 19.1.50 cannot satisfy it.
-        self.assertIn(r"19\.1\.5(?!\d)", step)
+        # The version boundary is exact, so a longer token such as 21.1.80 cannot satisfy it.
+        self.assertIn(r"21\.1\.8(?!\d)", step)
 
     def test_the_verify_step_uses_a_step_local_path_variable_that_leaves_home_alone(self) -> None:
         step = self._step(self.prep, VERIFY_STEP)
@@ -241,7 +228,7 @@ class InstrumentationWorkflowTests(unittest.TestCase):
         setup = verify_setup_lines(step)
         self.assertIn(f"{COMPILER_HOME_VARIABLE} = Join-Path $root 'x64'", setup)
 
-        root = r"C:\a\_temp\unpackrat\tools\llvm\19.1.5"
+        root = r"C:\a\_temp\unpackrat\tools\llvm\21.1.8"
         fixed = run_verify_setup(setup, root)
         self.assertEqual(fixed["Path"], os.path.join(root, "x64"))
         self.assertFalse(fixed["HomeRejected"])
@@ -271,7 +258,7 @@ class InstrumentationWorkflowTests(unittest.TestCase):
         self.assertFalse(fixed["HomeRejected"])
         self.assertEqual(
             fixed["Path"],
-            os.path.join(runner_temp, "unpackrat", "tools", "llvm", "19.1.5", "x64"),
+            os.path.join(runner_temp, "unpackrat", "tools", "llvm", "21.1.8", "x64"),
         )
         self.assertEqual(fixed["HomeAfter"], fixed["HomeBefore"])
 
@@ -296,7 +283,7 @@ class InstrumentationWorkflowTests(unittest.TestCase):
             with self.subTest(job=job):
                 self.assertEqual(job_needs(blocks[job]), [PREP_JOB])
         # The native, analysis, source and leak stages never wait on the instrumentation
-        # toolchain, and neither do the MSVC 14.44 dynamic ASan slices.
+        # toolchain, and neither do the MSVC 14.51 dynamic ASan slices.
         llvm_free_native_jobs = (
             "source-checks",
             "native-debug-x86", "native-debug-x64", "native-release-x86", "native-release-x64",
@@ -352,7 +339,7 @@ class InstrumentationWorkflowTests(unittest.TestCase):
         # The final step of the prep workflow has no following ``- name:`` line, so the block must
         # run to the end of the file; a name that is absent must fail loudly instead of returning
         # an empty block.
-        final = self._step(self.prep, "Upload the LLVM 19.1.5 instrumentation toolchain")
+        final = self._step(self.prep, "Upload the LLVM 21.1.8 instrumentation toolchain")
         self.assertIn("actions/upload-artifact@", final)
         # Only the step's own header mentions a name; no following step was captured.
         self.assertEqual(final.count("- name:"), 1)

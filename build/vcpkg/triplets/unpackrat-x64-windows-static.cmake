@@ -1,8 +1,20 @@
 set(VCPKG_TARGET_ARCHITECTURE x64)
 set(VCPKG_CRT_LINKAGE static)
 set(VCPKG_LIBRARY_LINKAGE static)
-set(VCPKG_PLATFORM_TOOLSET v143)
-set(VCPKG_PLATFORM_TOOLSET_VERSION 14.44)
+set(VCPKG_PLATFORM_TOOLSET v145)
+set(VCPKG_PLATFORM_TOOLSET_VERSION 14.51)
+if(DEFINED ENV{VCPKG_PLATFORM_TOOLSET_VERSION})
+    set(VCPKG_PLATFORM_TOOLSET_VERSION "$ENV{VCPKG_PLATFORM_TOOLSET_VERSION}")
+endif()
 set(VCPKG_CMAKE_SYSTEM_VERSION 10.0.26100.0)
 set(VCPKG_C_FLAGS "/W4 /Qspectre")
 set(VCPKG_CXX_FLAGS "/W4 /Qspectre")
+
+# vcpkg hashes these file contents before computing dependency build identities.
+# Missing LibMaker is diagnosed by the YY-Thunks port; never acquire it here.
+if(PORT STREQUAL "yy-thunks")
+    find_program(UNPACKRAT_LIBMAKER NAMES LibMaker.exe PATHS ENV PATH NO_DEFAULT_PATH NO_CACHE)
+    if(UNPACKRAT_LIBMAKER)
+        list(APPEND VCPKG_HASH_ADDITIONAL_FILES "${UNPACKRAT_LIBMAKER}")
+    endif()
+endif()

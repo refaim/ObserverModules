@@ -6,8 +6,8 @@ The behaviour it pins is the *observable* integration contract:
 
 * Godot is the fourth module of the default selection that drives the native audit
   and packaging routes (``main.MODULES`` / ``main.MODULE_BINARIES`` / ``main.LICENSES``);
-* the default packaging route ships ``godot-1.0.1-bin-x64.zip``,
-  ``godot-1.0.1-bin-x86.zip`` and ``godot-1.0.1-pdb.zip`` with the shipped
+* the default packaging route ships ``godot-1.1.0-bin-x64.zip``,
+  ``godot-1.1.0-bin-x86.zip`` and ``godot-1.1.0-pdb.zip`` with the shipped
   payload, registration and notices;
 * ``build/projects/tests.vcxproj`` references ``godot.vcxproj`` with the fixed
   project GUID and ``LinkLibraryDependencies=false``;
@@ -27,6 +27,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import re
+import tempfile
 import unittest
 import subprocess
 from unittest import mock
@@ -43,7 +44,7 @@ PROJECTS = REPOSITORY_ROOT / "build" / "projects"
 NS = {"msb": "http://schemas.microsoft.com/developer/msbuild/2003"}
 
 GODOT = "godot"
-GODOT_VERSION = "1.0.1"
+GODOT_VERSION = "1.1.0"
 GODOT_GUID = "{9C2F5E4A-7B31-4D58-8E27-1A6C4F0B9D34}"
 BASELINE = "20ceb8adbf0504d4b0d5e4058a32f9d4fc896391"
 
@@ -61,6 +62,7 @@ GODOT_CHANGELOG_RU = f"Version {GODOT_VERSION}\n-------------\n + Godot module a
 # registered notices; the vendored libraries (bcdec, dr_libs, qoa) are checked
 # by name fragment so a future license audit can settle the exact file names.
 REQUIRED_GODOT_NOTICES = (
+    "YY-Thunks.txt",
     "Observer.txt",
     "GPL-3.0.txt",
     "godot.txt",
@@ -78,6 +80,7 @@ VENDORED_NOTICE_FRAGMENTS = {
 }
 # Every license file the fixture may legitimately reference once Godot lands.
 FIXTURE_LICENSE_NAMES = (
+    "VC-LTL5.txt", "YY-Thunks.txt",
     "Observer.txt", "GPL-3.0.txt", "rpatool.txt", "serde-pickle.txt",
     "rgssad.txt", "godot.txt", "libspng.txt", "libogg.txt", "brotli.txt", "zstd.txt",
     "fastlz.txt", "zlib-ng.txt", "bcdec.txt", "dr_libs.txt", "qoa.txt", "zydis.txt", "zycore.txt", "mbedcrypto.txt",
@@ -100,11 +103,6 @@ def _link_dependencies(path: Path) -> list[str]:
     for element in root.findall("msb:ItemDefinitionGroup/msb:Link/msb:AdditionalDependencies", NS):
         if element.text:
             found.append(element.text)
-    for group in root.findall("msb:ItemDefinitionGroup", NS):
-        for link in group.findall("msb:Link", NS):
-            for element in link.findall("msb:AdditionalDependencies", NS):
-                if element.text and element.text not in found:
-                    found.append(element.text)
     return found
 
 
@@ -270,6 +268,17 @@ class GodotRegistration(GuardedCase):
 
 
 class GodotProjectContract(GuardedCase):
+    def test_link_dependency_inspection_ignores_empty_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "dependencies.vcxproj"
+            path.write_text(
+                '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">'
+                '<ItemDefinitionGroup><Link><AdditionalDependencies />'
+                '<AdditionalDependencies>first.lib;%(AdditionalDependencies)</AdditionalDependencies>'
+                '</Link></ItemDefinitionGroup></Project>', encoding="utf-8",
+            )
+            self.assertEqual(_link_dependencies(path), ["first.lib;%(AdditionalDependencies)"])
+
     """The MSBuild half: the test project references a Godot module project."""
 
     def test_tests_project_references_the_godot_project(self) -> None:
@@ -509,7 +518,9 @@ class GodotDocsContract(GuardedCase):
         self.assertIn("src/modules/godot/ChangeLog.en.txt", readme)
         self.assertIn("src/modules/godot/ChangeLog.ru.txt", readme)
         version = (REPOSITORY_ROOT / "src/modules/godot/VERSION").read_text(encoding="utf-8").strip()
-        self.assertEqual(version, GODOT_VERSION)
+        self.assertEqual(version, "1.1.0")
+        self.assertNotIn("licenses/VC-LTL5.txt", readme)
+        self.assertIn("[MIT](licenses/YY-Thunks.txt)", readme)
         self.assertIn("| Module | Formats | Release | ChangeLog |", readme)
         self.assertIn("| Godot | `.pck`, embedded PCK and same-stem EXE sidecars |", readme)
         self.assertIn("https://github.com/refaim/unpackrat/releases?q=godot", readme)
@@ -536,15 +547,15 @@ class GodotDocsContract(GuardedCase):
         self.assertNotIn("### Format references", readme)
         self.assertIn("`.rgssad` (XP, RGSS1), `.rgss2a` (VX, RGSS2), `.rgss3a`", readme)
 
-    def test_godot_dependency_update_has_a_patch_version(self) -> None:
-        self.assertEqual(main.read_version(REPOSITORY_ROOT, GODOT), GODOT_VERSION)
+    def test_godot_xp_runtime_recipe_has_a_minor_version(self) -> None:
+        self.assertEqual(main.read_version(REPOSITORY_ROOT, GODOT), "1.1.0")
 
-    def test_godot_dependency_update_preserves_initial_release_notes(self) -> None:
+    def test_godot_runtime_recipe_preserves_all_previous_changelog_sections(self) -> None:
         for language in ("en", "ru"):
             with self.subTest(language=language):
                 notes = (REPOSITORY_ROOT / f"src/modules/godot/ChangeLog.{language}.txt").read_text(encoding="utf-8")
                 versions = re.findall(r"^(?:Version|Версия)\s+(\S+)\s*$", notes, re.MULTILINE)
-                self.assertEqual(versions, [GODOT_VERSION, "1.0.0"])
+                self.assertEqual(versions, ["1.1.0", "1.0.1", "1.0.0"])
 
 
 if __name__ == "__main__":  # pragma: no cover

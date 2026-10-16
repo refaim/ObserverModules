@@ -96,7 +96,11 @@ class DependencyUpdateTests(unittest.TestCase):
         self.assertIn('-DENABLE_TESTING=OFF', recipe)
         self.assertIn('-DUSE_STATIC_MBEDTLS_LIBRARY=ON', recipe)
         self.assertIn('-DUSE_SHARED_MBEDTLS_LIBRARY=OFF', recipe)
-        self.assertIn('-DMSVC_STATIC_RUNTIME=ON', recipe)
+        # The MSVC runtime follows the triplet instead of a fixed literal; the
+        # exact ON/OFF mapping is proven by test_mbedtls_crt.py.
+        self.assertIn('VCPKG_CRT_LINKAGE', recipe)
+        self.assertIn('-DMSVC_STATIC_RUNTIME=${', recipe)
+        self.assertNotRegex(recipe, r'-DMSVC_STATIC_RUNTIME=(ON|OFF)\b')
         self.assertIn('-DGEN_FILES=OFF', recipe)
         self.assertIn('CONFIG_PATH "lib/cmake/MbedTLS"', recipe)
         self.assertIn('CONFIG_PATH "lib/cmake/TF-PSA-Crypto"', recipe)

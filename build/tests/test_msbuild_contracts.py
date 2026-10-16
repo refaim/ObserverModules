@@ -1,9 +1,16 @@
 from __future__ import annotations
 
 from pathlib import Path
+import json
 import re
+import subprocess
+import sys
+import tempfile
 import unittest
 import xml.etree.ElementTree as ET
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import main  # noqa: E402
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -15,6 +22,52 @@ def _project(relative_path: str) -> ET.Element:
 
 
 class MSBuildContractsTests(unittest.TestCase):
+    def test_xp_subsystem_entry_and_static_runtime_reach_evaluated_link_items(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            project = Path(temporary) / "xp.proj"
+            props = (REPOSITORY_ROOT / "build/unpackrat-vista.props").as_posix()
+            project.write_text(
+                f'<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">'
+                f'<Import Project="{props}" />'
+                '<ItemGroup><Link Include="fixture" /></ItemGroup></Project>', encoding="utf-8",
+            )
+            scenarios = (
+                ("Debug", (), False), ("Release", (), True),
+                ("Release", ("-p:unpackratEnableClangTidy=true", "-p:unpackratRunCodeAnalysis=true"), True),
+                ("Release", ("-p:unpackratEnableClangTidy=true", "-p:unpackratStandaloneClangTidy=true"), False),
+                ("Release", ("-p:unpackratCompileAnalysis=true",), False),
+                ("ASan", (), False), ("Coverage", (), False), ("Fuzz", (), False), ("UBSan", (), False),
+            )
+            for configuration, flags, enabled in scenarios:
+                for kind, subsystem in (("DynamicLibrary", "Windows"), ("Application", "Console")):
+                    for platform, moniker, minimum, windows in (("Win32", "x86", "5.01", "5.1.2600.0"),
+                                                               ("x64", "x64", "5.02", "5.2.3790.1830")):
+                        with self.subTest(configuration=configuration, flags=flags, kind=kind, platform=platform):
+                            result = subprocess.run(
+                                [str(main._find_msbuild()), str(project), "-nologo", "-getItem:Link",
+                                 f"-p:Configuration={configuration}", f"-p:ConfigurationType={kind}",
+                                 f"-p:Platform={platform}", f"-p:PlatformMoniker={moniker}",
+                                 "-getProperty:unpackratVistaCompatibility,SupportLTL,WindowsTargetPlatformMinVersion", *flags],
+                                capture_output=True, text=True, check=True,
+                            )
+                            evaluated = json.loads(result.stdout)
+                            metadata = evaluated["Items"]["Link"][0]
+                            self.assertEqual((metadata.get("SubSystem"), metadata.get("MinimumRequiredVersion")),
+                                             (subsystem, minimum) if enabled else (None, None))
+                            self.assertEqual(evaluated["Properties"]["unpackratVistaCompatibility"], "true" if enabled else "")
+                            self.assertEqual(evaluated["Properties"]["SupportLTL"], "")
+                            self.assertEqual(evaluated["Properties"]["WindowsTargetPlatformMinVersion"], windows if enabled else "")
+                            if enabled:
+                                self.assertIn(f"objs\\{moniker}\\YY_Thunks_for_WinXP.obj", metadata["AdditionalDependencies"])
+                            if enabled and kind == "DynamicLibrary":
+                                self.assertEqual(metadata["EntryPointSymbol"], "DllMainCRTStartupForYY_Thunks")
+                                alias = ("_YY_ThunksOriginalDllMainCRTStartup@12=__DllMainCRTStartup@12"
+                                         if platform == "Win32" else "YY_ThunksOriginalDllMainCRTStartup=_DllMainCRTStartup")
+                                self.assertIn("/alternatename:" + alias, metadata["AdditionalOptions"])
+                            else:
+                                self.assertNotIn("EntryPointSymbol", metadata)
+                                self.assertNotIn("AdditionalOptions", metadata)
+
     def test_configuration_props_pin_the_retained_windows_sdk_family(self) -> None:
         # A freshly installed 10.0.28000 SDK must not retarget the production and instrumented
         # builds: the configuration props keep the existing 10.0.26100.0 family explicitly.
@@ -141,18 +194,49 @@ class MSBuildContractsTests(unittest.TestCase):
         # No architecture may remain hard-coded now that Fuzz|Win32 links the same way.
         self.assertNotIn("x86_64", dependencies)
         self.assertNotIn("x86_64", options)
-        for library in ("clang_rt.asan", "clang_rt.asan_cxx"):
+        for library in ("clang_rt.asan_dynamic", "clang_rt.asan_static_runtime_thunk"):
             self.assertIn(
                 f"$(LLVMRuntimeDir)\\{library}-$(unpackratFuzzRuntimeSuffix).lib;",
                 dependencies,
             )
         self.assertTrue(dependencies.endswith(";%(AdditionalDependencies)"))
-        for library in ("clang_rt.fuzzer", "clang_rt.asan", "clang_rt.asan_cxx"):
+        for library in ("clang_rt.fuzzer", "clang_rt.asan_static_runtime_thunk"):
             self.assertIn(
                 f'/WHOLEARCHIVE:"$(LLVMRuntimeDir)\\{library}-$(unpackratFuzzRuntimeSuffix).lib"',
                 options,
             )
         self.assertIn("/INFERASANLIBS:NO", options)
+        self.assertNotIn("clang_rt.asan_cxx-", dependencies)
+
+    def test_release_compatibility_uses_only_the_source_built_xp_object(self) -> None:
+        project = _project("build/unpackrat-vista.props")
+        group = project.find(f"{MSBUILD}PropertyGroup")
+        self.assertEqual(group.get("Condition"),
+                         "'$(Configuration)' == 'Release' And '$(unpackratCompileAnalysis)' != 'true' And '$(unpackratStandaloneClangTidy)' != 'true'")
+        self.assertEqual(group.find(f"{MSBUILD}unpackratVistaCompatibility").text, "true")
+        self.assertEqual(project.findall(f"{MSBUILD}Import"), [])
+        self.assertIsNone(project.find(f".//{MSBUILD}SupportLTL"))
+        link = project.find(f".//{MSBUILD}Link")
+        self.assertEqual(link.find(f"{MSBUILD}AdditionalDependencies").text,
+                         "$(unpackratYYThunksObject);%(AdditionalDependencies)")
+        validation = project.find(f"{MSBUILD}Target")
+        self.assertEqual(validation.get("Condition"), "'$(unpackratVistaCompatibility)' == 'true'")
+        errors = validation.findall(f"{MSBUILD}Error")
+        self.assertEqual(len(errors), 1)
+        self.assertIn("YY-Thunks XP object", errors[0].get("Text"))
+        common = _project("build/unpackrat-project.props")
+        self.assertEqual(common.findall(f"{MSBUILD}Import")[-1].get("Project"),
+                         "$(MSBuildThisFileDirectory)unpackrat-vista.props")
+
+    def test_manifest_pins_source_thunks_without_vc_ltl(self) -> None:
+        manifest = json.loads((REPOSITORY_ROOT / "vcpkg.json").read_text())
+        dependencies = {item["name"]: item.get("version>=") for item in manifest["dependencies"]}
+        self.assertNotIn("vc-ltl5", dependencies)
+        self.assertFalse((REPOSITORY_ROOT / "build/vcpkg/ports/vc-ltl5").exists())
+        self.assertFalse((REPOSITORY_ROOT / "licenses/VC-LTL5.txt").exists())
+        self.assertEqual(dependencies["yy-thunks"], "1.2.3")
+        metadata = json.loads((REPOSITORY_ROOT / "build/vcpkg/ports/yy-thunks/vcpkg.json").read_text())
+        self.assertEqual((metadata["version"], metadata["port-version"], metadata["license"]), ("1.2.3", 1, "MIT"))
 
     def test_fuzz_win32_keeps_msvc_exception_unwinding_under_asan(self) -> None:
         project = _project("build/unpackrat-fuzz.props")

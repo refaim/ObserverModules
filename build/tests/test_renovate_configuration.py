@@ -10,6 +10,7 @@ import unittest
 
 REPOSITORY = Path(__file__).resolve().parents[2]
 UPSTREAMS = {
+    "yy-thunks": "Chuyu-Team/YY-Thunks",
     "catch2": "catchorg/Catch2",
     "nlohmann-json": "nlohmann/json",
     "xxhash": "Cyan4973/xxHash",

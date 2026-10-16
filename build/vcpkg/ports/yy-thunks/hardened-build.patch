@@ -1,0 +1,133 @@
+diff --git a/src/Build.cmd b/src/Build.cmd
+index f870617..40a77d5 100644
+--- a/src/Build.cmd
++++ b/src/Build.cmd
+@@ -10,23 +10,66 @@ set "include=%~dp0Thunks;%~dp0Shared;%~dp0;%include%"
+ 
+ if "%Platform%"=="" set Platform=x86
+ 
++set "YY_THUNKS_SECURITY_FLAGS=/GS-"
++if "%YY_THUNKS_HARDENED%"=="1" if /I "%Platform%"=="x86" set "YY_THUNKS_SECURITY_FLAGS=/W4 /GS /Qspectre /DYY_THUNKS_HARDENED=1"
++if "%YY_THUNKS_HARDENED%"=="1" if /I "%Platform%"=="x64" set "YY_THUNKS_SECURITY_FLAGS=/W4 /GS /Qspectre /DYY_THUNKS_HARDENED=1"
++
++if defined YY_THUNKS_OBJECT_TARGET call:SelectObjectTarget
++if defined YY_THUNKS_OBJECT_TARGET if %ErrorLevel% NEQ 0 goto :BuildComplete
++
+ md "objs\\%Platform%"
+ 
+ ::ÏÈÉú³É YY_Thunks_List.hpp
+ msbuild "%~dp0YY-Thunks.UnitTest\YY-Thunks.UnitTest.vcxproj" -t:Build_YY_Thunks_List_hpp
++if "%YY_THUNKS_HARDENED%"=="1" if %ErrorLevel% NEQ 0 goto :BuildComplete
+ 
+-call:Build%Platform%
++if defined YY_THUNKS_OBJECT_TARGET (
++    call:BuildObj %YY_THUNKS_OBJECT_FILE% %YY_THUNKS_OBJECT_VERSION% %YY_THUNKS_OBJECT_DEFS%
++) else (
++    call:Build%Platform%
++)
+ 
+ 
++:BuildComplete
++set "YY_THUNKS_BUILD_RESULT=%ErrorLevel%"
+ popd
++if defined YY_THUNKS_OBJECT_TARGET exit /b %YY_THUNKS_BUILD_RESULT%
++if "%YY_THUNKS_HARDENED%"=="1" exit /b %YY_THUNKS_BUILD_RESULT%
+ 
+ goto:eof
+ 
++:: Explicit object-only selection for hardened source-package builds.
++:SelectObjectTarget
++if not "%YY_THUNKS_HARDENED%"=="1" goto :InvalidObjectTarget
++if /I "%Platform%"=="x86" (
++    set PointType=4
++) else if /I "%Platform%"=="x64" (
++    set PointType=8
++) else (
++    goto :InvalidObjectTarget
++)
++if /I "%YY_THUNKS_OBJECT_TARGET%"=="WinXP" (
++    set "YY_THUNKS_OBJECT_FILE=YY_Thunks_for_WinXP.obj"
++    set "YY_THUNKS_OBJECT_VERSION=__WindowsNT5_1"
++    if /I "%Platform%"=="x64" set "YY_THUNKS_OBJECT_VERSION=__WindowsNT5_2_SP1"
++    set "YY_THUNKS_OBJECT_DEFS=PSAPI2Kernel32.def+esent.def"
++    exit /b 0
++)
++if /I not "%YY_THUNKS_OBJECT_TARGET%"=="Vista" goto :InvalidObjectTarget
++set "YY_THUNKS_OBJECT_FILE=YY_Thunks_for_Vista.obj"
++set "YY_THUNKS_OBJECT_VERSION=__WindowsNT6"
++set "YY_THUNKS_OBJECT_DEFS=PSAPI2Kernel32.def"
++exit /b 0
++
++:InvalidObjectTarget
++echo Unsupported YY_THUNKS_OBJECT_TARGET request. >&2
++exit /b 2
++
+ :: BuildObj YY_Thunks_for_Vista.obj NTDDI_WIN6 1.def+2.def
+ :BuildObj
+ echo BuildObj %1 %2 %3
+ 
+-cl /O1 /Os /Oi /GS- /std:c++17 /execution-charset:utf-8 /guard:ehcont /Zc:sizedDealloc- /Zc:tlsGuards- /Zc:alignedNew- /arch:IA32 /Z7 /MT /Fo"objs\\%Platform%\\%1" /Zl /c /D "NDEBUG" /D "YY_Thunks_Target=%2" "%~dp0Thunks\YY_Thunks.cpp"
++cl /O1 /Os /Oi %YY_THUNKS_SECURITY_FLAGS% /std:c++17 /execution-charset:utf-8 /guard:ehcont /Zc:sizedDealloc- /Zc:tlsGuards- /Zc:alignedNew- /arch:IA32 /Z7 /MT /Fo"objs\\%Platform%\\%1" /Zl /c /D "NDEBUG" /D "YY_Thunks_Target=%2" "%~dp0Thunks\YY_Thunks.cpp"
+ if %ErrorLevel% NEQ 0 exit /b %ErrorLevel%
+ 
+ ::Éú³Éweak·ûºÅ£¬Ò»Ğ©·Ç±ØĞë·ûºÅ°²ÅÅÎªweak¿ÉÒÔ±ÜÃâÁ´½ÓÊ§°Ü
+@@ -40,12 +83,13 @@ echo BuildLib %1 %2 %3
+ 
+ md "Lib\\%1\\%Platform%"
+ 
+-cl /O1 /Os /Oi /GS- /std:c++17 /execution-charset:utf-8 /guard:ehcont /Zc:sizedDealloc- /Zc:tlsGuards- /Zc:alignedNew- /arch:IA32 /Z7 /MT /Fo"Lib\\%1\\%Platform%\\YY_Thunks_for_%1.obj" /Zl /c /D "__APPLY_CHROMIUM_WORKAROUNDS" /D "__USING_NTDLL_LIB" /D "NDEBUG" /D "YY_Thunks_Target=%2" /D "__FALLBACK_PREFIX=YY_Thunks_" "%~dp0Thunks\YY_Thunks.cpp"
++cl /O1 /Os /Oi %YY_THUNKS_SECURITY_FLAGS% /std:c++17 /execution-charset:utf-8 /guard:ehcont /Zc:sizedDealloc- /Zc:tlsGuards- /Zc:alignedNew- /arch:IA32 /Z7 /MT /Fo"Lib\\%1\\%Platform%\\YY_Thunks_for_%1.obj" /Zl /c /D "__APPLY_CHROMIUM_WORKAROUNDS" /D "__USING_NTDLL_LIB" /D "NDEBUG" /D "YY_Thunks_Target=%2" /D "__FALLBACK_PREFIX=YY_Thunks_" "%~dp0Thunks\YY_Thunks.cpp"
+ 
+ if %ErrorLevel% NEQ 0 exit /b %ErrorLevel%
+ 
+ ::Éú³Éweak·ûºÅ£¬Ò»Ğ©·Ç±ØĞë·ûºÅ°²ÅÅÎªweak¿ÉÒÔ±ÜÃâÁ´½ÓÊ§°Ü
+ call:FixObj "%~dp0..\\Lib\\%1\\%Platform%\\YY_Thunks_for_%1.obj" %3
++if "%YY_THUNKS_HARDENED%"=="1" if %ErrorLevel% NEQ 0 exit /b
+ 
+ set "SupportApiSet=/SupportApiSet"
+ set "WinVersion=%1"
+@@ -148,6 +192,8 @@ set DEF_FILES=%2
+ for /f "tokens=1* delims=+" %%a in ("%DEF_FILES%") do (
+     echo "AppendWeak %~dp0def\\%Platform%\\%%a" %1
+     LibMaker.exe AppendWeak /MACHINE:%Platform% /DEF:"%~dp0def\\%Platform%\\%%a" /OUT:%1
++    if "%YY_THUNKS_HARDENED%"=="1" if errorlevel 1 exit /b
++    if "%YY_THUNKS_HARDENED%"=="1" if not errorlevel 0 exit /b
+     if %ErrorLevel% NEQ 0 exit /b %ErrorLevel%
+     set DEF_FILES=%%b
+ )
+diff --git a/src/Thunks/DllMainCRTStartup.hpp b/src/Thunks/DllMainCRTStartup.hpp
+index dbecda9..e316601 100644
+--- a/src/Thunks/DllMainCRTStartup.hpp
++++ b/src/Thunks/DllMainCRTStartup.hpp
+@@ -489,7 +489,12 @@ namespace YY::Thunks::internal
+     // æˆ‘ä»¬å§‹ç»ˆæä¾›DllMainCRTStartupForYY_Thunkså‡½æ•°ï¼Œè™½ç„¶ç†è®ºä¸ŠVistaï¼ˆåŒ…å«ï¼‰ä»¥ä¸Šå°±ä¸ç”¨ä¿®æ­£äº†ï¼Œä½†æ˜¯ä¸ºäº†åšåˆ°ä½“éªŒç»Ÿä¸€
+     // é¿å…Vistaæ¨¡å¼è®¾ç½® DllMainCRTStartupForYY_Thunks å°±å‘ç”Ÿé“¾æ¥å¤±è´¥é—®é¢˜ã€‚
+     // è¿™ä¸ªå‡½æ•°çš„å­˜åœ¨æ„ä¹‰æ˜¯ä¿®å¤Windows XPç³»ç»Ÿæ˜¾å¼åŠ è½½çš„DLLé‡Œæ— æ³•ä½¿ç”¨TLSé—®é¢˜ã€‚
++#if defined(YY_THUNKS_HARDENED) && YY_THUNKS_HARDENED == 1
++    extern "C" void __cdecl __security_init_cookie();
++    static __declspec(noinline) BOOL WINAPI DllMainCRTStartupForYY_ThunksBody(
++#else
+     extern "C" BOOL WINAPI DllMainCRTStartupForYY_Thunks(
++#endif
+         HINSTANCE const _hInstance,
+         DWORD     const _uReason,
+         LPVOID    const _pReserved
+@@ -578,5 +583,18 @@ namespace YY::Thunks::internal
+             break;
+         }
+     }
++#if defined(YY_THUNKS_HARDENED) && YY_THUNKS_HARDENED == 1
++    // Keep CRT cookie initialization outside every YY protected/TLS frame.
++    extern "C" BOOL WINAPI DllMainCRTStartupForYY_Thunks(
++        HINSTANCE const _hInstance,
++        DWORD const _uReason,
++        LPVOID const _pReserved)
++    {
++        if (_uReason == DLL_PROCESS_ATTACH)
++            __security_init_cookie();
++        return DllMainCRTStartupForYY_ThunksBody(_hInstance, _uReason, _pReserved);
++    }
++#endif
++
+ }
+ #endif

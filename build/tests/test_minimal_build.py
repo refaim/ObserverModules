@@ -117,6 +117,12 @@ class RecordingRun:
         return [call for call in self.calls if _tool_name(call.argv) == tool]
 
 
+class OptionReaderTests(unittest.TestCase):
+    def test_option_reader_handles_equals_and_missing_values(self) -> None:
+        self.assertEqual(_option(("vcpkg", "--triplet=fixture"), "--triplet"), "fixture")
+        self.assertIsNone(_option(("vcpkg", "--triplet"), "--triplet"))
+
+
 class GuardedCase(unittest.TestCase):
     """Base case that forbids any real process launch and builds tool fakes."""
 
@@ -140,18 +146,10 @@ class GuardedCase(unittest.TestCase):
         for path in (self.vcpkg_exe, self.vcpkg_props, self.msbuild_exe):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(b"fake")
-        # The driver forwards the legacy 14.44 servicing toolset selected from this install.
-        cl = self.vs_install / "VC" / "Tools" / "MSVC" / "14.44.35307" / "bin" / "Hostx64" / "x64" / "cl.exe"
+        # The driver forwards the selected 14.51 servicing toolset selected from this install.
+        cl = self.vs_install / "VC" / "Tools" / "MSVC" / "14.51.36231" / "bin" / "Hostx64" / "x64" / "cl.exe"
         cl.parent.mkdir(parents=True, exist_ok=True)
         cl.write_bytes(b"fake")
-
-    def _which(self, name: str):
-        lowered = name.lower()
-        if "vcpkg" in lowered:
-            return str(self.vcpkg_exe)
-        if "msbuild" in lowered:
-            return str(self.msbuild_exe)
-        return None
 
     def tools(self, run: RecordingRun):
         """Patch the tool-lookup boundaries and the single ``main.run`` entry."""
@@ -162,7 +160,7 @@ class GuardedCase(unittest.TestCase):
         # into a real subprocess.
         stack.enter_context(mock.patch.object(main, "_cleanup_fatal_probe"))
         stack.enter_context(mock.patch.object(main, "_clang_tidy", return_value=self.root / "clang-tidy.exe"))
-        stack.enter_context(mock.patch("shutil.which", side_effect=self._which))
+        stack.enter_context(mock.patch("shutil.which", return_value=None))
         stack.enter_context(mock.patch.dict(os.environ, {"VCPKG_ROOT": str(self.vcpkg_root)}))
         return stack
 
@@ -182,6 +180,8 @@ class GuardedCase(unittest.TestCase):
             "rpatool.txt": LICENSE_RPATOOL,
             "serde-pickle.txt": LICENSE_SERDE,
             "zlib-ng.txt": LICENSE_ZLIB_NG,
+            "VC-LTL5.txt": b"Fixture VC-LTL5 license\n",
+            "YY-Thunks.txt": b"Fixture YY-Thunks license\n",
         }.items():
             (licenses / name).write_bytes(content)
         for architecture, binary, symbol in (
@@ -341,6 +341,8 @@ class PackageTests(GuardedCase):
             self.assertIn(LICENSE_MIT, licenses)
             self.assertIn(LICENSE_OBSERVER, licenses)
             self.assertIn(LICENSE_ZLIB_NG, licenses)
+            self.assertNotIn(b"Fixture VC-LTL5 license", licenses)
+            self.assertIn(b"Fixture YY-Thunks license", licenses)
 
     def test_package_symbol_archive_holds_both_architectures(self) -> None:
         self.package()

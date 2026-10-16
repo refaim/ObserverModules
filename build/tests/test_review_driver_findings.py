@@ -137,13 +137,16 @@ class DriverCase(unittest.TestCase):
             cov=self.root / "llvm-cov.exe",
             profdata=self.root / "llvm-profdata.exe",
         )
+        self.llvm.runtime.mkdir(parents=True)
+        for name in main._ASAN_RUNTIMES.values():
+            (self.llvm.runtime / name).write_bytes(b"matched-llvm21")
         self.asan = self.root / "asan.dll"
         self.asan.write_bytes(b"x")
         self.msbuild = self.root / "MSBuild.exe"
         self.vcpkg = self.root / "vcpkg.exe"
         self.vs_install = self.root / "vs"
-        # The driver selects the legacy 14.44 servicing toolset from the chosen VS install.
-        cl = (self.vs_install / "VC" / "Tools" / "MSVC" / "14.44.35307"
+        # The driver selects the selected 14.51 servicing toolset from the chosen VS install.
+        cl = (self.vs_install / "VC" / "Tools" / "MSVC" / "14.51.36231"
               / "bin" / "Hostx64" / "x64" / "cl.exe")
         cl.parent.mkdir(parents=True, exist_ok=True)
         cl.write_bytes(b"x")
@@ -189,6 +192,12 @@ class DriverCase(unittest.TestCase):
             (seeds / "seed.hex").write_text("414243", encoding="ascii")
 
     # ----- finding 3: fresh-tree JUnit report directories ---------------------------------
+
+    def test_junit_fixture_rejects_a_missing_parent_before_the_tool_can_succeed(self) -> None:
+        run = PipelineRun(junit_parents=True)
+        with self.assertRaisesRegex(subprocess.CalledProcessError, "non-zero exit status 1"):
+            run(("unit.exe", f"JUnit::out={self.root / 'absent' / 'report.xml'}"))
+        self.assertEqual(run(("unrecognized.exe",), capture=True).stdout, "")
 
     def test_coverage_creates_the_junit_report_directory(self) -> None:
         run = PipelineRun(vswhere=str(self.vs_install), junit_parents=True)
@@ -369,7 +378,7 @@ class DriverCase(unittest.TestCase):
         formatter = self.root / "path" / "clang-format.exe"
         formatter.parent.mkdir(parents=True)
         formatter.write_bytes(b"x")
-        dumpbin = install / "VC" / "Tools" / "MSVC" / "14.44.35307" / "bin" / "Hostx64" / "x64" / "dumpbin.exe"
+        dumpbin = install / "VC" / "Tools" / "MSVC" / "14.51.36231" / "bin" / "Hostx64" / "x64" / "dumpbin.exe"
         dumpbin.parent.mkdir(parents=True, exist_ok=True)
         dumpbin.write_bytes(b"x")
         pf86 = self.root / "pf86"
@@ -390,6 +399,7 @@ class DriverCase(unittest.TestCase):
                 "ProgramFiles(x86)": str(pf86),
                 "LOCALAPPDATA": str(self.root / "localappdata"),
                 "UNPACKRAT_CLANG_FORMAT": "",
+                "UNPACKRAT_LLVM_INSTRUMENTATION": str(install / "paired-llvm21"),
             },
         ):
             tools = main._source_tools()
@@ -400,7 +410,7 @@ class DriverCase(unittest.TestCase):
         # VS bundle and not the private user cache.
         self.assertEqual(tools.clang_format, formatter.resolve())
         self.assertFalse((self.root / "localappdata").exists())
-        self.assertEqual(directory, install / "VC" / "Tools" / "Llvm" / "x64")
+        self.assertEqual(directory, install / "paired-llvm21" / "x64")
         self.assertEqual(found_dumpbin, dumpbin)
         # The lookup must use the installed tools, never install anything.
         self.assertTrue(
