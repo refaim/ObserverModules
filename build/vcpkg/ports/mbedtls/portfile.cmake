@@ -12,6 +12,14 @@ vcpkg_extract_source_archive(SOURCE_PATH
     PATCHES static-library-name.patch
 )
 
+# The MSVC runtime must follow the triplet's VCPKG_CRT_LINKAGE: a static CRT
+# selects MSVC_STATIC_RUNTIME=ON and a dynamic CRT selects it OFF.
+if(VCPKG_CRT_LINKAGE STREQUAL "static")
+    set(MSVC_STATIC_RUNTIME ON)
+else()
+    set(MSVC_STATIC_RUNTIME OFF)
+endif()
+
 vcpkg_cmake_configure(
     SOURCE_PATH "${SOURCE_PATH}"
     OPTIONS
@@ -21,7 +29,7 @@ vcpkg_cmake_configure(
         -DMBEDTLS_FATAL_WARNINGS=OFF
         -DUSE_STATIC_MBEDTLS_LIBRARY=ON
         -DUSE_SHARED_MBEDTLS_LIBRARY=OFF
-        -DMSVC_STATIC_RUNTIME=ON
+        -DMSVC_STATIC_RUNTIME=${MSVC_STATIC_RUNTIME}
     OPTIONS_DEBUG
         -DINSTALL_MBEDTLS_HEADERS=OFF
         -DINSTALL_TF_PSA_CRYPTO_HEADERS=OFF

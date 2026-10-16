@@ -1,4 +1,10 @@
-"""Unloadable ASan/Fuzz modules share a DLL CRT; shipping Release retains /MT."""
+"""Unloadable ASan modules share a DLL CRT; standalone Fuzz keeps the static CRT.
+
+Every Fuzz target is a standalone executable that is never unloaded, so it must keep the
+static CRT its supplied libFuzzer archive is built with, matching shipping Release. ASan
+still links the shared CRT so its interceptors stay valid after an instrumented DLL
+unloads. Its dependencies are isolated from the static-CRT fuzz tree.
+"""
 
 from pathlib import Path
 import json
@@ -26,7 +32,7 @@ class SanitizerCrtTests(unittest.TestCase):
             for platform in ("Win32", "x64"):
                 for configuration, expected in (("Release", "MultiThreaded"), ("Debug", "MultiThreadedDebug"),
                                                 ("Coverage", "MultiThreadedDebug"), ("UBSan", "MultiThreadedDLL"),
-                                                ("ASan", "MultiThreadedDLL"), ("Fuzz", "MultiThreadedDLL")):
+                                                ("ASan", "MultiThreadedDLL"), ("Fuzz", "MultiThreaded")):
                     with self.subTest(platform=platform, configuration=configuration):
                         result = subprocess.run([str(msbuild), str(project), "-nologo", "-getItem:ClCompile",
                                                  f"-p:Platform={platform}", f"-p:Configuration={configuration}"],
@@ -34,26 +40,34 @@ class SanitizerCrtTests(unittest.TestCase):
                         item = json.loads(result.stdout)["Items"]["ClCompile"][0]
                         self.assertEqual(item["RuntimeLibrary"], expected)
 
-    def test_real_cmake_evaluates_both_instrumented_triplets_as_static_libraries_with_dll_crt(self):
+    def test_real_cmake_evaluates_every_instrumented_triplet_with_matching_crt(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
+            flags_by_variant = {}
             for architecture in ("x86", "x64"):
-                with self.subTest(architecture=architecture):
-                    script = root / f"{architecture}.cmake"
-                    output = root / f"{architecture}.txt"
-                    triplet = ROOT / f"build/vcpkg/triplets/unpackrat-{architecture}-windows-static-asan.cmake"
-                    script.write_text('set(PORT fixture)\n'
-                                      f'include("{triplet.as_posix()}")\n'
-                                      f'file(WRITE "{output.as_posix()}" "${{VCPKG_CRT_LINKAGE}}|'
-                                      '${VCPKG_LIBRARY_LINKAGE}|${VCPKG_BUILD_TYPE}|${VCPKG_C_FLAGS}|${VCPKG_CXX_FLAGS}")\n',
-                                      encoding="utf-8")
-                    subprocess.run(["cmake", "-P", str(script)], capture_output=True, text=True, check=True)
-                    settings = output.read_text(encoding="utf-8").split("|")
-                    self.assertEqual(settings[:3], ["dynamic", "static", "release"])
-                    for flags in settings[3:]:
-                        self.assertIn("/fsanitize=address", flags)
-                        self.assertIn("/Qspectre", flags)
-                        self.assertIn("/W4", flags)
+                # ASan dependencies use the DLL CRT; the standalone Fuzz dependencies the
+                # supplied static libFuzzer archive requires keep the static CRT. Both stay
+                # static libraries carrying the identical address-instrumentation flags.
+                for variant, crt in (("asan", "dynamic"), ("fuzz", "static")):
+                    with self.subTest(architecture=architecture, variant=variant):
+                        script = root / f"{architecture}-{variant}.cmake"
+                        output = root / f"{architecture}-{variant}.txt"
+                        triplet = ROOT / f"build/vcpkg/triplets/unpackrat-{architecture}-windows-static-{variant}.cmake"
+                        script.write_text('set(PORT fixture)\n'
+                                          f'include("{triplet.as_posix()}")\n'
+                                          f'file(WRITE "{output.as_posix()}" "${{VCPKG_CRT_LINKAGE}}|'
+                                          '${VCPKG_LIBRARY_LINKAGE}|${VCPKG_BUILD_TYPE}|${VCPKG_C_FLAGS}|${VCPKG_CXX_FLAGS}")\n',
+                                          encoding="utf-8")
+                        subprocess.run(["cmake", "-P", str(script)], capture_output=True, text=True, check=True)
+                        settings = output.read_text(encoding="utf-8").split("|")
+                        self.assertEqual(settings[:3], [crt, "static", "release"])
+                        for flags in settings[3:]:
+                            self.assertIn("/fsanitize=address", flags)
+                            self.assertIn("/Qspectre", flags)
+                            self.assertIn("/W4", flags)
+                        flags_by_variant.setdefault(architecture, {})[variant] = settings[3:]
+                self.assertEqual(flags_by_variant[architecture]["fuzz"],
+                                 flags_by_variant[architecture]["asan"])
 
 
 if __name__ == "__main__":

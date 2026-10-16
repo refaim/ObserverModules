@@ -22,7 +22,8 @@ class UbsanCrtTests(unittest.TestCase):
         runtimes = {node.get("Condition"): node.text for node in project.findall(".//m:ClCompile/m:RuntimeLibrary", NS)}
         self.assertEqual(runtimes, {
             "'$(Configuration)' == 'Release'": "MultiThreaded",
-            "'$(Configuration)' == 'ASan' Or '$(Configuration)' == 'Fuzz'": "MultiThreadedDLL",
+            "'$(Configuration)' == 'ASan'": "MultiThreadedDLL",
+            "'$(Configuration)' == 'Fuzz'": "MultiThreaded",
             "'$(Configuration)' == 'UBSan'": "MultiThreadedDLL",
             "'$(Configuration)' != 'Release' And '$(Configuration)' != 'ASan' And '$(Configuration)' != 'Fuzz' And '$(Configuration)' != 'UBSan'": "MultiThreadedDebug",
         })
@@ -52,12 +53,13 @@ class UbsanCrtTests(unittest.TestCase):
                         "set(VCPKG_PLATFORM_TOOLSET_VERSION 14.51)", "set(VCPKG_CMAKE_SYSTEM_VERSION 10.0.26100.0)"):
             self.assertIn(setting, base)
         for other, crt in (("unpackrat-x64-windows-static", "static"), ("unpackrat-x86-windows-static", "static"),
-                           ("unpackrat-x64-windows-static-asan", "dynamic"), ("unpackrat-x86-windows-static-asan", "dynamic")):
+                           ("unpackrat-x64-windows-static-asan", "dynamic"), ("unpackrat-x86-windows-static-asan", "dynamic"),
+                           ("unpackrat-x64-windows-static-fuzz", "static"), ("unpackrat-x86-windows-static-fuzz", "static")):
             self.assertIn(f"set(VCPKG_CRT_LINKAGE {crt})", (triplets / f"{other}.cmake").read_text())
 
     def test_driver_keeps_all_dependency_variants_separate(self):
         for configuration, suffix in (("Release", ""), ("Debug", ""), ("Coverage", ""),
-                                      ("ASan", "-asan"), ("Fuzz", "-asan"), ("UBSan", "-ubsan")):
+                                      ("ASan", "-asan"), ("Fuzz", "-fuzz"), ("UBSan", "-ubsan")):
             with self.subTest(configuration=configuration):
                 self.assertEqual(main.triplet("x64", configuration), f"unpackrat-x64-windows-static{suffix}")
                 self.assertEqual(main.restore_root(ROOT, "x64", configuration),

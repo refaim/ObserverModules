@@ -146,6 +146,7 @@ class YyThunksSourcePortTests(unittest.TestCase):
         self.assertEqual({path.name for path in triplets}, {
             "unpackrat-x86-windows-static.cmake", "unpackrat-x64-windows-static.cmake",
             "unpackrat-x86-windows-static-asan.cmake", "unpackrat-x64-windows-static-asan.cmake",
+            "unpackrat-x86-windows-static-fuzz.cmake", "unpackrat-x64-windows-static-fuzz.cmake",
             "unpackrat-x64-windows-static-ubsan.cmake",
         })
         for triplet in triplets:

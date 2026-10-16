@@ -1,9 +1,12 @@
 """One real provisioning job publishes the matched LLVM 21.1.8 instrumentation toolchain.
 
-Official LLVM21 distributions provide a matched x86/x64 family. The ASan slices use
-MSVC14.51 instead. The prep job hash-verifies both official packages and extracts them
-with the existing archiver; no local tool installation or custom runtime build is used.
-Instrumentation slices consume only the same-run verified artifact.
+Official LLVM21 distributions provide a matched x86/x64 family whose x64 C++ UBSan archive is
+built with the static CRT. The prep job selects the exact MSVC v145 14.51 servicing toolset once,
+hash-verifies both official packages and extracts them with the existing archiver, then rebuilds
+only that one x64 C++ UBSan archive from hash-verified official source with the DLL CRT, records
+provenance, links a real ``/MD`` C++ UBSan probe and re-qualifies the cached toolchain. No local
+tool installation is used, the ASan slices build with MSVC 14.51 directly, and instrumentation
+slices consume only the same-run verified artifact.
 """
 
 from __future__ import annotations
@@ -176,7 +179,13 @@ class InstrumentationWorkflowTests(unittest.TestCase):
 
     def test_the_linker_inventory_invalidates_the_old_immutable_cache(self) -> None:
         keys = re.findall(r"^          key: (llvm-instrumentation-.*)$", self.prep, re.MULTILINE)
-        self.assertEqual(keys, [f"{ARTIFACT}-lld-link-v1-{X86_SHA}-{X64_SHA}"] * 2)
+        identity = (
+            f"{ARTIFACT}-lld-link-v1-{X86_SHA}-{X64_SHA}"
+            "-ubsan-runtime-md-crt-v1-4633a23617fa31a3"
+            "-v145-${{ steps.ubsan-build-environment.outputs.cache_environment }}"
+        )
+        self.assertEqual(keys, [identity] * 2)
+        self.assertLess(len(identity), 512)
 
     def test_the_prep_job_extracts_both_official_layouts_with_the_installed_archiver(self) -> None:
         for token in ("& 7z x", "'-r'", "'bin/clang-cl.exe'", "'bin/llvm-cov.exe'",

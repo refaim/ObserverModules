@@ -1,9 +1,10 @@
 """vcpkg builds every dependency with the same v145 14.51 toolset.
 
-All four triplets (x86/x64, standard and ASan) must pin ``VCPKG_PLATFORM_TOOLSET`` to
-``v145`` and ``VCPKG_PLATFORM_TOOLSET_VERSION`` to ``14.51`` so a dependency compiled
-for the shipped binaries never mixes a second toolset, while shipping Release retains the
-``/MT`` self-contained contract. ASan/Fuzz use the DLL CRT to permit module unload.
+Every triplet (x86/x64, standard, ASan and the standalone Fuzz variant) must pin
+``VCPKG_PLATFORM_TOOLSET`` to ``v145`` and ``VCPKG_PLATFORM_TOOLSET_VERSION`` to ``14.51``
+so a dependency compiled for the shipped binaries never mixes a second toolset, while
+shipping Release retains the ``/MT`` self-contained contract. ASan uses the DLL CRT to
+permit module unload; the never-unloaded standalone Fuzz executables keep the static CRT.
 
 ``_restore`` must additionally point vcpkg at the same selected VS installation the
 driver builds with - through the child environment only, never by mutating the host
@@ -14,6 +15,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -24,35 +26,62 @@ import main
 
 
 TRIPLETS = (
-    "unpackrat-x86-windows-static",
-    "unpackrat-x64-windows-static",
-    "unpackrat-x86-windows-static-asan",
-    "unpackrat-x64-windows-static-asan",
+    ("unpackrat-x86-windows-static", "static"),
+    ("unpackrat-x64-windows-static", "static"),
+    ("unpackrat-x86-windows-static-asan", "dynamic"),
+    ("unpackrat-x64-windows-static-asan", "dynamic"),
+    ("unpackrat-x86-windows-static-fuzz", "static"),
+    ("unpackrat-x64-windows-static-fuzz", "static"),
 )
+
+
+def evaluate_triplet(name: str) -> dict[str, str]:
+    """Return a triplet's effective variables after CMake follows its includes.
+
+    The Fuzz variants layer the static CRT override on top of the included ASan triplet, so
+    the effective values - not the literal text of each file - are what the dependency build
+    identity depends on. The pinned version is evaluated with an unset environment override so
+    the assertion reads the committed pin rather than the developer's machine environment.
+    """
+    triplet = main.REPOSITORY / "build" / "vcpkg" / "triplets" / f"{name}.cmake"
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        script = root / "evaluate.cmake"
+        output = root / "effective.txt"
+        script.write_text(
+            "set(PORT fixture)\n"
+            f'include("{triplet.as_posix()}")\n'
+            f'file(WRITE "{output.as_posix()}" "${{VCPKG_PLATFORM_TOOLSET}}|'
+            "${VCPKG_PLATFORM_TOOLSET_VERSION}|${VCPKG_CMAKE_SYSTEM_VERSION}|"
+            '${VCPKG_CRT_LINKAGE}|${VCPKG_LIBRARY_LINKAGE}")\n',
+            encoding="utf-8",
+        )
+        environment = {
+            key: value for key, value in os.environ.items()
+            if key != "VCPKG_PLATFORM_TOOLSET_VERSION"
+        }
+        subprocess.run(["cmake", "-P", str(script)], capture_output=True, text=True, check=True,
+                       env=environment)
+        toolset, version, sdk, crt, library = output.read_text(encoding="utf-8").split("|")
+    return {"toolset": toolset, "version": version, "sdk": sdk, "crt": crt, "library": library}
 
 
 class VcpkgTripletPinTests(unittest.TestCase):
     def test_every_triplet_pins_the_v145_toolset_and_matching_crt(self) -> None:
-        for name in TRIPLETS:
+        for name, crt in TRIPLETS:
             with self.subTest(triplet=name):
-                text = (main.REPOSITORY / "build" / "vcpkg" / "triplets" / f"{name}.cmake").read_text(
-                    encoding="utf-8"
-                )
-                self.assertIn("set(VCPKG_PLATFORM_TOOLSET v145)", text)
-                self.assertIn("set(VCPKG_PLATFORM_TOOLSET_VERSION 14.51)", text)
-                crt = "dynamic" if name.endswith("-asan") else "static"
-                self.assertIn(f"set(VCPKG_CRT_LINKAGE {crt})", text)
-                self.assertIn("set(VCPKG_LIBRARY_LINKAGE static)", text)
+                effective = evaluate_triplet(name)
+                self.assertEqual(effective["toolset"], "v145")
+                self.assertEqual(effective["version"], "14.51")
+                self.assertEqual(effective["crt"], crt)
+                self.assertEqual(effective["library"], "static")
 
     def test_every_triplet_targets_the_retained_windows_sdk_family(self) -> None:
         # The dependencies must be built against the same SDK family the shipped binaries
         # target, so a newly installed 10.0.28000 SDK never changes the restored artifacts.
-        for name in TRIPLETS:
+        for name, _ in TRIPLETS:
             with self.subTest(triplet=name):
-                text = (main.REPOSITORY / "build" / "vcpkg" / "triplets" / f"{name}.cmake").read_text(
-                    encoding="utf-8"
-                )
-                self.assertIn("set(VCPKG_CMAKE_SYSTEM_VERSION 10.0.26100.0)", text)
+                self.assertEqual(evaluate_triplet(name)["sdk"], "10.0.26100.0")
 
 
 class RestoreEnvironmentTests(unittest.TestCase):

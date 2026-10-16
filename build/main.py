@@ -134,7 +134,7 @@ COVERAGE_IGNORED = (
     r"([\\/]src[\\/](tests|fuzz)[\\/])|([\\/]vcpkg_installed[\\/])|"
     r"([\\/]Microsoft Visual Studio[\\/])|([\\/]Windows Kits[\\/])|([\\/]third_party[\\/])"
 )
-_DEPENDENCY_SUFFIXES = {"ASan": "-asan", "Fuzz": "-asan", "UBSan": "-ubsan"}
+_DEPENDENCY_SUFFIXES = {"ASan": "-asan", "Fuzz": "-fuzz", "UBSan": "-ubsan"}
 _ASAN_OPTIONS = "halt_on_error=1:alloc_dealloc_mismatch=1"
 _UBSAN_OPTIONS = "halt_on_error=1:print_stacktrace=1"
 _ASAN_RUNTIMES = {"x86": "clang_rt.asan_dynamic-i386.dll", "x64": "clang_rt.asan_dynamic-x86_64.dll"}

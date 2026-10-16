@@ -417,7 +417,8 @@ class MainCliCase(unittest.TestCase):
         self.assertEqual(main.artifacts_root(self.repo), self.repo / "out" / "native")
         self.assertEqual(main.triplet("x64", "Debug"), "unpackrat-x64-windows-static")
         self.assertEqual(main.triplet("x64", "ASan"), "unpackrat-x64-windows-static-asan")
-        self.assertEqual(main.restore_root(self.repo, "x86", "Fuzz"), main.artifacts_root(self.repo) / "vcpkg_installed" / "x86-asan")
+        self.assertEqual(main.triplet("x64", "Fuzz"), "unpackrat-x64-windows-static-fuzz")
+        self.assertEqual(main.restore_root(self.repo, "x86", "Fuzz"), main.artifacts_root(self.repo) / "vcpkg_installed" / "x86-fuzz")
 
     def test_read_version_reads_the_declared_text(self) -> None:
         self.make_module("renpy", "3.1.0")

@@ -303,8 +303,13 @@ name. The matched LLVM 21.1.8 instrumentation family is built once by one real `
 provisioning job (`./.github/workflows/ci-instrumentation.yml`), which downloads the two official
 LLVM release payloads, hash- and size-verifies them, extracts the compiler, coverage/profile tools,
 headers and per-architecture runtimes, verifies the 21.1.8 versions and runtime libraries for both
-architectures, caches the verified tree and publishes it as a same-run artifact before the
-instrumentation gates run. That job is a provisioning step, not a verdict that re-scores other jobs:
+architectures, rebuilds only the x64 C++ UBSan runtime archive from hash-verified official source
+with the DLL CRT our `/MD` executables need and records its provenance. The verification step
+re-binds that provenance to the runner's selected toolset and compiler, re-hashes both UBSan
+archives, inspects the rebuilt archive's CRT directives and links and runs a real `/MD` UBSan probe
+through the paired lld-link on every run, a restored cache hit included, before the job caches the
+verified tree and publishes it as a same-run artifact ahead of the instrumentation gates. That job
+is a provisioning step, not a verdict that re-scores other jobs:
 the three LLVM 21.1.8 instrumentation stages (`coverage`, `ubsan`, `fuzz`) depend on it and select
 the artifact through `UNPACKRAT_LLVM_INSTRUMENTATION`, while the two ASan stages are the MSVC 14.51
 dynamic AddressSanitizer build and never wait on it, and the native, analysis, source and leak stages
