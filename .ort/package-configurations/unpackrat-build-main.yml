@@ -1,0 +1,33 @@
+{
+  "id": "SpdxDocumentFile:vcpkg:unpackrat-build-main:d172a43b17c44e3ce509555ebff6578f3d8ee7438a8b09fb02b54dce1cacf53a",
+  "source_artifact_url": "http://127.0.0.1:8765/sources/d172a43b17c44e3ce509555ebff6578f3d8ee7438a8b09fb02b54dce1cacf53a.tar",
+  "license_finding_curations": [
+    {
+      "path": "build/main.py",
+      "start_lines": "50,53,55,56,58,713",
+      "line_count": 1,
+      "detected_license": "GPL-3.0-only",
+      "reason": "INCORRECT",
+      "concluded_license": "NONE",
+      "comment": "Lines 50,53,55,56,58,713 share the identifier GPL-3.0-only; line 50 is, for example, `# A module ships its own MIT grant, the Observer API header's LGPLv3 notice with the full GPLv3`. These are example literals in first-party MIT build/test tooling, not grants, so the false-positive finding is removed."
+    },
+    {
+      "path": "build/main.py",
+      "start_lines": "51",
+      "line_count": 1,
+      "detected_license": "LGPL-2.0-or-later",
+      "reason": "INCORRECT",
+      "concluded_license": "NONE",
+      "comment": "Line 51 carries `# text the LGPL incorporates, and then only that module's own third-party notices.`. This first-party MIT build/test file holds the identifier only as the exact string it exercises or documents, not a grant; ScanCode reported LGPL-2.0-or-later as a false positive, so the finding is removed."
+    },
+    {
+      "path": "build/main.py",
+      "start_lines": "50,712",
+      "line_count": 1,
+      "detected_license": "LGPL-3.0-only",
+      "reason": "INCORRECT",
+      "concluded_license": "NONE",
+      "comment": "Lines 50,712 share the identifier LGPL-3.0-only; line 50 is, for example, `# A module ships its own MIT grant, the Observer API header's LGPLv3 notice with the full GPLv3`. These are example literals in first-party MIT build/test tooling, not grants, so the false-positive finding is removed."
+    }
+  ]
+}

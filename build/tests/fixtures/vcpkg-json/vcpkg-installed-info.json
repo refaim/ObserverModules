@@ -1,0 +1,103 @@
+{
+  "results": {
+    "brotli:unpackrat-x64-windows-static": {
+      "version-string": "1.2.0",
+      "port-version": 0,
+      "triplet": "unpackrat-x64-windows-static",
+      "abi": "03ea13758f92cc6b8d1529a6c3501572b4c399bbc0ef9812c0c93e0a86bcc5a1",
+      "dependencies": [
+        "vcpkg-cmake:x64-windows",
+        "vcpkg-cmake-config:x64-windows"
+      ],
+      "usage": "brotli provides CMake targets:\n\n    find_package(unofficial-brotli CONFIG REQUIRED)\n    # Brotli decoder library\n    target_link_libraries(main PRIVATE unofficial::brotli::brotlidec)\n    # Brotli encoder library\n    target_link_libraries(main PRIVATE unofficial::brotli::brotlienc)\n\n",
+      "owns": [
+        "unpackrat-x64-windows-static/",
+        "unpackrat-x64-windows-static/debug/",
+        "unpackrat-x64-windows-static/debug/lib/",
+        "unpackrat-x64-windows-static/debug/lib/brotlicommon.lib",
+        "unpackrat-x64-windows-static/debug/lib/brotlidec.lib",
+        "unpackrat-x64-windows-static/debug/lib/brotlienc.lib",
+        "unpackrat-x64-windows-static/include/",
+        "unpackrat-x64-windows-static/include/brotli/",
+        "unpackrat-x64-windows-static/include/brotli/decode.h",
+        "unpackrat-x64-windows-static/include/brotli/encode.h",
+        "unpackrat-x64-windows-static/include/brotli/port.h",
+        "unpackrat-x64-windows-static/include/brotli/shared_dictionary.h",
+        "unpackrat-x64-windows-static/include/brotli/types.h",
+        "unpackrat-x64-windows-static/lib/",
+        "unpackrat-x64-windows-static/lib/brotlicommon.lib",
+        "unpackrat-x64-windows-static/lib/brotlidec.lib",
+        "unpackrat-x64-windows-static/lib/brotlienc.lib",
+        "unpackrat-x64-windows-static/share/",
+        "unpackrat-x64-windows-static/share/brotli/",
+        "unpackrat-x64-windows-static/share/brotli/copyright",
+        "unpackrat-x64-windows-static/share/brotli/usage",
+        "unpackrat-x64-windows-static/share/brotli/vcpkg-spdx-resources.json",
+        "unpackrat-x64-windows-static/share/brotli/vcpkg.spdx.json",
+        "unpackrat-x64-windows-static/share/brotli/vcpkg_abi_info.txt",
+        "unpackrat-x64-windows-static/tools/",
+        "unpackrat-x64-windows-static/tools/brotli/",
+        "unpackrat-x64-windows-static/tools/brotli/brotli.exe"
+      ]
+    },
+    "vcpkg-cmake-config:x64-windows": {
+      "version-string": "2026-07-21",
+      "port-version": 0,
+      "triplet": "x64-windows",
+      "abi": "dbac67454e28ba3ac975cacb194d937cf691b37b5d3db12b73dc246f2df7eb23",
+      "owns": [
+        "x64-windows/",
+        "x64-windows/share/",
+        "x64-windows/share/vcpkg-cmake-config/",
+        "x64-windows/share/vcpkg-cmake-config/copyright",
+        "x64-windows/share/vcpkg-cmake-config/vcpkg-port-config.cmake",
+        "x64-windows/share/vcpkg-cmake-config/vcpkg.spdx.json",
+        "x64-windows/share/vcpkg-cmake-config/vcpkg_abi_info.txt",
+        "x64-windows/share/vcpkg-cmake-config/vcpkg_cmake_config_fixup.cmake"
+      ]
+    },
+    "vcpkg-cmake:x64-windows": {
+      "version-string": "2025-08-07",
+      "port-version": 0,
+      "triplet": "x64-windows",
+      "abi": "95a1d1d9f69aeb6add047a4728bff6f0a96a79feb9d0fa6bd1f84bf08aa32b43",
+      "owns": [
+        "x64-windows/",
+        "x64-windows/share/",
+        "x64-windows/share/vcpkg-cmake/",
+        "x64-windows/share/vcpkg-cmake/copyright",
+        "x64-windows/share/vcpkg-cmake/vcpkg-port-config.cmake",
+        "x64-windows/share/vcpkg-cmake/vcpkg.spdx.json",
+        "x64-windows/share/vcpkg-cmake/vcpkg_abi_info.txt",
+        "x64-windows/share/vcpkg-cmake/vcpkg_cmake_build.cmake",
+        "x64-windows/share/vcpkg-cmake/vcpkg_cmake_configure.cmake",
+        "x64-windows/share/vcpkg-cmake/vcpkg_cmake_install.cmake"
+      ]
+    },
+    "bcdec:unpackrat-x64-windows-static": {
+      "version-string": "0.985",
+      "port-version": 0,
+      "triplet": "unpackrat-x64-windows-static",
+      "abi": "ec47cdf5473b1c656a336af9ed94857f63f52d360532c3a7a9cd4218d103e0ab",
+      "dependencies": [
+        "vcpkg-cmake:x64-windows"
+      ],
+      "owns": [
+        "unpackrat-x64-windows-static/",
+        "unpackrat-x64-windows-static/debug/",
+        "unpackrat-x64-windows-static/debug/lib/",
+        "unpackrat-x64-windows-static/debug/lib/bcdec.lib",
+        "unpackrat-x64-windows-static/include/",
+        "unpackrat-x64-windows-static/include/bcdec.h",
+        "unpackrat-x64-windows-static/lib/",
+        "unpackrat-x64-windows-static/lib/bcdec.lib",
+        "unpackrat-x64-windows-static/share/",
+        "unpackrat-x64-windows-static/share/bcdec/",
+        "unpackrat-x64-windows-static/share/bcdec/copyright",
+        "unpackrat-x64-windows-static/share/bcdec/vcpkg-spdx-resources.json",
+        "unpackrat-x64-windows-static/share/bcdec/vcpkg.spdx.json",
+        "unpackrat-x64-windows-static/share/bcdec/vcpkg_abi_info.txt"
+      ]
+    }
+  }
+}

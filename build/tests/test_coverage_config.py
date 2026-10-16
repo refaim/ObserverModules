@@ -23,7 +23,7 @@ class CoverageConfigTests(unittest.TestCase):
         self.assertEqual(coverage.get_option("report:fail_under"), 100)
         self.assertEqual(
             coverage.get_option("report:include"),
-            ["main.py", "leaks.py"],
+            ["main.py", "leaks.py", "licenses.py"],
         )
         self.assertTrue(coverage.get_option("report:show_missing"))
         self.assertFalse(coverage.get_option("report:skip_covered"))
@@ -39,7 +39,7 @@ class CoverageConfigTests(unittest.TestCase):
     def test_first_party_sources_carry_no_coverage_exclusion(self) -> None:
         sources = [
             path
-            for pattern in ("main.py", "leaks.py")
+            for pattern in ("main.py", "leaks.py", "licenses.py")
             for path in sorted(BUILD_ROOT.glob(pattern))
         ]
 

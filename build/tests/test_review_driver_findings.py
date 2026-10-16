@@ -12,6 +12,7 @@ assertion is a wrong-behaviour failure.  Both are the intended RED for this phas
 
 from __future__ import annotations
 
+import contextlib
 import io
 import json
 import os
@@ -28,6 +29,7 @@ BUILD_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BUILD_ROOT))
 
 import leaks  # noqa: E402
+import licenses  # noqa: E402
 import main  # noqa: E402
 from leaks import LeakError  # noqa: E402
 
@@ -56,6 +58,18 @@ def _dumpbin(argv) -> str:
     if flag == "/dependents":
         return "    KERNEL32.dll"
     return "   1    0 00001000 LoadSubModule\n   2    0 00001010 UnloadSubModule"
+
+
+def _fake_git(repository, *arguments):
+    """Deterministic stand-in for the single ``git`` boundary the Release attestation reads."""
+
+    if arguments == ("ls-files", "-z"):
+        return "vcpkg.json\x00"
+    if arguments == ("rev-parse", "HEAD"):
+        return "a" * 40
+    if arguments == ("rev-parse", "HEAD^{tree}"):
+        return "b" * 40
+    raise AssertionError(f"unexpected git invocation: {arguments}")
 
 
 class PipelineRun:
@@ -125,6 +139,7 @@ class DriverCase(unittest.TestCase):
         self.root = Path(temporary.name)
         self.repo = self.root / "repo"
         self.repo.mkdir()
+        (self.repo / "vcpkg.json").write_text('{"name": "unpackrat"}\n', encoding="utf-8")
 
         # Hard guard: nothing here may start a real native tool even from a partial driver.
         forbidden = AssertionError("a real subprocess launch is forbidden in this test")
@@ -152,21 +167,27 @@ class DriverCase(unittest.TestCase):
         cl.write_bytes(b"x")
 
     def tools(self, run: PipelineRun):
-        return mock.patch.multiple(
-            main,
-            create=True,
-            run=run,
-            _native_tools=mock.Mock(return_value=(self.msbuild, self.vcpkg)),
-            _llvm=mock.Mock(return_value=self.llvm),
-            _clang_tidy=mock.Mock(return_value=self.root / "clang-tidy.exe"),
-            _find_dumpbin=mock.Mock(return_value=self.root / "dumpbin.exe"),
-            _find_umdh=mock.Mock(return_value=self.root / "umdh.exe"),
-            _asan_runtime=mock.Mock(return_value=self.asan),
-            _find_binskimm=mock.Mock(return_value=self.root / "binskim.exe"),
-            # Debug tests and the coverage unit scope launch the fatal cleanup probe; the tool
-            # fake must never let that escape into a real subprocess.
-            _cleanup_fatal_probe=mock.Mock(),
+        stack = contextlib.ExitStack()
+        # A Release build records an attestation that reads the checkout through the git boundary.
+        stack.enter_context(mock.patch.object(licenses, "_git", _fake_git))
+        stack.enter_context(
+            mock.patch.multiple(
+                main,
+                create=True,
+                run=run,
+                _native_tools=mock.Mock(return_value=(self.msbuild, self.vcpkg)),
+                _llvm=mock.Mock(return_value=self.llvm),
+                _clang_tidy=mock.Mock(return_value=self.root / "clang-tidy.exe"),
+                _find_dumpbin=mock.Mock(return_value=self.root / "dumpbin.exe"),
+                _find_umdh=mock.Mock(return_value=self.root / "umdh.exe"),
+                _asan_runtime=mock.Mock(return_value=self.asan),
+                _find_binskimm=mock.Mock(return_value=self.root / "binskim.exe"),
+                # Debug tests and the coverage unit scope launch the fatal cleanup probe; the tool
+                # fake must never let that escape into a real subprocess.
+                _cleanup_fatal_probe=mock.Mock(),
+            )
         )
+        return stack
 
     def make_module(self, module: str = "renpy", version: str = "1.2.3") -> None:
         module_dir = self.repo / "src" / "modules" / module
@@ -459,6 +480,151 @@ class _CleanProbe:
     def kill(self) -> None:
         self.killed = True
         self.returncode = -9
+
+
+class AttestationInvalidationCase(unittest.TestCase):
+    """A prior Release attestation never survives an operation on the shared restore.
+
+    The shared-root invalidation guard lives in ``_restore`` itself, because ``ci_source``,
+    ``_coverage``, ``_sanitizer``, ``_prepare_leak_probe`` and ``_analyze`` reach the restore
+    directly; only a later successful Release build may publish a fresh stamp.  The real ``_restore``
+    runs against a faked child process and tool lookup, so the tests exercise the actual guard
+    rather than a mocked boundary.
+    """
+
+    def setUp(self) -> None:
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        self.repo = self.root / "repo"
+        self.repo.mkdir()
+        (self.repo / "vcpkg.json").write_text('{"name": "unpackrat"}\n', encoding="utf-8")
+        self.enterContext(mock.patch.object(licenses, "_git", _fake_git))
+        self.msbuild = self.root / "MSBuild.exe"
+        self.vcpkg = self.root / "vcpkg.exe"
+        self.vs = self.root / "vs"
+
+    def _patch(self, *, run=None):
+        """Fake only the external child process and the tool lookup; run the real ``_restore``."""
+
+        return mock.patch.multiple(
+            main,
+            run=run if run is not None else mock.Mock(),
+            _native_tools=mock.Mock(return_value=(self.msbuild, self.vcpkg)),
+            _vs_installation=mock.Mock(return_value=self.vs),
+            # newmaster's ``_restore`` resolves the servicing toolset for the child
+            # environment, so the faked Visual Studio tree needs a mocked lookup too.
+            _msvc_toolset_version=mock.Mock(return_value="14.51.36231"),
+            _msbuild_command=mock.Mock(return_value=("MSBuild.exe", "tests.vcxproj")),
+            _cleanup_fatal_probe=mock.Mock(),
+        )
+
+    @staticmethod
+    def _failing_msbuild(argv, *, cwd=None, env=None, capture=False):
+        """Let the restore succeed but fail the following MSBuild step."""
+
+        if os.path.basename(str(argv[0])).lower() == "msbuild.exe":
+            raise main.BuildError("msbuild failed")
+        return mock.Mock()
+
+    def _attestation(self, architecture: str = "x64") -> Path:
+        return licenses.attestation_path(self.repo, architecture)
+
+    def test_a_failed_restore_drops_the_prior_attestation(self) -> None:
+        licenses.write_attestation(self.repo, "x64")
+        with self._patch(run=mock.Mock(side_effect=main.BuildError("restore failed"))):
+            with self.assertRaises(main.BuildError):
+                main.build("x64", "Release", repository=self.repo)
+        self.assertFalse(self._attestation().is_file())
+        with self.assertRaises(licenses.LicenseError):
+            licenses.load_attestation(self.repo, "x64")
+
+    def test_a_failed_release_build_drops_the_prior_attestation(self) -> None:
+        licenses.write_attestation(self.repo, "x64")
+        with self._patch(run=self._failing_msbuild):
+            with self.assertRaises(main.BuildError):
+                main.build("x64", "Release", repository=self.repo)
+        self.assertFalse(self._attestation().is_file())
+
+    def test_a_debug_restore_invalidates_the_shared_attestation(self) -> None:
+        licenses.write_attestation(self.repo, "x64")
+        with self._patch():
+            main.build("x64", "Debug", repository=self.repo)
+        self.assertFalse(self._attestation().is_file())
+
+    def test_a_debug_build_never_publishes_an_attestation(self) -> None:
+        with self._patch():
+            main.build("x64", "Debug", repository=self.repo)
+        self.assertFalse(self._attestation().is_file())
+
+    def test_an_isolated_asan_restore_keeps_the_shared_attestation(self) -> None:
+        licenses.write_attestation(self.repo, "x64")
+        with self._patch():
+            main.build("x64", "ASan", repository=self.repo)
+        self.assertTrue(self._attestation().is_file())
+        licenses.load_attestation(self.repo, "x64")
+
+    def test_a_successful_release_build_replaces_the_prior_attestation(self) -> None:
+        licenses.write_attestation(self.repo, "x64")
+        before = self._attestation().read_bytes()
+        # A changed, uncommitted build input must be re-attested by the successful rebuild rather
+        # than silently inherit the previous stamp.
+        (self.repo / "vcpkg.json").write_text('{"name": "unpackrat", "x": 1}\n', encoding="utf-8")
+        with self._patch():
+            main.build("x64", "Release", repository=self.repo)
+        document = licenses.load_attestation(self.repo, "x64")
+        self.assertNotEqual(before, self._attestation().read_bytes())
+        self.assertEqual(
+            document["buildInputFingerprint"], licenses.build_input_fingerprint(self.repo)
+        )
+
+    def test_a_direct_shared_restore_drops_the_prior_attestation(self) -> None:
+        # ``ci_source`` and ``_analyze`` (like the coverage and sanitizer stages) enter through
+        # ``_restore`` without ``build``, so the guard must sit in ``_restore`` itself.
+        licenses.write_attestation(self.repo, "x64")
+        with self._patch():
+            main._restore(self.repo, "x64", "Debug", self.vcpkg)
+        self.assertFalse(self._attestation().is_file())
+
+    def test_a_failed_direct_shared_restore_still_drops_the_prior_attestation(self) -> None:
+        licenses.write_attestation(self.repo, "x64")
+        with self._patch(run=mock.Mock(side_effect=main.BuildError("restore failed"))):
+            with self.assertRaises(main.BuildError):
+                main._restore(self.repo, "x64", "Release", self.vcpkg)
+        self.assertFalse(self._attestation().is_file())
+
+    def test_a_direct_isolated_restore_keeps_the_shared_attestation(self) -> None:
+        licenses.write_attestation(self.repo, "x64")
+        with self._patch():
+            main._restore(self.repo, "x64", "ASan", self.vcpkg)
+        self.assertTrue(self._attestation().is_file())
+        licenses.load_attestation(self.repo, "x64")
+
+    def test_a_successful_leak_probe_republishes_the_attestation(self) -> None:
+        # The probe restore mutates the x64 Release tree and drops the stamp, so the finished probe
+        # build is the last successful Release work and must republish a fresh stamp.
+        licenses.write_attestation(self.repo, "x64")
+        (self.repo / "vcpkg.json").write_text('{"name": "unpackrat", "x": 1}\n', encoding="utf-8")
+        with self._patch():
+            main._prepare_leak_probe(self.repo, self.msbuild, self.vcpkg)
+        document = licenses.load_attestation(self.repo, "x64")
+        self.assertEqual(
+            document["buildInputFingerprint"], licenses.build_input_fingerprint(self.repo)
+        )
+
+    def test_a_failed_leak_probe_restore_leaves_no_attestation(self) -> None:
+        licenses.write_attestation(self.repo, "x64")
+        with self._patch(run=mock.Mock(side_effect=main.BuildError("restore failed"))):
+            with self.assertRaises(main.BuildError):
+                main._prepare_leak_probe(self.repo, self.msbuild, self.vcpkg)
+        self.assertFalse(self._attestation().is_file())
+
+    def test_a_failed_leak_probe_build_leaves_no_attestation(self) -> None:
+        licenses.write_attestation(self.repo, "x64")
+        with self._patch(run=self._failing_msbuild):
+            with self.assertRaises(main.BuildError):
+                main._prepare_leak_probe(self.repo, self.msbuild, self.vcpkg)
+        self.assertFalse(self._attestation().is_file())
 
 
 if __name__ == "__main__":

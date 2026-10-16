@@ -1,0 +1,37 @@
+{
+  "id": "SpdxDocumentFile:vcpkg:zstd:1.5.7",
+  "source_artifact_url": "http://127.0.0.1:8765/sources/37d7284556b20954e56e1ca85b80226768902e2edabd3b649e9e72c0c9012ee3.tar.gz",
+  "path_excludes": [
+    {
+      "pattern": "zstd-1.5.7/contrib/**",
+      "reason": "OTHER",
+      "comment": "Upstream zstd contrib tree: Linux-kernel integration, freestanding_lib and single-file-lib examples. The adopted port configures tests and contrib off, so these GPL-2.0 labeled modules are not built or shipped. Anchored on the archive top directory zstd-1.5.7/ that the real ORT ScanCode run keeps in the extracted tree."
+    },
+    {
+      "pattern": "zstd-1.5.7/tests/**",
+      "reason": "TEST_OF",
+      "comment": "Upstream zstd test tree, including the GPL-3.0 gzip CLI test scripts and tests/gzip/test-driver.sh with its GPL-2.0-or-later WITH Autoconf-exception-generic header. Tests are disabled by the adopted port and are not part of the shipped library. Anchored on the zstd-1.5.7/ archive top directory."
+    },
+    {
+      "pattern": "zstd-1.5.7/CHANGELOG",
+      "reason": "DOCUMENTATION_OF",
+      "comment": "Release notes documenting past licensing changes; it contains the 'BSD-3-Clause OR GPL-2.0-only' wording but is not code. Anchored on the zstd-1.5.7/ archive top directory."
+    },
+    {
+      "pattern": "zstd-1.5.7/CONTRIBUTING.md",
+      "reason": "DOCUMENTATION_OF",
+      "comment": "Contribution guide; its DCO/generic-CLA reference and quoted dual-license wording do not bind the shipped library. ScanCode reports the CLA reference as NOASSERTION. Anchored on the zstd-1.5.7/ archive top directory."
+    }
+  ],
+  "license_finding_curations": [
+    {
+      "path": "zstd-1.5.7/COPYING",
+      "start_lines": 1,
+      "line_count": 339,
+      "detected_license": "GPL-2.0-only",
+      "reason": "DOCUMENTATION_OF",
+      "comment": "The whole file is the GPLv2 alternative text offered by Zstandard's dual BSD-3-Clause OR GPL-2.0-only grant. This project distributes under BSD-3-Clause (see licenses/zstd.txt and the README). The selected option is recorded; the historical BSD-2-Clause grants in lib/legacy/** are deliberately kept. Path anchored on the zstd-1.5.7/ archive top directory.",
+      "concluded_license": "BSD-3-Clause"
+    }
+  ]
+}

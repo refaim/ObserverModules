@@ -1,0 +1,33 @@
+{
+  "id": "SpdxDocumentFile:vcpkg:unpackrat-build-tests-minimal-build:786e19e04f99f74737692dd2ee18e7b525dab857d2feeef43fd670944f779f18",
+  "source_artifact_url": "http://127.0.0.1:8765/sources/786e19e04f99f74737692dd2ee18e7b525dab857d2feeef43fd670944f779f18.tar",
+  "license_finding_curations": [
+    {
+      "path": "build/tests/test_minimal_build.py",
+      "start_lines": "52,200",
+      "line_count": 1,
+      "detected_license": "GPL-1.0-or-later",
+      "reason": "INCORRECT",
+      "concluded_license": "NONE",
+      "comment": "Lines 52,200 share the identifier GPL-1.0-or-later; line 52 is, for example, `LICENSE_GPL = b\"Fixture GPLv3 text.\\n\"`. These are example literals in first-party MIT build/test tooling, not grants, so the false-positive finding is removed."
+    },
+    {
+      "path": "build/tests/test_minimal_build.py",
+      "start_lines": "52,200",
+      "line_count": 1,
+      "detected_license": "GPL-3.0-only",
+      "reason": "INCORRECT",
+      "concluded_license": "NONE",
+      "comment": "Lines 52,200 share the identifier GPL-3.0-only; line 52 is, for example, `LICENSE_GPL = b\"Fixture GPLv3 text.\\n\"`. These are example literals in first-party MIT build/test tooling, not grants, so the false-positive finding is removed."
+    },
+    {
+      "path": "build/tests/test_minimal_build.py",
+      "start_lines": "51",
+      "line_count": 1,
+      "detected_license": "LGPL-2.0-or-later",
+      "reason": "INCORRECT",
+      "concluded_license": "NONE",
+      "comment": "Line 51 carries `LICENSE_OBSERVER = b\"Fixture Observer LGPL notice.\\n\"`. This first-party MIT build/test file holds the identifier only as the exact string it exercises or documents, not a grant; ScanCode reported LGPL-2.0-or-later as a false positive, so the finding is removed."
+    }
+  ]
+}

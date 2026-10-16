@@ -1,0 +1,32 @@
+microsoft/vcpkg
+
+Some overlay ports under build/vcpkg/ports/ are adapted from the official
+microsoft/vcpkg registry at baseline 20ceb8adbf0504d4b0d5e4058a32f9d4fc896391
+(https://github.com/microsoft/vcpkg/tree/20ceb8adbf0504d4b0d5e4058a32f9d4fc896391/ports/catch2):
+the Catch2 recipe (portfile.cmake), its fix-install-path.patch and its vcpkg.json
+manifest. The recipe here is an adaptation of that upstream recipe rather than a
+verbatim copy: the Catch2 reference is moved from 3.16.0 to 3.16.1 and the
+matching SHA512 digest is updated. Those files are Microsoft's build tooling and
+carry the MIT grant reproduced below. This is source/build attribution for the
+adapted recipe and patch, not a runtime component of the shipped modules.
+
+MIT License
+
+Copyright (c) Microsoft Corporation
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this
+software and associated documentation files (the "Software"), to deal in the Software
+without restriction, including without limitation the rights to use, copy, modify,
+merge, publish, distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice shall be included in all copies
+or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF
+CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
+OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.

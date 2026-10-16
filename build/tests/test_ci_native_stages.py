@@ -11,6 +11,7 @@ tool-lookup seams, so no real compiler, analyzer or network is ever touched.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import json
 from pathlib import Path
@@ -25,6 +26,19 @@ BUILD_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BUILD_ROOT))
 
 import main  # noqa: E402
+import licenses  # noqa: E402
+
+
+def _fake_git(repository, *arguments):
+    """Deterministic stand-in for the single ``git`` boundary the Release attestation reads."""
+
+    if arguments == ("ls-files", "-z"):
+        return "vcpkg.json\x00"
+    if arguments == ("rev-parse", "HEAD"):
+        return "a" * 40
+    if arguments == ("rev-parse", "HEAD^{tree}"):
+        return "b" * 40
+    raise AssertionError(f"unexpected git invocation: {arguments}")
 
 
 def _properties(argv: tuple[str, ...]) -> dict[str, str]:
@@ -76,6 +90,7 @@ class StageCase(unittest.TestCase):
         self.root = Path(temporary.name)
         self.repo = self.root / "repo"
         self.repo.mkdir()
+        (self.repo / "vcpkg.json").write_text('{"name": "unpackrat"}\n', encoding="utf-8")
         self.msbuild = self.root / "MSBuild.exe"
         self.vcpkg = self.root / "vcpkg.exe"
         self.tidy = self.root / "clang-tidy.exe"
@@ -89,15 +104,21 @@ class StageCase(unittest.TestCase):
 
         self.clang_tidy = mock.Mock(return_value=self.tidy)
         self.cleanup_probe = mock.Mock()
-        return mock.patch.multiple(
-            main,
-            run=run,
-            _native_tools=mock.Mock(return_value=(self.msbuild, self.vcpkg)),
-            _vs_installation=mock.Mock(return_value=self.vs),
-            _clang_tidy=self.clang_tidy,
-            _cleanup_fatal_probe=self.cleanup_probe,
-            _llvm=mock.Mock(return_value=mock.Mock()),
+        stack = contextlib.ExitStack()
+        # A Release build records an attestation that reads the checkout through the git boundary.
+        stack.enter_context(mock.patch.object(licenses, "_git", _fake_git))
+        stack.enter_context(
+            mock.patch.multiple(
+                main,
+                run=run,
+                _native_tools=mock.Mock(return_value=(self.msbuild, self.vcpkg)),
+                _vs_installation=mock.Mock(return_value=self.vs),
+                _clang_tidy=self.clang_tidy,
+                _cleanup_fatal_probe=self.cleanup_probe,
+                _llvm=mock.Mock(return_value=mock.Mock()),
+            )
         )
+        return stack
 
     # ----- the analysis flag on the ordinary MSBuild command ------------------------------
 

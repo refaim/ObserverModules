@@ -1,0 +1,387 @@
+name: License audit
+
+# One real native Linux job runs the pinned, checksum-verified OSS Review Toolkit 97.0.0 binary
+# distribution together with a locally configured pinned ScanCode 32.5.0 over the SPDX project the
+# two native Release slices produced in this same run.  It rebuilds nothing and pulls no image: it
+# downloads the two official release assets with `gh release download`, verifies their hard-coded
+# SHA-256 checksums before either archive is extracted, prepares the SPDX project, source archives
+# and curations with the build driver, serves the prepared sources over loopback with the Python
+# standard-library server, and then runs the upstream analyzer, scanner, evaluator and reporter as
+# ordinary host tools under the runner image's own Java 25.
+#
+# Policy is repository data only.  The reviewed resolutions live in this repository's JSON .ort.yml,
+# the prepared .ort.yml adds the exact per-package license choices, the global configuration is our
+# data, and the evaluator rules and license classifications are the pinned upstream copy CI fetches
+# at run time.  There is no first-party license engine, so there is no bespoke policy code to cover.
+
+on:
+  workflow_call:
+
+jobs:
+  license-audit:
+    name: license-audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+
+    # The two pinned official tools and the versions and hard-coded checksums that are bound into the
+    # tool cache key, so a changed pin can never reuse a stale cache entry.  The runner-dependent tool
+    # locations are deliberately not here: a job-level env block cannot read the runner context, so
+    # they are initialized at step level (see "Initialize the pinned tool paths") instead.
+    env:
+      ORT_VERSION: "97.0.0"
+      ORT_SHA256: "7b9b1cc9dd7af027e91402f739f2e01dfb73367ca9c1d0cbef3b74a14bce77ae"
+      SCANCODE_VERSION: "32.5.0"
+      SCANCODE_SHA256: "02be93341e2f9775f88b4abd03cdd74f2e4de91941a12a1d8cd150eeb72a0945"
+      SCANCODE_ASSET: "scancode-toolkit-v32.5.0_py3.14-linux.tar.gz"
+      # ORT documents an 8 GiB heap recommendation; the option is read by the launcher's JAVA_OPTS.
+      ORT_OPTS: "-Xmx8g"
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The evaluator rules and license classifications are Apache-2.0 upstream artifacts.  Fetch the
+      # exact pinned commit and copy the two files CI needs at run time instead of vendoring them as a
+      # second licensed source component (with its own LICENSE/NOTICE obligations) in this repository.
+      - name: Check out the pinned upstream ORT configuration
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: oss-review-toolkit/ort-config
+          ref: 5075f4308109384c98a6a2fab53246f7b60d59f4
+          path: out/ort-config
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: "0.13.0"
+          enable-cache: true
+          cache-dependency-glob: build/uv.lock
+          cache-suffix: license-audit
+
+      - name: Prepare the pinned Python environment
+        run: uv sync --project build --frozen
+
+      # Both architectures are audited from the same-run Release inputs.  The driver deduplicates
+      # identical x86/x64 sources and owns the exact source checksums.
+      - name: Collect the x86 license inputs
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: license-inputs-x86
+          path: out/license-inputs/x86
+
+      - name: Collect the x64 license inputs
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: license-inputs-x64
+          path: out/license-inputs/x64
+
+      # A Linux shell cannot run the PowerShell entry point, so the driver is invoked directly as the
+      # public command contract through the pinned, already-prepared Python environment.
+      - name: Prepare the SPDX project and curations
+        run: uv run --project build --frozen python build/main.py license-prepare -Inputs out/license-inputs -Output out/license-ready
+
+      # The runner image already ships Java 25 and exposes its home as JAVA_HOME_25_X64.  The job only
+      # wires that into JAVA_HOME/PATH; a missing prerequisite is an explicit failure, not a tool
+      # install, so the workflow never installs or updates a JDK.
+      - name: Configure the pinned Java 25 runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${JAVA_HOME_25_X64:-}" ] || [ ! -x "${JAVA_HOME_25_X64}/bin/java" ]; then
+            echo "the ubuntu-24.04 runner image must provide Java 25 at JAVA_HOME_25_X64; failing." >&2
+            exit 1
+          fi
+          echo "JAVA_HOME=${JAVA_HOME_25_X64}" >> "${GITHUB_ENV}"
+          echo "${JAVA_HOME_25_X64}/bin" >> "${GITHUB_PATH}"
+          "${JAVA_HOME_25_X64}/bin/java" -version
+
+      # GitHub Actions forbids the runner context in a job-level env block, so the two tool locations
+      # that depend on the runner's temp directory are initialized here, at step level where RUNNER_TEMP
+      # is available, and exported to every later step through GITHUB_ENV.  ScanCode's long-lived cache
+      # is redirected beneath the owned tool root so no fixed path escapes the cached tree.
+      - name: Initialize the pinned tool paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "LICENSE_TOOLS=${RUNNER_TEMP}/license-tools" >> "${GITHUB_ENV}"
+          echo "SCANCODE_CACHE=${RUNNER_TEMP}/license-tools/scancode-cache" >> "${GITHUB_ENV}"
+
+      # The tool cache key binds the pinned tool versions, their hard-coded checksums, the runner OS
+      # and architecture and the pinned Python interpreter identity, so a changed pin or platform can never
+      # reuse a stale entry.  There is deliberately no prefix restore: a partially matching binary
+      # tool cache must be ignored and both tools downloaded and verified again.
+      - name: Compute the pinned tool cache key
+        id: tool-cache-key
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The restored ScanCode venv is built from an absolute uv base interpreter, so the cache
+          # key binds the FULL interpreter version and the resolved base interpreter prefix.  The
+          # minor version alone would let a different patch level or base interpreter reuse a cache
+          # entry whose pinned interpreter no longer exists on the runner.
+          python_full="$("${GITHUB_WORKSPACE}/build/.venv/bin/python" -c 'import sys; print("%d.%d.%d" % sys.version_info[:3])')"
+          python_base="$("${GITHUB_WORKSPACE}/build/.venv/bin/python" -c 'import sys; print(sys.base_prefix)')"
+          python_base_digest="$(printf '%s' "${python_base}" | sha256sum | cut -d' ' -f1)"
+          echo "key=license-tools-${{ runner.os }}-${{ runner.arch }}-ort-${ORT_VERSION}-${ORT_SHA256:0:16}-scancode-${SCANCODE_VERSION}-${SCANCODE_SHA256:0:16}-py${python_full}-base-${python_base_digest:0:16}" >> "${GITHUB_OUTPUT}"
+
+      - name: Restore the pinned tool cache
+        id: tool-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/license-tools
+          key: ${{ steps.tool-cache-key.outputs.key }}
+
+      # On a cache miss both official release assets are fetched with `gh release download` and their
+      # hard-coded SHA-256 checksums are verified BEFORE either archive is extracted.  A cold run thus
+      # downloads the two smaller official tool archives instead of an image, and a warm run reuses
+      # the cached tools without a partial prefix match.
+      - name: Install the pinned ORT and ScanCode releases on a cache miss
+        if: steps.tool-cache.outputs.cache-hit != 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          start="${SECONDS}"
+          tools="${LICENSE_TOOLS}"
+          downloads="${RUNNER_TEMP}/license-tool-downloads"
+          mkdir -p "${tools}" "${downloads}"
+          gh release download "${ORT_VERSION}" --repo oss-review-toolkit/ort \
+            --pattern "ort-${ORT_VERSION}.tgz" --dir "${downloads}"
+          gh release download "v${SCANCODE_VERSION}" --repo aboutcode-org/scancode-toolkit \
+            --pattern "${SCANCODE_ASSET}" --dir "${downloads}"
+          echo "${ORT_SHA256}  ${downloads}/ort-${ORT_VERSION}.tgz" | sha256sum -c -
+          echo "${SCANCODE_SHA256}  ${downloads}/${SCANCODE_ASSET}" | sha256sum -c -
+          # Each release archive has exactly one top-level directory: ort-<version>/ and
+          # scancode-toolkit-v<version>/, so a plain extraction under the owned tool root is stable.
+          tar -xzf "${downloads}/ort-${ORT_VERSION}.tgz" -C "${tools}"
+          tar -xzf "${downloads}/${SCANCODE_ASSET}" -C "${tools}"
+          rm -rf "${downloads}"
+          scancode_root="${tools}/scancode-toolkit-v${SCANCODE_VERSION}"
+          # The upstream configure creates the virtualenv from the bundled etc/thirdparty/virtualenv.pyz
+          # (--never-download) and installs the bundled thirdparty wheels with --no-index/--find-links,
+          # using our pinned Python as the interpreter.  No index or network tool resolution is used.
+          ( cd "${scancode_root}" && PYTHON_EXECUTABLE="${GITHUB_WORKSPACE}/build/.venv/bin/python" ./configure )
+          # The offline configure has consumed every bundled wheel, so the root ScanCode wheel and
+          # the whole thirdparty wheel set (~173 MB) are now dead duplicates of the installed
+          # environment.  Delete only the wheels: the configured venv, its licensedb/data and the
+          # bundled package index the scan loads are all preserved for the cache.  No separate
+          # index rebuild step is added because the archive already ships the bundled index.
+          rm -f "${scancode_root}"/scancode_toolkit-*.whl
+          find "${scancode_root}/thirdparty" -maxdepth 1 -name '*.whl' -delete
+          elapsed=$((SECONDS - start))
+          echo "tool-setup=${elapsed}s"
+          echo "| tool setup (cold) | ${elapsed} |" >> "${GITHUB_STEP_SUMMARY}"
+
+      # The configured wrapper must exist whether it was cached or freshly built; exposing it on the
+      # job PATH is what lets ORT's ScanCode scanner run the pinned scanner, and a missing wrapper is
+      # an explicit failure.
+      - name: Expose the configured ScanCode on the job PATH
+        shell: bash
+        run: |
+          set -euo pipefail
+          scancode_bin="${LICENSE_TOOLS}/scancode-toolkit-v${SCANCODE_VERSION}/venv/bin"
+          if [ ! -x "${scancode_bin}/scancode" ]; then
+            echo "the configured ScanCode wrapper ${scancode_bin}/scancode is missing; failing." >&2
+            exit 1
+          fi
+          echo "${scancode_bin}" >> "${GITHUB_PATH}"
+          "${scancode_bin}/scancode" --version
+
+      - name: Save the pinned tool cache
+        if: steps.tool-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/license-tools
+          key: ${{ steps.tool-cache-key.outputs.key }}
+
+      # The ORT input must live outside the Git checkout: SpdxDocumentFile can otherwise infer this
+      # repository's own VCS for every prepared package, and a stray archive under the analysis input
+      # would be discovered as a package project.  The prepared sources are served over loopback
+      # instead, and the curations, provenance and policy also live outside the input.
+      - name: Stage the ORT input and configuration outside the checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="${RUNNER_TEMP}/license-audit"
+          ready="${GITHUB_WORKSPACE}/out/license-ready"
+          served="${root}/served"
+          cfg="${root}/home/config"
+          mkdir -p "${root}/input" "${served}" "${cfg}/package-configurations"
+          cp "${ready}/unpackrat.spdx.json" "${root}/input/"
+          # The generated source URLs are http://127.0.0.1:8765/sources/<artifact>, so the served
+          # directory is the prepared root that contains sources/, not the sources/ leaf itself.
+          cp -RT "${ready}/sources" "${served}/sources"
+          # The prepared repository configuration merges the reviewed base resolutions with the exact
+          # per-package license choices.  It is required: falling back to the base file would silently
+          # drop the reviewed choices, so a missing generated policy fails the staging step.
+          if [ ! -f "${ready}/.ort.yml" ]; then
+            echo "the generated repository configuration ${ready}/.ort.yml is missing; failing." >&2
+            exit 1
+          fi
+          cp "${ready}/.ort.yml" "${cfg}/repository-configuration.yml"
+          # The analyzer applies the exact per-package source curations from the explicit File
+          # provider the global configuration names at the prepared home under /curations.yml.
+          cp "${ready}/package-curations.yml" "${cfg}/curations.yml"
+          cp "${ready}/provenance.json" "${cfg}/provenance.json"
+          if [ -d "${ready}/package-configurations" ]; then
+            cp -RT "${ready}/package-configurations" "${cfg}/package-configurations"
+          fi
+          # Our reviewed global configuration is data; the upstream policy files come from the pin.
+          # The shipped configuration roots its owned paths at the fixed /ort/home prefix, so the one
+          # narrow staging rewrite maps that literal prefix to the real native audit home; no other
+          # templating or path engine is introduced.
+          sed "s#/ort/home#${root}/home#g" .ort/config/config.yml > "${cfg}/config.yml"
+          cp out/ort-config/evaluator.rules.kts "${cfg}/evaluator.rules.kts"
+          cp out/ort-config/license-classifications.yml "${cfg}/license-classifications.yml"
+
+      # The ORT native file cache key binds the pinned ORT version, a hash of the effective
+      # configuration, rules and scanner options, and a unique per-run suffix, with a prefix restore.
+      # The hash makes a changed policy invalidate the cache instead of reusing a stale entry, and the
+      # restore prefix still lets a re-scan add a fresh entry when a dependency changes.  The prefix
+      # carries the SAME configuration digest as the primary key, because ORT's scanner applies the
+      # detected-license mapping BEFORE it stores results: restoring a differently-mapped cache would
+      # surface a stale NOASSERTION summary and skip the re-scan, a false green.
+      - name: Compute the ORT native file cache key
+        id: ort-cache-key
+        shell: bash
+        run: |
+          set -euo pipefail
+          cfg="${RUNNER_TEMP}/license-audit/home/config"
+          digest="$(
+            cat "${cfg}/config.yml" "${cfg}/evaluator.rules.kts" \
+                "${cfg}/license-classifications.yml" "${cfg}/repository-configuration.yml" \
+              | sha256sum | cut -d' ' -f1
+          )"
+          echo "digest=${digest}" >> "${GITHUB_OUTPUT}"
+          echo "key=ort-native-${ORT_VERSION}-${digest}-${{ github.run_id }}-${{ github.run_attempt }}" >> "${GITHUB_OUTPUT}"
+
+      - name: Restore the ORT native file cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/license-audit/home/scanner
+          key: ${{ steps.ort-cache-key.outputs.key }}
+          restore-keys: |
+            ort-native-${{ env.ORT_VERSION }}-${{ steps.ort-cache-key.outputs.digest }}-
+
+      - name: Run the pinned ORT audit
+        id: ort-audit
+        shell: bash
+        run: |
+          set -uo pipefail
+          # GitHub runs an explicit shell: bash with -e -o pipefail, so -e is inherited.  Disable it
+          # explicitly so a failing stage's pipeline is measured and the reporter is still reached
+          # instead of the script aborting before PIPESTATUS is read.
+          set +e
+          root="${RUNNER_TEMP}/license-audit"
+          served="${root}/served"
+          cfg="${root}/home/config"
+          results="${root}/results"
+          ort="${LICENSE_TOOLS}/ort-${ORT_VERSION}/bin/ort"
+          mkdir -p "${results}" "${results}/logs"
+          printf '| stage | seconds | exit |\n| --- | --- | --- |\n' >> "${GITHUB_STEP_SUMMARY}"
+          # The prepared sources are served exactly as curated, on loopback only, by the standard
+          # library server, so the generated /sources/<artifact> URLs resolve for the host run.
+          python3 -m http.server 8765 --bind 127.0.0.1 --directory "${served}" &
+          server="$!"
+          trap 'kill "${server}" 2>/dev/null || true' EXIT
+          ort_run() { "${ort}" -c "${cfg}/config.yml" "$@"; }
+          stage_status=0
+          # Each stage's own non-zero exit is the verdict, and a stage that exits zero without
+          # producing its expected result on disk is also a failure.  The first failure is recorded
+          # and re-emitted at the end: a failing scan, evaluator or reporter must not abort the script
+          # before the evidence is retained, and a non-empty artifact alone is never taken as proof of
+          # success.
+          require_result() {
+            name="$1" host="$2" kind="$3"
+            if [ "${kind}" = dir ]; then
+              if [ -z "$(ls -A "${host}" 2>/dev/null)" ]; then
+                echo "stage '${name}' produced no output in ${host}; failing closed." >&2
+                return 1
+              fi
+            elif [ ! -s "${host}" ]; then
+              echo "stage '${name}' produced no ${host}; failing closed." >&2
+              return 1
+            fi
+            return 0
+          }
+          # Run one real tool, retain its stdout and stderr as a log, and record the tool's own exit
+          # code (not tee's) so a failure is never lost.  The seconds each stage took is recorded for
+          # the retained cold/warm benchmark evidence.
+          stage() {
+            name="$1" host_result="$2" kind="$3"
+            shift 3
+            log="${results}/logs/${name}.log"
+            start="${SECONDS}"
+            { ort_run "$@" 2>&1; } | tee "${log}"
+            code="${PIPESTATUS[0]}"
+            elapsed=$((SECONDS - start))
+            echo "timing ${name}=${elapsed}s exit=${code}"
+            printf '| %s | %s | %s |\n' "${name}" "${elapsed}" "${code}" >> "${GITHUB_STEP_SUMMARY}"
+            if [ "${code}" -eq 0 ]; then
+              require_result "${name}" "${host_result}" "${kind}" || code=1
+            fi
+            # Only the scan stage's own validated exit (its code is zero after require_result
+            # confirmed the result file) may advertise a reusable scanner cache to later
+            # steps; a later evaluator or reporter failure leaves the flag set, so an
+            # already-valid cache is still saved while a failed or empty scan never sets it.
+            if [ "${name}" = scan ] && [ "${code}" -eq 0 ]; then
+              echo "scan-cache-ready=true" >> "${GITHUB_OUTPUT}"
+            fi
+            if [ "${stage_status}" -eq 0 ] && [ "${code}" -ne 0 ]; then stage_status="${code}"; fi
+          }
+          stage analyze "${results}/analyzer/analyzer-result.json" file \
+            analyze -i "${root}/input" -o "${results}/analyzer" -f JSON \
+            --repository-configuration-file "${cfg}/repository-configuration.yml"
+          stage scan "${results}/scanner/scan-result.json" file \
+            scan -i "${results}/analyzer/analyzer-result.json" -o "${results}/scanner" -f JSON \
+            --scanners ScanCode --package-types=PACKAGE
+          stage evaluate "${results}/evaluator/evaluation-result.json" file \
+            evaluate -i "${results}/scanner/scan-result.json" -o "${results}/evaluator" -f JSON \
+            --license-classifications-file "${cfg}/license-classifications.yml" \
+            --package-configurations-dir "${cfg}/package-configurations" \
+            --rules-file "${cfg}/evaluator.rules.kts" \
+            --repository-configuration-file "${cfg}/repository-configuration.yml"
+          # The reporter runs from the newest ORT result that actually exists, so a failing evaluator
+          # or scanner still yields reports.  The default PlainTextTemplate output is the NOTICE
+          # report; no first-party NOTICE generator exists.
+          result=""
+          for candidate in evaluator/evaluation-result.json scanner/scan-result.json analyzer/analyzer-result.json; do
+            if [ -s "${results}/${candidate}" ]; then result="${results}/${candidate}"; break; fi
+          done
+          if [ -n "${result}" ]; then
+            stage report "${results}/reports" dir \
+              report -i "${result}" -o "${results}/reports" -f CycloneDX,SpdxDocument,WebApp,PlainTextTemplate \
+              --license-classifications-file "${cfg}/license-classifications.yml" \
+              --package-configurations-dir "${cfg}/package-configurations" \
+              --repository-configuration-file "${cfg}/repository-configuration.yml"
+          else
+            echo "no ORT result exists for the reporter; failing closed." >&2
+            if [ "${stage_status}" -eq 0 ]; then stage_status=1; fi
+          fi
+          exit "${stage_status}"
+
+      - name: Save the ORT native file cache
+        if: always() && steps.ort-audit.outputs.scan-cache-ready == 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/license-audit/home/scanner
+          key: ${{ steps.ort-cache-key.outputs.key }}
+
+      # Every stage's raw inputs, provenance, results, reports and logs are retained even when the
+      # audit fails, so a violation is reviewed from real evidence rather than an exit code.
+      - name: Upload the license audit evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: license-audit-results
+          path: |
+            ${{ runner.temp }}/license-audit/results
+            ${{ runner.temp }}/license-audit/home/config
+            out/license-ready
+            out/license-inputs
+          if-no-files-found: warn
+          retention-days: 30

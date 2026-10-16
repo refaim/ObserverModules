@@ -1,0 +1,31 @@
+{
+  "id": "SpdxDocumentFile:vcpkg:nlohmann-json:3.12.0#2",
+  "source_artifact_url": "http://127.0.0.1:8765/sources/4b92eb0c06d10683f7447ce9406cb97cd4b453be18d7279320f7b2f025c10187.tar.gz",
+  "path_excludes": [
+    {
+      "pattern": "json-3.12.0/tests/**",
+      "reason": "TEST_OF",
+      "comment": "Upstream tests, including tests/thirdparty/Fuzzer and its NCSA-labeled files and the GPL-3.0-only tests/thirdparty/imapdl/filterbr.py. The repository uses nlohmann/json for its own tests only; these upstream files are not shipped. Anchored on the archive top directory json-3.12.0/ that the real ORT ScanCode run keeps in the extracted tree."
+    },
+    {
+      "pattern": "json-3.12.0/.github/**",
+      "reason": "OTHER",
+      "comment": "Upstream GitHub metadata; .github/CONTRIBUTING.md only carries a DCO reference. Anchored on the json-3.12.0/ archive top directory."
+    },
+    {
+      "pattern": "json-3.12.0/docs/**",
+      "reason": "DOCUMENTATION_OF",
+      "comment": "Upstream documentation. Anchored on the json-3.12.0/ archive top directory."
+    },
+    {
+      "pattern": "json-3.12.0/.reuse/**",
+      "reason": "OTHER",
+      "comment": "REUSE metadata. .reuse/dep5 assigns GPL-3.0-only and other licenses to the unselected tests/thirdparty code, a genuine upstream metadata/source disagreement that does not bind the library. Anchored on the json-3.12.0/ archive top directory."
+    },
+    {
+      "pattern": "json-3.12.0/LICENSES/**",
+      "reason": "OTHER",
+      "comment": "REUSE license-text files kept for the unselected tests/thirdparty code, for example LICENSES/GPL-3.0-only.txt; they are not grants of the library. Anchored on the json-3.12.0/ archive top directory."
+    }
+  ]
+}

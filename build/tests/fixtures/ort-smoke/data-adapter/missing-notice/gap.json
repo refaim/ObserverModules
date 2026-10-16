@@ -1,0 +1,14 @@
+{
+  "fixture": "missing-notice",
+  "gap": "notice",
+  "expected": "fail",
+  "comment": "A prepared package whose verified source has no retained notice must fail readiness.",
+  "packages": [
+    {
+      "id": "generic:tf-psa-crypto:1.1.1",
+      "source": "tf-psa-crypto-1.1.1.tar.gz",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "notice": null
+    }
+  ]
+}

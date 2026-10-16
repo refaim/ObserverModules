@@ -1,0 +1,24 @@
+{
+  "id": "SpdxDocumentFile:vcpkg:bcdec:0.985",
+  "source_artifact_url": "http://127.0.0.1:8765/sources/fb9426d3bd10f600d561c7ccd7bba92418f1a3151c029dde8e3e6f76809dec5a.tar",
+  "license_finding_curations": [
+    {
+      "path": "bcdec-80859ed3b7afb1c527a2a99d70c61457bea72d0c.h",
+      "start_lines": 1459,
+      "line_count": 4,
+      "detected_license": "GPL-2.0-only OR Apache-2.0",
+      "reason": "CODE",
+      "comment": "The header footer (lines 1452-1510) says 'This software is available under 2 licenses -- choose whichever you prefer' and offers ALTERNATIVE A - MIT License and ALTERNATIVE B - The Unlicense. ScanCode rule gpl-2.0_or_apache-2.0_5.RULE reported the compound expression 'GPL-2.0-only OR Apache-2.0' (score 10.81) on lines 1459-1462 from the generic 'choose two licenses' wording; there is no GPL grant in this file. ORT matches LicenseFindingCuration.detectedLicense against the complete SpdxExpression, so the full expression is quoted here. Conclude the real grant MIT OR Unlicense.",
+      "concluded_license": "MIT OR Unlicense"
+    },
+    {
+      "path": "bcdec-80859ed3b7afb1c527a2a99d70c61457bea72d0c.h",
+      "start_lines": 48,
+      "line_count": 1,
+      "detected_license": "LicenseRef-scancode-unknown-license-reference",
+      "reason": "REFERENCE",
+      "comment": "Line 48 is 'LICENSE: See end of file for license information', an unknown-license reference (ScanCode rule unknown-license-reference_321.RULE, score 100) to the footer grant. The reference itself is not a license; the real MIT OR Unlicense grant is detected in the footer at lines 1462-1510 and is preserved unchanged.",
+      "concluded_license": "NONE"
+    }
+  ]
+}

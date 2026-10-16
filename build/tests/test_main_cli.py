@@ -9,6 +9,7 @@ the tool-lookup boundaries, so no real compiler, debugger or network is ever tou
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 from pathlib import Path
@@ -25,6 +26,19 @@ BUILD_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BUILD_ROOT))
 
 import main  # noqa: E402
+import licenses  # noqa: E402
+
+
+def _fake_git(repository, *arguments):
+    """Deterministic stand-in for the single ``git`` boundary the Release attestation reads."""
+
+    if arguments == ("ls-files", "-z"):
+        return "vcpkg.json\x00"
+    if arguments == ("rev-parse", "HEAD"):
+        return "a" * 40
+    if arguments == ("rev-parse", "HEAD^{tree}"):
+        return "b" * 40
+    raise AssertionError(f"unexpected git invocation: {arguments}")
 
 
 _FULL_COVERAGE = {
@@ -126,6 +140,7 @@ class MainCliCase(unittest.TestCase):
         self.root = Path(temporary.name)
         self.repo = self.root / "repo"
         self.repo.mkdir()
+        (self.repo / "vcpkg.json").write_text('{"name": "unpackrat"}\n', encoding="utf-8")
         self.llvm = main.Llvm(
             directory=self.root / "llvm",
             runtime=self.root / "llvm" / "runtime",
@@ -144,22 +159,27 @@ class MainCliCase(unittest.TestCase):
         cl.write_bytes(b"x")
 
     def tools(self, run: FakeRun):
-        stack = mock.patch.multiple(
-            main,
-            run=run,
-            _native_tools=mock.Mock(return_value=(self.root / "MSBuild.exe", self.root / "vcpkg.exe")),
-            _vs_installation=mock.Mock(return_value=self.root / "vs"),
-            _source_tools=mock.Mock(return_value=main.SourceTools(
-                self.root / "clang-format.exe", self.root / "cppcheck.exe", self.root / "pwsh.exe")),
-            _llvm=mock.Mock(return_value=self.llvm),
-            _clang_tidy=mock.Mock(return_value=self.root / "clang-tidy.exe"),
-            _find_dumpbin=mock.Mock(return_value=self.root / "dumpbin.exe"),
-            _find_binskimm=mock.Mock(return_value=self.root / "binskim.exe"),
-            _find_umdh=mock.Mock(return_value=self.root / "umdh.exe"),
-            _asan_runtime=mock.Mock(return_value=self.asan),
-            # Debug tests and the coverage unit scope launch the fatal cleanup probe; the tool
-            # fake must never let that escape into a real subprocess.
-            _cleanup_fatal_probe=mock.Mock(),
+        stack = contextlib.ExitStack()
+        # A Release build records an attestation that reads the checkout through the git boundary.
+        stack.enter_context(mock.patch.object(licenses, "_git", _fake_git))
+        stack.enter_context(
+            mock.patch.multiple(
+                main,
+                run=run,
+                _native_tools=mock.Mock(return_value=(self.root / "MSBuild.exe", self.root / "vcpkg.exe")),
+                _vs_installation=mock.Mock(return_value=self.root / "vs"),
+                _source_tools=mock.Mock(return_value=main.SourceTools(
+                    self.root / "clang-format.exe", self.root / "cppcheck.exe", self.root / "pwsh.exe")),
+                _llvm=mock.Mock(return_value=self.llvm),
+                _clang_tidy=mock.Mock(return_value=self.root / "clang-tidy.exe"),
+                _find_dumpbin=mock.Mock(return_value=self.root / "dumpbin.exe"),
+                _find_binskimm=mock.Mock(return_value=self.root / "binskim.exe"),
+                _find_umdh=mock.Mock(return_value=self.root / "umdh.exe"),
+                _asan_runtime=mock.Mock(return_value=self.asan),
+                # Debug tests and the coverage unit scope launch the fatal cleanup probe; the tool
+                # fake must never let that escape into a real subprocess.
+                _cleanup_fatal_probe=mock.Mock(),
+            )
         )
         return stack
 

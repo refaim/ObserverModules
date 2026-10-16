@@ -1,0 +1,12 @@
+{
+  "description": "Small ORT smoke fixtures. Each directory holds one project-style SPDX 2.3 document (an index project plus one dependency), a source payload the primary's harness serves as the curated source artifact, and an expected.json describing the reviewed outcome when the repository policy is applied by the real pinned ORT container.",
+  "fixtures": [
+    {"name": "allowed-mit", "outcome": "pass"},
+    {"name": "forbidden-gpl", "outcome": "fail"},
+    {"name": "forbidden-lgpl", "outcome": "fail"},
+    {"name": "unknown", "outcome": "fail"},
+    {"name": "or-apache-gpl", "outcome": "pass"},
+    {"name": "or-choice-gpl-file", "outcome": "fail"},
+    {"name": "and-mit-gpl", "outcome": "fail"}
+  ]
+}

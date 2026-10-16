@@ -1,0 +1,1223 @@
+{
+  "schema": "unpackrat-license-inventory/3",
+  "reviewed": "2026-10-16",
+  "description": "Reviewed component/license/source-origin/notice/scope inventory for the unpackrat Observer modules. Every selected vcpkg package, every adopted first-party-adjacent source and every retained license notice is listed once. This file is data, not a policy engine: the emitted license expressions are preserved verbatim, ordinary version updates with an unchanged approved license and source origin keep passing, and SPDX OR/AND algebra is evaluated by ORT, never re-implemented here. declaredExpression is the exact expression the selected port emits as SPDX licenseConcluded (the emitted string is preserved verbatim, including any parentheses the port itself emits); a reviewed OR choice is recorded verbatim under licenseChoice and emitted as ORT license_choices data instead of being folded into a hidden conclusion.",
+  "rootPackage": {
+    "name": "unpackrat",
+    "license": "MIT",
+    "notices": [
+      "LICENSE.txt",
+      "licenses/Observer.txt",
+      "licenses/GPL-3.0.txt"
+    ],
+    "comment": "unpackrat's own source is MIT. src/api.h keeps the Observer API header under LGPLv3, so the full GPLv3 text (licenses/GPL-3.0.txt) ships as the companion of the LGPL notice in every module."
+  },
+  "packaging": {
+    "renpy": [
+      "Observer.txt",
+      "GPL-3.0.txt",
+      "rpatool.txt",
+      "serde-pickle.txt",
+      "zlib-ng.txt",
+      "YY-Thunks.txt"
+    ],
+    "rpgmaker": [
+      "Observer.txt",
+      "GPL-3.0.txt",
+      "rgssad.txt",
+      "YY-Thunks.txt"
+    ],
+    "zanzarah": [
+      "Observer.txt",
+      "GPL-3.0.txt",
+      "YY-Thunks.txt"
+    ],
+    "godot": [
+      "Observer.txt",
+      "GPL-3.0.txt",
+      "godot.txt",
+      "libspng.txt",
+      "libogg.txt",
+      "brotli.txt",
+      "zstd.txt",
+      "fastlz.txt",
+      "zlib-ng.txt",
+      "bcdec.txt",
+      "dr_libs.txt",
+      "qoa.txt",
+      "zydis.txt",
+      "zycore.txt",
+      "mbedcrypto.txt",
+      "YY-Thunks.txt"
+    ]
+  },
+  "components": [
+    {
+      "name": "catch2",
+      "kind": "vcpkg-package",
+      "buildConfiguration": {
+        "build/vcpkg/ports/catch2/fix-install-path.patch": "69e49d59c3997638ca8ba4fd51f4588e34f324a0d28f99fff16ef57235f8d972",
+        "build/vcpkg/ports/catch2/portfile.cmake": "e3a86f9e4668a25f0c9ba58130929e357089db7ffad9bcef9561cd43d60147a7",
+        "build/vcpkg/ports/catch2/vcpkg.json": "2e093655d8dcd4669ae0b1c1c5cadd18516d9921ba458f7f9f6d3624128b3801",
+        "build/vcpkg/triplets/unpackrat-x86-windows-static.cmake": "7f706840bc922781120cbd607e0f5a6008f0562e2178f9127f7bc8ea7d5754ab",
+        "build/vcpkg/triplets/unpackrat-x64-windows-static.cmake": "e198af9bb1ccf802c74357faf1b90c2c808694112007dc71cc27fe10f21be6d7"
+      },
+      "scope": "test",
+      "appliesTo": [
+        "renpy",
+        "rpgmaker",
+        "zanzarah",
+        "godot"
+      ],
+      "packaged": false,
+      "incorporated": true,
+      "declaredExpression": "BSL-1.0",
+      "version": "3.16.1",
+      "vcpkgName": "catch2",
+      "source": {
+        "origin": "overlay",
+        "recipe": "build/vcpkg/ports/catch2/portfile.cmake",
+        "patches": [
+          "build/vcpkg/ports/catch2/fix-install-path.patch"
+        ],
+        "url": "https://github.com/catchorg/Catch2/archive/v3.16.1.tar.gz",
+        "sha512": [
+          "a6b0f1d1bd9178382f06de9773b31e3efdcdfb20fc3b65b23d9675e0838da6f64c417a75e062bda918dd28781e5d11a78e7130cef2394e676c7bc2da9e49106b"
+        ],
+        "sha256": [
+          "d16bd1b8b2364918bd472cb216394acb93bde6784890df0d91bccfb3f28d777d"
+        ],
+        "identity": "github.com/catchorg/catch2"
+      },
+      "notices": [
+        "licenses/Catch2.txt"
+      ],
+      "notes": "Test-only framework. Catch2's own Boost license is licenses/Catch2.txt; the copied Microsoft vcpkg recipe carries the separate notice tracked by the vcpkg-catch2-recipe component.",
+      "features": []
+    },
+    {
+      "name": "nlohmann-json",
+      "kind": "vcpkg-package",
+      "scope": "test",
+      "appliesTo": [
+        "renpy",
+        "rpgmaker",
+        "zanzarah",
+        "godot"
+      ],
+      "packaged": false,
+      "incorporated": true,
+      "declaredExpression": "MIT",
+      "version": "3.12.0#2",
+      "vcpkgName": "nlohmann-json",
+      "source": {
+        "origin": "registry",
+        "recipe": "ports/nlohmann-json/portfile.cmake",
+        "patches": [],
+        "url": "https://github.com/nlohmann/json/archive/v3.12.0.tar.gz",
+        "sha512": [
+          "6cc1e86261f8fac21cc17a33da3b6b3c3cd5c116755651642af3c9e99bb3538fd42c1bd50397a77c8fb6821bc62d90e6b91bcdde77a78f58f2416c62fc53b97d"
+        ],
+        "sha256": [
+          "4b92eb0c06d10683f7447ce9406cb97cd4b453be18d7279320f7b2f025c10187"
+        ],
+        "identity": "github.com/nlohmann/json"
+      },
+      "notices": [
+        "licenses/json.txt"
+      ],
+      "notes": "Test-only JSON library.",
+      "features": []
+    },
+    {
+      "name": "xxhash",
+      "kind": "vcpkg-package",
+      "scope": "test",
+      "appliesTo": [
+        "renpy",
+        "rpgmaker",
+        "zanzarah",
+        "godot"
+      ],
+      "packaged": false,
+      "incorporated": true,
+      "declaredExpression": "BSD-2-Clause",
+      "version": "0.8.4",
+      "vcpkgName": "xxhash",
+      "source": {
+        "origin": "registry",
+        "recipe": "ports/xxhash/portfile.cmake",
+        "patches": [],
+        "url": "https://github.com/Cyan4973/xxHash/archive/v0.8.4.tar.gz",
+        "sha512": [
+          "1585ae3f3feded2492e43f4dd5dd43183329c57ffe92afa907f71eb26deaf34beab4434458a2d87e8795a4226339c5b0b493bd8a9186bb6f0c752fa1fdef10e3"
+        ],
+        "sha256": [
+          "5738270935e7c3d38a79b3adf7c9692566ce7895a25f67de43ad52ab504acd32"
+        ],
+        "identity": "github.com/cyan4973/xxhash"
+      },
+      "notices": [
+        "licenses/xxHash.txt"
+      ],
+      "notes": "Test-only direct xxHash library. The optional xxhsum GPL-2.0-or-later feature is not selected and must never be reported as a selected license.",
+      "features": []
+    },
+    {
+      "name": "zlib",
+      "kind": "vcpkg-package",
+      "buildConfiguration": {
+        "build/vcpkg/ports/zlib/portfile.cmake": "572698cdc83a261db1b4a6ae8ecc51bb2fe7e63c862067a8cec356d30a0bb8af",
+        "build/vcpkg/ports/zlib/usage": "6dec3a781e5bdc6c93b4c29ed151cfe096816e9ac3434d7fc50cde3dbb9d3c70",
+        "build/vcpkg/ports/zlib/vcpkg-cmake-wrapper.cmake": "a5a5e69c7f3b2a996e6babe76868b841576be7ebbb980eedfc6b114a810c3c1f",
+        "build/vcpkg/ports/zlib/vcpkg.json": "330d405f4094ef2ee2efa3df0ea1b2e877372802468c83ed1f9d383658bd1483",
+        "build/vcpkg/triplets/unpackrat-x86-windows-static.cmake": "7f706840bc922781120cbd607e0f5a6008f0562e2178f9127f7bc8ea7d5754ab",
+        "build/vcpkg/triplets/unpackrat-x64-windows-static.cmake": "e198af9bb1ccf802c74357faf1b90c2c808694112007dc71cc27fe10f21be6d7"
+      },
+      "scope": "runtime",
+      "appliesTo": [
+        "renpy",
+        "godot"
+      ],
+      "packaged": true,
+      "incorporated": true,
+      "declaredExpression": "Zlib",
+      "version": "2.3.3",
+      "vcpkgName": "zlib",
+      "source": {
+        "origin": "overlay",
+        "recipe": "build/vcpkg/ports/zlib/portfile.cmake",
+        "patches": [],
+        "url": "https://github.com/zlib-ng/zlib-ng/archive/2.3.3.tar.gz",
+        "sha512": [
+          "e2057c764f1d5aaee738edee7e977182c5b097e3c95489dcd8de813f237d92a05daaa86d68d44b331d9fec5d1802586a8f6cfb658ba849874aaa14e72a8107f5"
+        ],
+        "sha256": [
+          "f9c65aa9c852eb8255b636fd9f07ce1c406f061ec19a2e7d508b318ca0c907d1"
+        ],
+        "identity": "github.com/zlib-ng/zlib-ng"
+      },
+      "notices": [
+        "licenses/zlib-ng.txt"
+      ],
+      "notes": "Overlay rebuilds zlib-ng 2.3.3 in ZLIB_COMPAT mode but is published under the zlib package identity, so the retained notice is zlib-ng.txt. Runtime for Ren'Py and Godot.",
+      "features": []
+    },
+    {
+      "name": "libspng",
+      "kind": "vcpkg-package",
+      "scope": "runtime",
+      "appliesTo": [
+        "godot"
+      ],
+      "packaged": true,
+      "incorporated": true,
+      "declaredExpression": "BSD-2-Clause AND libpng-2.0",
+      "version": "0.7.4#1",
+      "vcpkgName": "libspng",
+      "source": {
+        "origin": "registry",
+        "recipe": "ports/libspng/portfile.cmake",
+        "patches": [],
+        "url": "https://github.com/randy408/libspng/archive/v0.7.4.tar.gz",
+        "sha512": [
+          "cd729653599ed97f80d19f3048c1b3bc2ac16f922b3465804b1913bc45d9fc8b28b56bc2121fda36e9d3dcdd12612cced5383313b722a5342b613f8781879f1a"
+        ],
+        "sha256": [
+          "47ec02be6c0a6323044600a9221b049f63e1953faf816903e7383d4dc4234487"
+        ],
+        "identity": "github.com/randy408/libspng"
+      },
+      "notices": [
+        "licenses/libspng.txt"
+      ],
+      "notes": "Combined license: root BSD-2-Clause grant plus the libpng-2.0 grant for embedded libpng-derived code in spng.c. The AND is preserved verbatim and is never reduced; no OR choice exists for this component.",
+      "features": []
+    },
+    {
+      "name": "libogg",
+      "kind": "vcpkg-package",
+      "scope": "runtime",
+      "appliesTo": [
+        "godot"
+      ],
+      "packaged": true,
+      "incorporated": true,
+      "declaredExpression": "BSD-3-Clause",
+      "version": "1.3.6#1",
+      "vcpkgName": "libogg",
+      "source": {
+        "origin": "registry",
+        "recipe": "ports/libogg/portfile.cmake",
+        "patches": [],
+        "url": "https://github.com/xiph/ogg/archive/v1.3.6.tar.gz",
+        "sha512": [
+          "c247e1da8b12f8b33272fafb6d7c171a1a2687c3632977439fa60b96ccc2ad751d88a2931bb3e18e1ddf2eea2e82cdd0aab087b2ec5393a9228c703476fa0167"
+        ],
+        "sha256": [
+          "95b643da661155d79db9de2fca55daed3a8d491039829def246aacb3d9201c81"
+        ],
+        "identity": "github.com/xiph/ogg"
+      },
+      "notices": [
+        "licenses/libogg.txt"
+      ],
+      "notes": "Godot Ogg container support.",
+      "features": []
+    },
+    {
+      "name": "brotli",
+      "kind": "vcpkg-package",
+      "scope": "runtime",
+      "appliesTo": [
+        "godot"
+      ],
+      "packaged": true,
+      "incorporated": true,
+      "declaredExpression": "MIT",
+      "version": "1.2.0",
+      "vcpkgName": "brotli",
+      "source": {
+        "origin": "registry",
+        "recipe": "ports/brotli/portfile.cmake",
+        "patches": [],
+        "url": "https://github.com/google/brotli/archive/v1.2.0.tar.gz",
+        "sha512": [
+          "f94542afd2ecd96cc41fd21a805a3da314281ae558c10650f3e6d9ca732b8425bba8fde312823f0a564c7de3993bdaab5b43378edab65ebb798cefb6fd702256"
+        ],
+        "sha256": [
+          "816c96e8e8f193b40151dad7e8ff37b1221d019dbcb9c35cd3fadbfe6477dfec"
+        ],
+        "identity": "github.com/google/brotli"
+      },
+      "notices": [
+        "licenses/brotli.txt"
+      ],
+      "notes": "Godot Brotli-compressed resource support.",
+      "features": []
+    },
+    {
+      "name": "zstd",
+      "kind": "vcpkg-package",
+      "scope": "runtime",
+      "appliesTo": [
+        "godot"
+      ],
+      "packaged": true,
+      "incorporated": true,
+      "declaredExpression": "(BSD-3-Clause OR GPL-2.0-only)",
+      "licenseChoice": {
+        "given": "(BSD-3-Clause OR GPL-2.0-only)",
+        "choice": "BSD-3-Clause",
+        "comment": "BSD-3-Clause selected for the documented distribution; the GPL-2.0-only alternative is preserved."
+      },
+      "version": "1.5.7",
+      "vcpkgName": "zstd",
+      "source": {
+        "origin": "registry",
+        "recipe": "ports/zstd/portfile.cmake",
+        "patches": [],
+        "url": "https://github.com/facebook/zstd/archive/v1.5.7.tar.gz",
+        "sha512": [
+          "26e441267305f6e58080460f96ab98645219a90d290a533410b1b0b1d2f870721c95f8384e342ee647c5e968385a5b7e30c2d04340c37f59b3e6d86762c3260c"
+        ],
+        "sha256": [
+          "37d7284556b20954e56e1ca85b80226768902e2edabd3b649e9e72c0c9012ee3"
+        ],
+        "identity": "github.com/facebook/zstd"
+      },
+      "notices": [
+        "licenses/zstd.txt"
+      ],
+      "notes": "Explicit OR choice recorded as ORT license_choices data: BSD-3-Clause selected, GPL-2.0-only preserved as the alternative. LEGACY_SUPPORT is on, so licenses/zstd.txt also keeps the historical BSD-2-Clause/Yann Collet legacy grant.",
+      "features": []
+    },
+    {
+      "name": "fastlz",
+      "kind": "vcpkg-package",
+      "scope": "runtime",
+      "appliesTo": [
+        "godot"
+      ],
+      "packaged": true,
+      "incorporated": true,
+      "declaredExpression": "NOASSERTION",
+      "correction": {
+        "version": "2024-08-02#1",
+        "sha512": "a9c440c60e0d4fd9535a5438f3227e626c27ccd26cdcc9787c0dda5011b980c12ef46c7ddd2f197f6cc3bcef39755341d34214be9a508871ee3e1a24631a87b5",
+        "license": "MIT",
+        "reason": "The selected vcpkg port manifest has no license property, so the emitted SBOM concludes NOASSERTION. The hash-verified upstream LICENSE.MIT supplies MIT. The correction is scoped to this exact version and source hash, corrects the DECLARED expression only, and must not apply to any other FastLZ revision."
+      },
+      "version": "2024-08-02#1",
+      "vcpkgName": "fastlz",
+      "source": {
+        "origin": "registry",
+        "recipe": "ports/fastlz/portfile.cmake",
+        "patches": [],
+        "url": "https://github.com/ariya/FastLZ/archive/b1342dabcf5257ab303743c9332fe75e9147a011.tar.gz",
+        "sha512": [
+          "a9c440c60e0d4fd9535a5438f3227e626c27ccd26cdcc9787c0dda5011b980c12ef46c7ddd2f197f6cc3bcef39755341d34214be9a508871ee3e1a24631a87b5"
+        ],
+        "sha256": [
+          "655f998deef53f4924ce8282a3b875ab43ee31189c3c04efdd7c9d73811d7324"
+        ],
+        "identity": "github.com/ariya/fastlz"
+      },
+      "notices": [
+        "licenses/fastlz.txt"
+      ],
+      "notes": "Metadata gap, not an unlicensed source. The NOASSERTION conclusion is accepted only while this version+hash-scoped correction matches; the correction supplies MIT as the declared expression.",
+      "features": []
+    },
+    {
+      "name": "zydis",
+      "kind": "vcpkg-package",
+      "scope": "runtime",
+      "appliesTo": [
+        "godot"
+      ],
+      "packaged": true,
+      "incorporated": true,
+      "declaredExpression": "MIT",
+      "version": "4.1.1#1",
+      "vcpkgName": "zydis",
+      "source": {
+        "origin": "registry",
+        "recipe": "ports/zydis/portfile.cmake",
+        "patches": [],
+        "url": "https://github.com/zyantific/zydis/archive/v4.1.1.tar.gz",
+        "sha512": [
+          "177e84fedb3449e29ffb6c0b02a92066ba1aa8fb624facad5593902b8e08cb8ae0b20ff38c16987989c8e414d7484d09dab7917c00a8fe54aa9bab4bc90e275d"
+        ],
+        "sha256": [
+          "45c6d4d499a1cc80780f7834747c637509777c01dca1e98c5e7c0bfaccdb1514"
+        ],
+        "identity": "github.com/zyantific/zydis"
+      },
+      "notices": [
+        "licenses/zydis.txt"
+      ],
+      "notes": "Godot x86 decoder disassembly support. Depends on zycore.",
+      "features": []
+    },
+    {
+      "name": "mbedtls",
+      "kind": "vcpkg-package",
+      "buildConfiguration": {
+        "build/vcpkg/ports/mbedtls/portfile.cmake": "8610ea5bcbb87801cb40383eaf27f2cabc08425dea4377af3bae1cc6f9e1e0f1",
+        "build/vcpkg/ports/mbedtls/static-library-name.patch": "fe5200ddc27de466014564bd233074df91009cdd2a12dd1639480d7c130d3d8b",
+        "build/vcpkg/ports/mbedtls/usage": "8aab3a67941c257249945640b5ebc7b946325190e83cd05c50b32e9db134bac0",
+        "build/vcpkg/ports/mbedtls/vcpkg.json": "85758229cec3be8ce1dbe258f8d92de10c550141cb4472133c8508505d22e2ea",
+        "build/vcpkg/triplets/unpackrat-x86-windows-static.cmake": "7f706840bc922781120cbd607e0f5a6008f0562e2178f9127f7bc8ea7d5754ab",
+        "build/vcpkg/triplets/unpackrat-x64-windows-static.cmake": "e198af9bb1ccf802c74357faf1b90c2c808694112007dc71cc27fe10f21be6d7"
+      },
+      "scope": "runtime",
+      "appliesTo": [
+        "godot"
+      ],
+      "packaged": true,
+      "incorporated": true,
+      "declaredExpression": "(Apache-2.0 OR GPL-2.0-or-later)",
+      "licenseChoice": {
+        "given": "(Apache-2.0 OR GPL-2.0-or-later)",
+        "choice": "Apache-2.0",
+        "comment": "Apache-2.0 selected; GPL-2.0-or-later preserved as the alternative."
+      },
+      "version": "4.1.1",
+      "vcpkgName": "mbedtls",
+      "source": {
+        "origin": "overlay",
+        "recipe": "build/vcpkg/ports/mbedtls/portfile.cmake",
+        "patches": [
+          "build/vcpkg/ports/mbedtls/static-library-name.patch"
+        ],
+        "url": "https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-4.1.1/mbedtls-4.1.1.tar.bz2",
+        "sha512": [
+          "1b82100511e9da298480a17e1093546eb26fe10fe6d391c8310e034fc57cd066d5837ab487f8ee06a669f6b29a20522901b74eb83b18ac6410aeb12d57ab2d12"
+        ],
+        "sha256": [
+          "3359a349e23db3d5536fcee032ae7b2ecbfc08972fab643089b5cbf2a375c98c"
+        ],
+        "identity": "github.com/mbed-tls/mbedtls"
+      },
+      "notices": [
+        "licenses/mbedcrypto.txt"
+      ],
+      "notes": "Explicit OR choice recorded as ORT license_choices data: Apache-2.0 selected, GPL-2.0-or-later preserved. The crypto provider actually linked is TF-PSA-Crypto 1.1.1 (tfpsacrypto.lib) bundled in the Mbed TLS archive; Mbed TLS framework code is not linked. licenses/mbedcrypto.txt documents the Apache selection.",
+      "features": []
+    },
+    {
+      "name": "bcdec",
+      "kind": "vcpkg-package",
+      "buildConfiguration": {
+        "build/vcpkg/ports/bcdec/CMakeLists.txt": "7cfe782171e165de1028e885e9b160f0d271dace8f48c9db243a9bb19963287e",
+        "build/vcpkg/ports/bcdec/bcdec.c": "9f3493b7143150ea4382ccd7a2c75c30b24ee9bb177c75aacb6081d2a1ec8b24",
+        "build/vcpkg/ports/bcdec/copyright": "30fbb964edd9aef02611ad38a1a3d528d506614d96b61f25b2134852f8e91461",
+        "build/vcpkg/ports/bcdec/portfile.cmake": "2f2e39db1c1d3aab76ca47e44317145825a0b7bcdb1151023ec3ec1fb11cb7fb",
+        "build/vcpkg/ports/bcdec/vcpkg.json": "12606f943ee01372c60c83870c4be06c39b74a517d8804e2070daadb5fc45f21",
+        "build/vcpkg/triplets/unpackrat-x86-windows-static.cmake": "7f706840bc922781120cbd607e0f5a6008f0562e2178f9127f7bc8ea7d5754ab",
+        "build/vcpkg/triplets/unpackrat-x64-windows-static.cmake": "e198af9bb1ccf802c74357faf1b90c2c808694112007dc71cc27fe10f21be6d7"
+      },
+      "scope": "runtime",
+      "appliesTo": [
+        "godot"
+      ],
+      "packaged": true,
+      "incorporated": true,
+      "declaredExpression": "(MIT OR Unlicense)",
+      "licenseChoice": null,
+      "version": "0.985",
+      "vcpkgName": "bcdec",
+      "source": {
+        "origin": "overlay",
+        "recipe": "build/vcpkg/ports/bcdec/portfile.cmake",
+        "patches": [],
+        "url": "https://raw.githubusercontent.com/iOrange/bcdec/80859ed3b7afb1c527a2a99d70c61457bea72d0c/bcdec.h",
+        "sha512": [
+          "17913d49e64755ba3b0a845352e0f36bcda6e80e653ab70c3c27ae7a3510d6a6f621a68ce374075fe67d1487d211f5f9e322e8f81817b4480f3f2eef5b4e5390"
+        ],
+        "sha256": [
+          "134520764d96f70a27db814173616c89ad85db95fbd3328417c7a8c77e7ca189"
+        ],
+        "identity": "github.com/iorange/bcdec"
+      },
+      "notices": [
+        "licenses/bcdec.txt"
+      ],
+      "notes": "Raw OR declaration retained verbatim; the complete permissive MIT and Unlicense footer grants and licenses/bcdec.txt are preserved. ORT AND-combines the declared expression with its genuine footer detections, which already retain both permissive alternatives, so an explicit OR license_choice would be redundant and is not emitted. Single-header overlay, header bytes recorded above.",
+      "features": []
+    },
+    {
+      "name": "drlibs",
+      "kind": "vcpkg-package",
+      "buildConfiguration": {
+        "build/vcpkg/ports/drlibs/CMakeLists.txt": "311c9d309541a5976da0119f34dc741d146ee92e47388b0c5ba70968131d0475",
+        "build/vcpkg/ports/drlibs/copyright": "8b2a772e9b30885997130bc8e0cfb07c238990fa433078649d251a1c5c7a3f64",
+        "build/vcpkg/ports/drlibs/dr_mp3.c": "8a8f7911b316379d64400787abc871a61c2f76116e709a3e5b7001e77205af9f",
+        "build/vcpkg/ports/drlibs/dr_wav.c": "550460509d1236e7ae85726f2e63511d76cef764b2730c8ead2c15a7bf0eba0e",
+        "build/vcpkg/ports/drlibs/portfile.cmake": "47acd54ed599ee14af582bf3f3831dff584b0a9f6f6fe128bfc8d5d66bbe1808",
+        "build/vcpkg/ports/drlibs/vcpkg.json": "76d471f45ecd9c537972820fa277bf806e5f5be289f1e5c1d687cf7b4c8f0090",
+        "build/vcpkg/triplets/unpackrat-x86-windows-static.cmake": "7f706840bc922781120cbd607e0f5a6008f0562e2178f9127f7bc8ea7d5754ab",
+        "build/vcpkg/triplets/unpackrat-x64-windows-static.cmake": "e198af9bb1ccf802c74357faf1b90c2c808694112007dc71cc27fe10f21be6d7"
+      },
+      "scope": "runtime",
+      "appliesTo": [
+        "godot"
+      ],
+      "packaged": true,
+      "incorporated": true,
+      "declaredExpression": "(Unlicense OR MIT-0)",
+      "licenseChoice": null,
+      "version": "2026-08-31",
+      "vcpkgName": "drlibs",
+      "source": {
+        "origin": "overlay",
+        "recipe": "build/vcpkg/ports/drlibs/portfile.cmake",
+        "patches": [],
+        "url": "https://github.com/mackron/dr_libs/blob/dfe8377631000664666519fdb83da193fd8037f4/dr_mp3.h",
+        "sha512": [
+          "c21d523bdd890bf8b2e84ff7ac63f72299b235834b424d95d281b57c4e22d260e23e423ed8d829e710cbd11d8814c69afef24cb9e576bbb9cb0b704be94bf8ed",
+          "277ada6b7cf940f557d38dea7985db129c8aaf034c23425da3f1681e901439bbd4152a766de5a26cc7ddb3f0a00f2ce8f6496f61c359bc65889eeac25e356bd3"
+        ],
+        "sha256": [
+          "997b7ee18de6e6b81e2a83f1ea9fc62aef25c62b28d48db95635f49e65de0a2f",
+          "03e70c1a2d9787cd7ed3e966c075bea7bac6373f759db9cd7ca9ccdfc4ec4493"
+        ],
+        "identity": "github.com/mackron/dr_libs"
+      },
+      "notices": [
+        "licenses/dr_libs.txt"
+      ],
+      "notes": "Two headers (dr_mp3.h, dr_wav.h). Raw OR declaration retained verbatim; the complete permissive Unlicense and MIT-0 footer grants and licenses/dr_libs.txt are preserved. ORT AND-combines the declared expression with its genuine footer and embedded detections, which already retain both alternatives, so an explicit OR license_choice would be redundant and is not emitted. dr_mp3.h embeds minimp3 under CC0/public-domain, which imposes no attribution condition and is therefore not a separate component.",
+      "features": []
+    },
+    {
+      "name": "qoa",
+      "kind": "vcpkg-package",
+      "buildConfiguration": {
+        "build/vcpkg/ports/qoa/CMakeLists.txt": "4f5b04ae7f7c969a139cf0ecd34d3358b1b26f007acda2b7268bb20672b437a7",
+        "build/vcpkg/ports/qoa/copyright": "9829521cf3dd3ab9489aa240fa8b2dafc0d5c424d8b082aefabd66a4c6c40341",
+        "build/vcpkg/ports/qoa/portfile.cmake": "e265dedb1a0e1a5d94597b590adef49d6ef345fd20016c49332d73c12c6f4bb8",
+        "build/vcpkg/ports/qoa/qoa.c": "1318a9cfb3796398d1d126e9c61a2d568e1a460bec4d4ea00506153ec22fa6f6",
+        "build/vcpkg/ports/qoa/vcpkg.json": "1524d986ae0eb04458f0b4c8e8e59e8744ed3b229796b68cbbccec83cbd22769",
+        "build/vcpkg/triplets/unpackrat-x86-windows-static.cmake": "7f706840bc922781120cbd607e0f5a6008f0562e2178f9127f7bc8ea7d5754ab",
+        "build/vcpkg/triplets/unpackrat-x64-windows-static.cmake": "e198af9bb1ccf802c74357faf1b90c2c808694112007dc71cc27fe10f21be6d7"
+      },
+      "scope": "runtime",
+      "appliesTo": [
+        "godot"
+      ],
+      "packaged": true,
+      "incorporated": true,
+      "declaredExpression": "MIT",
+      "version": "4.7.2-stable",
+      "vcpkgName": "qoa",
+      "source": {
+        "origin": "overlay",
+        "recipe": "build/vcpkg/ports/qoa/portfile.cmake",
+        "patches": [],
+        "url": "https://raw.githubusercontent.com/godotengine/godot/ed1daf0bf001b61586d9930840f2f1394092c079/thirdparty/misc/qoa.h",
+        "sha512": [
+          "4fc49c5fa4b9af72d4e1c33c9202e227b5cbb5024ec26cb5d6a11b295af3dfdeeeb0e7fa8f4d06fecafbd7e568b21d04a1ef8edf572f3df244bb49273a692b17"
+        ],
+        "sha256": [
+          "ab501e91f4afd18c811e689713e5fd3956030562bf80cda784d304af17133f01"
+        ],
+        "identity": "github.com/godotengine/godot"
+      },
+      "notices": [
+        "licenses/qoa.txt"
+      ],
+      "notes": "Godot's pinned QOA reference header (Godot 4.7.2-stable commit), not a later phoboslab/qoa revision.",
+      "features": []
+    },
+    {
+      "name": "yy-thunks",
+      "kind": "vcpkg-package",
+      "buildConfiguration": {
+        "build/vcpkg/ports/yy-thunks/hardened-build.patch": "6436dd660bba5385be5d0f6fbc5d4690f21a56001df943600d514d15fb3f9934",
+        "build/vcpkg/ports/yy-thunks/ordinal-fallback.patch": "5de65ad9bce7799a618b12e473d350b1557d4eae11d946c707036816b5b2dc9e",
+        "build/vcpkg/ports/yy-thunks/portfile.cmake": "fd74b265e6a01f08806e2575c89517e652d748b834850a2d4c70da6a97e7e97b",
+        "build/vcpkg/ports/yy-thunks/vcpkg.json": "951292f9917981283b7366af010d86a882dfe3f3953b3b2156832f023cfa53e0",
+        "build/vcpkg/triplets/unpackrat-x86-windows-static.cmake": "7f706840bc922781120cbd607e0f5a6008f0562e2178f9127f7bc8ea7d5754ab",
+        "build/vcpkg/triplets/unpackrat-x64-windows-static.cmake": "e198af9bb1ccf802c74357faf1b90c2c808694112007dc71cc27fe10f21be6d7"
+      },
+      "scope": "runtime",
+      "appliesTo": [
+        "renpy",
+        "rpgmaker",
+        "zanzarah",
+        "godot"
+      ],
+      "packaged": true,
+      "incorporated": true,
+      "declaredExpression": "MIT",
+      "version": "1.2.3#1",
+      "vcpkgName": "yy-thunks",
+      "source": {
+        "origin": "overlay",
+        "recipe": "build/vcpkg/ports/yy-thunks/portfile.cmake",
+        "patches": [
+          "build/vcpkg/ports/yy-thunks/ordinal-fallback.patch",
+          "build/vcpkg/ports/yy-thunks/hardened-build.patch"
+        ],
+        "url": "https://github.com/Chuyu-Team/YY-Thunks/archive/b41fb80b8d316581eec0959600aeb0e7339d0e5e.tar.gz",
+        "sha512": [
+          "b949f296a412dfbf901060d4903d3b1dcc1b9afdad61b7eefbee7b86b77e58690fd17827e75b2337a3535fc6fe306976d6714058be1d427963c3358c29d273aa"
+        ],
+        "sha256": [
+          "eea3fbf9852968c8ae40cdca41138d6020f6943951d667fd10168d66e59b6998"
+        ],
+        "identity": "github.com/chuyu-team/yy-thunks"
+      },
+      "notices": [
+        "licenses/YY-Thunks.txt"
+      ],
+      "notes": "Overlay ports the pinned Chuyu-Team/YY-Thunks source that builds the XP WinAPI fallback object compiled into all four modules. LibMaker is an operator-installed prerequisite, never acquired here. The selected source tree reports only the MIT grant, so no ScanCode curation is needed; only the MIT notice licenses/YY-Thunks.txt is retained.",
+      "features": []
+    },
+    {
+      "name": "zycore",
+      "kind": "vcpkg-package",
+      "scope": "runtime",
+      "appliesTo": [
+        "godot"
+      ],
+      "packaged": true,
+      "incorporated": true,
+      "declaredExpression": "MIT",
+      "version": "1.5.2",
+      "vcpkgName": "zycore",
+      "source": {
+        "origin": "registry",
+        "recipe": "ports/zycore/portfile.cmake",
+        "patches": [],
+        "url": "https://github.com/zyantific/zycore-c/archive/v1.5.2.tar.gz",
+        "sha512": [
+          "dd410010b99e11f40ad5234d21c9857bd57e47591ed9caec45c6199bfd690f7158499659c874680f2087bfd2b6eee41f08e95c367f83af3585690ce7d20ccb87"
+        ],
+        "sha256": [
+          "943f91eb9ab2a8cc01ab9f8b785e769a273502071e0ee8011cdfcaad93947cec"
+        ],
+        "identity": "github.com/zyantific/zycore-c"
+      },
+      "notices": [
+        "licenses/zycore.txt"
+      ],
+      "notes": "Transitive dependency pulled in only through zydis.",
+      "features": []
+    },
+    {
+      "name": "vcpkg-cmake",
+      "kind": "vcpkg-package",
+      "scope": "build",
+      "appliesTo": [],
+      "packaged": false,
+      "incorporated": false,
+      "declaredExpression": "MIT",
+      "version": "2025-08-07",
+      "vcpkgName": "vcpkg-cmake",
+      "source": {
+        "origin": "registry",
+        "recipe": "ports/vcpkg-cmake/portfile.cmake",
+        "patches": [],
+        "url": null,
+        "sha512": [],
+        "sha256": []
+      },
+      "notices": [],
+      "notes": "Host-only vcpkg build helper. Not a runtime dependency.",
+      "features": []
+    },
+    {
+      "name": "vcpkg-cmake-config",
+      "kind": "vcpkg-package",
+      "scope": "build",
+      "appliesTo": [],
+      "packaged": false,
+      "incorporated": false,
+      "declaredExpression": "MIT",
+      "version": "2026-07-21",
+      "vcpkgName": "vcpkg-cmake-config",
+      "source": {
+        "origin": "registry",
+        "recipe": "ports/vcpkg-cmake-config/portfile.cmake",
+        "patches": [],
+        "url": null,
+        "sha512": [],
+        "sha256": []
+      },
+      "notices": [],
+      "notes": "Host-only vcpkg build helper. Not a runtime dependency.",
+      "features": []
+    },
+    {
+      "name": "vcpkg-catch2-recipe",
+      "kind": "adopted-source",
+      "scope": "build",
+      "appliesTo": [],
+      "packaged": false,
+      "incorporated": true,
+      "declaredExpression": "MIT",
+      "version": "2025-08-07",
+      "vcpkgName": null,
+      "source": {
+        "origin": "repository",
+        "recipe": "build/vcpkg/ports/catch2/portfile.cmake",
+        "patches": [
+          "build/vcpkg/ports/catch2/fix-install-path.patch"
+        ],
+        "url": "https://github.com/microsoft/vcpkg/blob/20ceb8adbf0504d4b0d5e4058a32f9d4fc896391/LICENSE.txt",
+        "sha512": [],
+        "sha256": []
+      },
+      "notices": [
+        "licenses/vcpkg.txt"
+      ],
+      "notes": "The overlay Catch2 recipe and its patch are copied from microsoft/vcpkg under MIT (Microsoft copyright); licenses/vcpkg.txt carries the notice.",
+      "members": [
+        "build/vcpkg/ports/catch2/portfile.cmake",
+        "build/vcpkg/ports/catch2/fix-install-path.patch"
+      ]
+    },
+    {
+      "name": "observer-api",
+      "kind": "adopted-source",
+      "scope": "runtime",
+      "appliesTo": [
+        "renpy",
+        "rpgmaker",
+        "zanzarah",
+        "godot"
+      ],
+      "packaged": true,
+      "incorporated": true,
+      "declaredExpression": "LGPL-3.0-only",
+      "version": null,
+      "vcpkgName": null,
+      "source": {
+        "origin": "repository",
+        "url": "https://github.com/lazyhamster/Observer/blob/ddbe6b6d13a51c09d14c565e110b3e6b8b06a69a/src/common/ModuleDef.h"
+      },
+      "notices": [
+        "licenses/Observer.txt",
+        "licenses/GPL-3.0.txt"
+      ],
+      "notes": "src/api.h retains the Observer API header under LGPLv3; the full GPLv3 text ships as the required companion. Supports unpackrat, not a third-party runtime library.",
+      "members": [
+        "src/api.h"
+      ],
+      "policyResolution": {
+        "reason": "CANT_FIX_EXCEPTION",
+        "license": "LGPL-3.0-only",
+        "comment": "src/api.h retains and adapts the Observer API code under LGPL-3.0-only (LGPLv3); that license is accepted as a reviewed can't-fix exception for this exact content-addressed file only, and any byte change fails closed until the inventory is re-reviewed.",
+        "approvedMembers": {
+          "src/api.h": "624f7faf06f45f9030e69e1911745157eba49c635960b22511317415b83636d4"
+        }
+      }
+    },
+    {
+      "name": "godot-adaptations",
+      "kind": "adopted-source",
+      "scope": "runtime",
+      "appliesTo": [
+        "godot"
+      ],
+      "packaged": true,
+      "incorporated": true,
+      "declaredExpression": "MIT",
+      "version": "4.7.2",
+      "vcpkgName": null,
+      "source": {
+        "origin": "reference",
+        "recipe": null,
+        "patches": [],
+        "url": "https://github.com/godotengine/godot/blob/ed1daf0bf001b61586d9930840f2f1394092c079/LICENSE.txt",
+        "sha512": [],
+        "sha256": []
+      },
+      "notices": [
+        "licenses/godot.txt"
+      ],
+      "notes": "Adapted Godot packed-file, binary-resource, texture and codec wire semantics retain Godot's MIT notice."
+    },
+    {
+      "name": "serde-pickle",
+      "kind": "adopted-source",
+      "scope": "reference",
+      "appliesTo": [
+        "renpy"
+      ],
+      "packaged": true,
+      "incorporated": false,
+      "declaredExpression": "MIT",
+      "version": null,
+      "vcpkgName": null,
+      "source": {
+        "origin": "reference",
+        "recipe": null,
+        "patches": [],
+        "url": "https://github.com/birkenfeld/serde-pickle/blob/af29620a9a4dca003a9d34a4054d6c92c49ad338/LICENSE-MIT",
+        "sha512": [],
+        "sha256": []
+      },
+      "notices": [
+        "licenses/serde-pickle.txt"
+      ],
+      "notes": "Protocol/source inspiration for the Ren'Py pickle reader. Exact incorporation is not established, so this is recorded as a reference; if translation is later proven, the upstream file attribution must be added. Not asserted as a linked runtime dependency."
+    },
+    {
+      "name": "rpatool",
+      "kind": "adopted-source",
+      "scope": "reference",
+      "appliesTo": [
+        "renpy"
+      ],
+      "packaged": true,
+      "incorporated": false,
+      "declaredExpression": "WTFPL",
+      "version": null,
+      "vcpkgName": null,
+      "source": {
+        "origin": "reference",
+        "recipe": null,
+        "patches": [],
+        "url": "https://github.com/Shizmob/rpatool/blob/74f26d5dfdd645483e02552aa766ca447ad6b191/LICENSE",
+        "sha512": [],
+        "sha256": []
+      },
+      "notices": [
+        "licenses/rpatool.txt"
+      ],
+      "notes": "RPA format reference for the Ren'Py reader. WTFPL permits any use; retained as a reference, not asserted as a linked runtime dependency."
+    },
+    {
+      "name": "rgssad",
+      "kind": "adopted-source",
+      "scope": "reference",
+      "appliesTo": [
+        "rpgmaker"
+      ],
+      "packaged": true,
+      "incorporated": false,
+      "declaredExpression": "MIT",
+      "version": null,
+      "vcpkgName": null,
+      "source": {
+        "origin": "reference",
+        "recipe": null,
+        "patches": [],
+        "url": "https://github.com/luxrck/rgssad/blob/0b74de8d8588b5e1acd86edaede7d364b279c9be/LICENSE",
+        "sha512": [],
+        "sha256": []
+      },
+      "notices": [
+        "licenses/rgssad.txt"
+      ],
+      "notes": "RGSSAD format reference for the RPG Maker reader, including ck Lux's attribution. Recorded as a reference, not asserted as a linked runtime dependency."
+    },
+    {
+      "name": "ix-historical",
+      "kind": "adopted-source",
+      "scope": "build",
+      "appliesTo": [],
+      "packaged": false,
+      "incorporated": true,
+      "declaredExpression": "MIT",
+      "version": "66726a904152246fbef8b27e26e878840f6d7fb7",
+      "vcpkgName": null,
+      "source": {
+        "origin": "reference",
+        "recipe": null,
+        "patches": [],
+        "url": "https://github.com/pg83/ix",
+        "sha512": [],
+        "sha256": []
+      },
+      "notices": [
+        "licenses/IX.txt"
+      ],
+      "notes": "Historical IX build-tooling attribution retained in licenses/IX.txt. Historical Zanzarah GPL-2.0-or-later references were resolved as format inspiration with human owner confirmation; this entry is not a copied GPL component."
+    },
+    {
+      "name": "unpackrat-build-main",
+      "kind": "adopted-source",
+      "scope": "build",
+      "appliesTo": [],
+      "packaged": false,
+      "incorporated": true,
+      "declaredExpression": "MIT",
+      "version": null,
+      "vcpkgName": null,
+      "source": {
+        "origin": "repository"
+      },
+      "notices": [
+        "LICENSE.txt"
+      ],
+      "notes": "First-party MIT build tooling isolated as its own reviewed component so its ScanCode findings can be curated without excluding the file from the scan. The detected identifiers are notice-filename constants and prose about the retained notices, not grants; no third-party adoption is claimed. The whole file is scanned and any later edit changes the component version and invalidates the curation.",
+      "members": [
+        "build/main.py"
+      ]
+    },
+    {
+      "name": "unpackrat-build-tests-godot-minimal-registration",
+      "kind": "adopted-source",
+      "scope": "build",
+      "appliesTo": [],
+      "packaged": false,
+      "incorporated": true,
+      "declaredExpression": "MIT",
+      "version": null,
+      "vcpkgName": null,
+      "source": {
+        "origin": "repository"
+      },
+      "notices": [
+        "LICENSE.txt"
+      ],
+      "notes": "First-party MIT test tooling isolated as its own reviewed component. The detected identifiers are expected notice-filename literals, not grants; no third-party adoption is claimed. The whole file is scanned and any later edit changes the component version and invalidates the curation.",
+      "members": [
+        "build/tests/test_godot_minimal_registration.py"
+      ]
+    },
+    {
+      "name": "unpackrat-build-tests-license-package-configurations",
+      "kind": "adopted-source",
+      "scope": "build",
+      "appliesTo": [],
+      "packaged": false,
+      "incorporated": true,
+      "declaredExpression": "MIT",
+      "version": null,
+      "vcpkgName": null,
+      "source": {
+        "origin": "repository"
+      },
+      "notices": [
+        "LICENSE.txt"
+      ],
+      "notes": "First-party MIT test tooling isolated as its own reviewed component. The detected identifiers are the reviewed curation and poison-literal test data this file asserts on, not grants; no third-party adoption is claimed. The whole file is scanned and any later edit changes the component version and invalidates the curation.",
+      "members": [
+        "build/tests/test_license_package_configurations.py"
+      ]
+    },
+    {
+      "name": "unpackrat-build-tests-license-pipeline",
+      "kind": "adopted-source",
+      "scope": "build",
+      "appliesTo": [],
+      "packaged": false,
+      "incorporated": true,
+      "declaredExpression": "MIT",
+      "version": null,
+      "vcpkgName": null,
+      "source": {
+        "origin": "repository"
+      },
+      "notices": [
+        "LICENSE.txt"
+      ],
+      "notes": "First-party MIT test tooling isolated as its own reviewed component. The detected identifiers are synthetic pipeline fixtures and expected-expression literals, not grants; no third-party adoption is claimed. The whole file is scanned and any later edit changes the component version and invalidates the curation.",
+      "members": [
+        "build/tests/test_license_pipeline.py"
+      ]
+    },
+    {
+      "name": "unpackrat-build-tests-license-policy-data",
+      "kind": "adopted-source",
+      "scope": "build",
+      "appliesTo": [],
+      "packaged": false,
+      "incorporated": true,
+      "declaredExpression": "MIT",
+      "version": null,
+      "vcpkgName": null,
+      "source": {
+        "origin": "repository"
+      },
+      "notices": [
+        "LICENSE.txt"
+      ],
+      "notes": "First-party MIT test tooling isolated as its own reviewed component. The detected identifiers are the decisions-table example expressions and rule-format literals this file exercises, not grants; no third-party adoption is claimed. The whole file is scanned and any later edit changes the component version and invalidates the curation.",
+      "members": [
+        "build/tests/test_license_policy_data.py"
+      ]
+    },
+    {
+      "name": "unpackrat-build-tests-main-cli",
+      "kind": "adopted-source",
+      "scope": "build",
+      "appliesTo": [],
+      "packaged": false,
+      "incorporated": true,
+      "declaredExpression": "MIT",
+      "version": null,
+      "vcpkgName": null,
+      "source": {
+        "origin": "repository"
+      },
+      "notices": [
+        "LICENSE.txt"
+      ],
+      "notes": "First-party MIT test tooling isolated as its own reviewed component. The detected identifiers are expected notice-filename literals, not grants; no third-party adoption is claimed. The whole file is scanned and any later edit changes the component version and invalidates the curation.",
+      "members": [
+        "build/tests/test_main_cli.py"
+      ]
+    },
+    {
+      "name": "unpackrat-build-tests-minimal-build",
+      "kind": "adopted-source",
+      "scope": "build",
+      "appliesTo": [],
+      "packaged": false,
+      "incorporated": true,
+      "declaredExpression": "MIT",
+      "version": null,
+      "vcpkgName": null,
+      "source": {
+        "origin": "repository"
+      },
+      "notices": [
+        "LICENSE.txt"
+      ],
+      "notes": "First-party MIT test tooling isolated as its own reviewed component. The detected identifiers are synthetic notice-text fixtures, not grants; no third-party adoption is claimed. The whole file is scanned and any later edit changes the component version and invalidates the curation.",
+      "members": [
+        "build/tests/test_minimal_build.py"
+      ]
+    },
+    {
+      "name": "unpackrat-build-tests-notice-content",
+      "kind": "adopted-source",
+      "scope": "build",
+      "appliesTo": [],
+      "packaged": false,
+      "incorporated": true,
+      "declaredExpression": "MIT",
+      "version": null,
+      "vcpkgName": null,
+      "source": {
+        "origin": "repository"
+      },
+      "notices": [
+        "LICENSE.txt"
+      ],
+      "notes": "First-party MIT test tooling isolated as its own reviewed component. The detected identifiers are the notice assertions and filename literals this file checks, not grants; no third-party adoption is claimed. The whole file is scanned and any later edit changes the component version and invalidates the curation.",
+      "members": [
+        "build/tests/test_notice_content.py"
+      ]
+    },
+    {
+      "name": "unpackrat-build-tests-review-driver-findings",
+      "kind": "adopted-source",
+      "scope": "build",
+      "appliesTo": [],
+      "packaged": false,
+      "incorporated": true,
+      "declaredExpression": "MIT",
+      "version": null,
+      "vcpkgName": null,
+      "source": {
+        "origin": "repository"
+      },
+      "notices": [
+        "LICENSE.txt"
+      ],
+      "notes": "First-party MIT test tooling isolated as its own reviewed component. The detected identifier is an expected notice-filename literal, not a grant; no third-party adoption is claimed. The whole file is scanned and any later edit changes the component version and invalidates the curation.",
+      "members": [
+        "build/tests/test_review_driver_findings.py"
+      ]
+    },
+    {
+      "name": "unpackrat-build-tests-round2-findings",
+      "kind": "adopted-source",
+      "scope": "build",
+      "appliesTo": [],
+      "packaged": false,
+      "incorporated": true,
+      "declaredExpression": "MIT",
+      "version": null,
+      "vcpkgName": null,
+      "source": {
+        "origin": "repository"
+      },
+      "notices": [
+        "LICENSE.txt"
+      ],
+      "notes": "First-party MIT test tooling isolated as its own reviewed component. The detected identifier is an expected notice-filename literal, not a grant; no third-party adoption is claimed. The whole file is scanned and any later edit changes the component version and invalidates the curation.",
+      "members": [
+        "build/tests/test_round2_findings.py"
+      ]
+    },
+    {
+      "name": "unpackrat-build-tests-workflow-contract",
+      "kind": "adopted-source",
+      "scope": "build",
+      "appliesTo": [],
+      "packaged": false,
+      "incorporated": true,
+      "declaredExpression": "MIT",
+      "version": null,
+      "vcpkgName": null,
+      "source": {
+        "origin": "repository"
+      },
+      "notices": [
+        "LICENSE.txt"
+      ],
+      "notes": "First-party MIT test tooling isolated as its own reviewed component. The detected identifiers are the licence notice assertions and filename literals this file checks, not grants; no third-party adoption is claimed. The whole file is scanned and any later edit changes the component version and invalidates the curation.",
+      "members": [
+        "build/tests/test_workflow_contract.py"
+      ]
+    },
+    {
+      "name": "unpackrat-build-licenses",
+      "kind": "adopted-source",
+      "scope": "build",
+      "appliesTo": [],
+      "packaged": false,
+      "incorporated": true,
+      "declaredExpression": "MIT",
+      "version": null,
+      "vcpkgName": null,
+      "source": {
+        "origin": "repository"
+      },
+      "notices": [
+        "LICENSE.txt"
+      ],
+      "notes": "First-party MIT build tooling isolated as its own reviewed component. The detected identifier is the JSON file-format and installed-export filename literal this data plumbing writes, not a grant; no third-party adoption is claimed. The whole file is scanned and any later edit changes the component version and invalidates the curation.",
+      "members": [
+        "build/licenses.py"
+      ]
+    },
+    {
+      "name": "unpackrat-build-tests-license-source-membership",
+      "kind": "adopted-source",
+      "scope": "build",
+      "appliesTo": [],
+      "packaged": false,
+      "incorporated": true,
+      "declaredExpression": "MIT",
+      "version": null,
+      "vcpkgName": null,
+      "source": {
+        "origin": "repository"
+      },
+      "notices": [
+        "LICENSE.txt"
+      ],
+      "notes": "First-party MIT test tooling isolated as its own reviewed component. The detected identifier is the synthetic LICENSE.json fixture path this membership test asserts on, not a grant; no third-party adoption is claimed. The whole file is scanned and any later edit changes the component version and invalidates the curation.",
+      "members": [
+        "build/tests/test_license_source_membership.py"
+      ]
+    },
+    {
+      "name": "unpackrat-source",
+      "kind": "own-source",
+      "scope": "runtime",
+      "appliesTo": [
+        "renpy",
+        "rpgmaker",
+        "zanzarah",
+        "godot"
+      ],
+      "packaged": true,
+      "incorporated": true,
+      "declaredExpression": "MIT",
+      "version": null,
+      "vcpkgName": null,
+      "source": {
+        "origin": "repository"
+      },
+      "notices": [
+        "LICENSE.txt"
+      ],
+      "roots": [
+        "src",
+        "build"
+      ],
+      "include": [
+        "build.ps1",
+        "build.cmd",
+        "LICENSE.txt"
+      ],
+      "exclude": [
+        "licenses/*",
+        ".ort/*",
+        "docs/*",
+        ".github/*",
+        "build/tests/fixtures/*",
+        ".clang-format",
+        ".clang-tidy",
+        ".gitattributes",
+        ".gitignore",
+        ".ort.yml",
+        "AGENTS.md",
+        "README.md",
+        "codecov.yml",
+        "vcpkg.json",
+        "vcpkg-configuration.json",
+        "build/license-inventory.json",
+        "build/vcpkg/ports/README.md",
+        "build/vcpkg/ports/bcdec/vcpkg.json",
+        "build/vcpkg/ports/catch2/vcpkg.json",
+        "build/vcpkg/ports/drlibs/vcpkg.json",
+        "build/vcpkg/ports/mbedtls/vcpkg.json",
+        "build/vcpkg/ports/qoa/vcpkg.json",
+        "build/vcpkg/ports/zlib/vcpkg.json",
+        "src/tests/data/godot/README.md",
+        "src/tests/data/renpy/README.md",
+        "src/tests/data/godot/audio-defaults-manifest.json",
+        "src/tests/data/godot/audio-font-minimal-manifest.json",
+        "src/tests/data/godot/converted-size-manifest.json",
+        "src/tests/data/godot/media-compat-manifest.json",
+        "src/tests/data/godot/probe-budget-starvation-manifest.json",
+        "src/tests/data/godot/removal-v3-manifest.json",
+        "src/tests/data/godot/texture-media-manifest.json",
+        "src/tests/data/godot/texture-media-repro.txt"
+      ],
+      "notes": "Every remaining tracked first-party source file is gathered here deterministically from Git metadata (git ls-files), so a new GPL/LGPL/unknown file anywhere under src/ or build/ reaches the source scanner and fails closed instead of hiding behind the PACKAGE-only root. The conclusion stays NOASSERTION so the source scanner is never masked. Untracked working files never enter the artifact, src/api.h is owned by observer-api, and the vendored catch2 overlay recipe is owned by vcpkg-catch2-recipe. The thirteen reference-heavy first-party build/test Python files are owned by their own reviewed unpackrat-build-* components, where each stays scanned in full and bound to the exact bytes it was reviewed at. Membership excludes only reviewed non-source data, never whole filename extensions: the repository-root metadata and documentation (AGENTS.md, README.md, codecov.yml, .ort.yml, vcpkg.json and vcpkg-configuration.json), the policy-reference inventory, the port-declaration manifests under build/vcpkg/ports/*/vcpkg.json and the port overview build/vcpkg/ports/README.md, and the documented godot/renpy test-fixture prose and archive-manifest metadata under src/tests/data/. Any other tracked source file - including a new src/<vendor>/LICENSE.txt, CMakeLists.txt, LICENSE.md, LICENSE.json or LICENSE.yml, the module ChangeLog*.txt notes, the build/ubsan-ignorelist.txt build configuration, a new CMakeLists.txt under build/vcpkg/ports/ and the project root LICENSE.txt grant - stays in the scanned artifact or fails accounting until it is reviewed. licenses/, .ort/, docs/ and .github/ carry standalone notice texts and configuration data and are excluded as non-code, and only the deliberate poison/data fixtures under build/tests/fixtures/ (the ort-smoke license-identifier payloads and the recorded vcpkg/ORT samples) are excluded as documented data."
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "_comment": [
+    "Owned fixture data for build/tests/test_license_source_membership.py. The two",
+    "copyleft payload sources that test reuses are *test inputs*, so their repository",
+    "relative paths live here instead of as literals in the scanned first-party test",
+    "source. Paths are relative to build/tests/fixtures. The payload bytes themselves",
+    "are unchanged: the smoke fixtures still carry the grants and stay scanned in full."
+  ],
+  "paths": {
+    "primary": "ort-smoke/forbidden-gpl/payload/extra_parser.c",
+    "secondary": "ort-smoke/and-mit-gpl/payload/linked_gpl.c"
+  }
+}

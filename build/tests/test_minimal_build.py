@@ -32,6 +32,7 @@ BUILD_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BUILD_ROOT))
 
 import main  # noqa: E402
+import licenses  # noqa: E402
 
 
 MODULE = "renpy"
@@ -54,6 +55,23 @@ LICENSE_SERDE = b"Fixture serde-pickle notice.\n"
 LICENSE_ZLIB_NG = b"Fixture zlib-ng notice.\n"
 
 _PROPERTY = re.compile(r"^[-/](?:p|property):(?P<name>[^=]+)=(?P<value>.*)$")
+
+
+def _fake_git(repository, *arguments):
+    """Deterministic stand-in for the single ``git`` boundary the Release attestation reads.
+
+    ``build`` now records a Release attestation that re-derives the tracked build-input set and the
+    checkout identity, so these driver-level tests fake that one boundary instead of letting the
+    guard forbid the read.  The tracked set is the manifest the fake repository carries.
+    """
+
+    if arguments == ("ls-files", "-z"):
+        return "vcpkg.json\x00"
+    if arguments == ("rev-parse", "HEAD"):
+        return "a" * 40
+    if arguments == ("rev-parse", "HEAD^{tree}"):
+        return "b" * 40
+    raise AssertionError(f"unexpected git invocation: {arguments}")
 
 
 def _norm(path: os.PathLike[str] | str) -> str:
@@ -132,6 +150,7 @@ class GuardedCase(unittest.TestCase):
         self.root = Path(temporary.name)
         self.repo = self.root / "repo"
         self.repo.mkdir()
+        (self.repo / "vcpkg.json").write_text('{"name": "unpackrat"}\n', encoding="utf-8")
 
         # Hard guard: a partial implementation can never shell out for real.
         forbidden = AssertionError("a real subprocess launch is forbidden in this test")
@@ -156,6 +175,8 @@ class GuardedCase(unittest.TestCase):
 
         stack = contextlib.ExitStack()
         stack.enter_context(mock.patch.object(main, "run", run))
+        # A Release build records an attestation that reads the checkout through the git boundary.
+        stack.enter_context(mock.patch.object(licenses, "_git", _fake_git))
         # Debug tests launch the fatal cleanup probe; the tool fake must never let that escape
         # into a real subprocess.
         stack.enter_context(mock.patch.object(main, "_cleanup_fatal_probe"))

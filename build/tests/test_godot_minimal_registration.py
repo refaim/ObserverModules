@@ -6,8 +6,8 @@ The behaviour it pins is the *observable* integration contract:
 
 * Godot is the fourth module of the default selection that drives the native audit
   and packaging routes (``main.MODULES`` / ``main.MODULE_BINARIES`` / ``main.LICENSES``);
-* the default packaging route ships ``godot-1.1.0-bin-x64.zip``,
-  ``godot-1.1.0-bin-x86.zip`` and ``godot-1.1.0-pdb.zip`` with the shipped
+* the default packaging route ships ``godot-1.1.1-bin-x64.zip``,
+  ``godot-1.1.1-bin-x86.zip`` and ``godot-1.1.1-pdb.zip`` with the shipped
   payload, registration and notices;
 * ``build/projects/tests.vcxproj`` references ``godot.vcxproj`` with the fixed
   project GUID and ``LinkLibraryDependencies=false``;
@@ -518,9 +518,8 @@ class GodotDocsContract(GuardedCase):
         self.assertIn("src/modules/godot/ChangeLog.en.txt", readme)
         self.assertIn("src/modules/godot/ChangeLog.ru.txt", readme)
         version = (REPOSITORY_ROOT / "src/modules/godot/VERSION").read_text(encoding="utf-8").strip()
-        self.assertEqual(version, "1.1.0")
+        self.assertEqual(version, GODOT_VERSION)
         self.assertNotIn("licenses/VC-LTL5.txt", readme)
-        self.assertIn("[MIT](licenses/YY-Thunks.txt)", readme)
         self.assertIn("| Module | Formats | Release | ChangeLog |", readme)
         self.assertIn("| Godot | `.pck`, embedded PCK and same-stem EXE sidecars |", readme)
         self.assertIn("https://github.com/refaim/unpackrat/releases?q=godot", readme)
@@ -529,26 +528,17 @@ class GodotDocsContract(GuardedCase):
         build_system = (REPOSITORY_ROOT / "docs" / "build-system.md").read_text(encoding="utf-8")
         self.assertIn(GODOT, build_system.lower())
 
-    def test_readme_maps_components_and_notices_to_modules(self) -> None:
+    def test_readme_defers_the_component_inventory_to_the_retained_notices(self) -> None:
         readme = (REPOSITORY_ROOT / "README.md").read_text(encoding="utf-8")
-        self.assertEqual(readme.count("| Project | License | Modules |"), 2)
-        self.assertRegex(
-            readme,
-            r"(?m)^\| \[zlib-ng\]\([^\n]+\) \| \[Zlib\]\(licenses/zlib-ng\.txt\) \| Ren'Py, Godot \|$",
-        )
-        self.assertNotIn("| [zlib](https://zlib.net)", readme)
-        self.assertRegex(
-            readme,
-            r"(?m)^\| \[mackron/dr_libs\]\([^\n]+\) \| \[Unlicense OR MIT-0\]\(licenses/dr_libs\.txt\) \| Godot \|$",
-        )
-        self.assertRegex(readme, r"(?m)^\| \[nlohmann/json\].*\| Tests only \|$")
-        self.assertRegex(readme, r"(?m)^\| \[catchorg/Catch2\].*\| Tests only \|$")
-        self.assertRegex(readme, r"(?m)^\| \[Cyan4973/xxHash\].*\| Tests only \|$")
-        self.assertNotIn("### Format references", readme)
+        # The hand-maintained component and inspiration tables are gone; the notice
+        # directory owns the machine-readable inventory.
+        self.assertNotIn("| Project | License | Modules |", readme)
+        self.assertNotIn("### Third-party components", readme)
+        self.assertNotIn("### Sources of inspiration", readme)
         self.assertIn("`.rgssad` (XP, RGSS1), `.rgss2a` (VX, RGSS2), `.rgss3a`", readme)
 
     def test_godot_xp_runtime_recipe_has_a_minor_version(self) -> None:
-        self.assertEqual(main.read_version(REPOSITORY_ROOT, GODOT), "1.1.0")
+        self.assertEqual(main.read_version(REPOSITORY_ROOT, GODOT), GODOT_VERSION)
 
     def test_godot_runtime_recipe_preserves_all_previous_changelog_sections(self) -> None:
         for language in ("en", "ru"):

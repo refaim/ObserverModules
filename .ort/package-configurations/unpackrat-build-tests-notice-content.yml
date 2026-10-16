@@ -1,0 +1,60 @@
+{
+  "id": "SpdxDocumentFile:vcpkg:unpackrat-build-tests-notice-content:f74bed08dae21d0778c7957dd3c4222feea2de0edcdfb781e32a62ea06776d4b",
+  "source_artifact_url": "http://127.0.0.1:8765/sources/f74bed08dae21d0778c7957dd3c4222feea2de0edcdfb781e32a62ea06776d4b.tar",
+  "license_finding_curations": [
+    {
+      "path": "build/tests/test_notice_content.py",
+      "start_lines": "64,65,66,126",
+      "line_count": 1,
+      "detected_license": "GPL-1.0-or-later",
+      "reason": "INCORRECT",
+      "concluded_license": "NONE",
+      "comment": "Lines 64,65,66,126 share the identifier GPL-1.0-or-later; line 64 is, for example, `gpl = notice(\"GPL-3.0.txt\")`. These are example literals in first-party MIT build/test tooling, not grants, so the false-positive finding is removed."
+    },
+    {
+      "path": "build/tests/test_notice_content.py",
+      "start_lines": "12,123",
+      "line_count": 1,
+      "detected_license": "GPL-2.0-only",
+      "reason": "INCORRECT",
+      "concluded_license": "NONE",
+      "comment": "Lines 12,123 share the identifier GPL-2.0-only; line 12 is, for example, `* ``licenses/zstd.txt`` keeps the root BSD-3-Clause and GPLv2 alternatives and adds`. These are example literals in first-party MIT build/test tooling, not grants, so the false-positive finding is removed."
+    },
+    {
+      "path": "build/tests/test_notice_content.py",
+      "start_lines": "41,64,216",
+      "line_count": 1,
+      "detected_license": "GPL-3.0-only",
+      "reason": "INCORRECT",
+      "concluded_license": "NONE",
+      "comment": "Lines 41,64,216 share the identifier GPL-3.0-only; line 41 is, for example, `\"GPL-3.0.txt\", \"IX.txt\", \"json.txt\", \"libogg.txt\", \"libspng.txt\", \"mbedcrypto.txt\",`. These are example literals in first-party MIT build/test tooling, not grants, so the false-positive finding is removed."
+    },
+    {
+      "path": "build/tests/test_notice_content.py",
+      "start_lines": "63",
+      "line_count": 1,
+      "detected_license": "LGPL-2.1-or-later",
+      "reason": "INCORRECT",
+      "concluded_license": "NONE",
+      "comment": "Line 63 carries `self.assertIn(\"GNU LESSER GENERAL PUBLIC LICENSE\", observer)`. This first-party MIT build/test file holds the identifier only as the exact string it exercises or documents, not a grant; ScanCode reported LGPL-2.1-or-later as a false positive, so the finding is removed."
+    },
+    {
+      "path": "build/tests/test_notice_content.py",
+      "start_lines": "214",
+      "line_count": 1,
+      "detected_license": "LGPL-3.0-only",
+      "reason": "INCORRECT",
+      "concluded_license": "NONE",
+      "comment": "Line 214 carries `self.assertIn(\"LGPL-3.0\", readme)`. This first-party MIT build/test file holds the identifier only as the exact string it exercises or documents, not a grant; ScanCode reported LGPL-3.0-only as a false positive, so the finding is removed."
+    },
+    {
+      "path": "build/tests/test_notice_content.py",
+      "start_lines": "61,77,98,123,174",
+      "line_count": 1,
+      "detected_license": "LicenseRef-scancode-unknown-license-reference",
+      "reason": "REFERENCE",
+      "concluded_license": "NONE",
+      "comment": "Line 61 carries `self.assertIn(\"Permission is hereby granted, free of charge\", license_text)`, a notice reference by name and not a grant. This first-party MIT build/test file only names the retained notice, so the reference finding is removed and the file's MIT grant is unchanged."
+    }
+  ]
+}

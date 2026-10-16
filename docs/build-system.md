@@ -380,6 +380,109 @@ onboarding pull request does not pretend a baseline exists. The Codecov App must
 repository, and Codecov's own normalizer resolves the standard XML `<source>` and the LCOV `SF:`
 paths, so the build driver carries no first-party report converter.
 
+## License audit
+
+`license-audit` is one real native Linux job, gated on both native Release slices, that runs the
+pinned, checksum-verified OSS Review Toolkit binary distribution and a locally configured pinned
+ScanCode over the SPDX project those slices produced in the same run. It rebuilds nothing and pulls
+no image. Each Release slice first emits `out/license-inputs/<arch>` through the `license-inputs`
+driver command and uploads it as the same-run `license-inputs-<arch>` artifact; a missing file fails
+the slice, and any partial input is retained on failure. The audit downloads both artifacts, runs the
+`license-prepare` driver command into `out/license-ready`, and is the sole consumer of that prepared
+output. A Linux shell cannot run the PowerShell entry point, so the audit invokes the driver directly
+as `uv run --project build --frozen python build/main.py license-prepare`.
+
+How it works. `license-prepare` writes the SPDX 2.3 project document `unpackrat.spdx.json`, the exact
+checksummed source archives under `sources/`, the retained notices, a `provenance.json` and the
+per-package `package-curations.yml`, and a prepared `.ort.yml` that merges this repository's reviewed
+resolutions with the exact per-package license choices. Every curated source artifact uses its exact
+id and version with an `http://127.0.0.1:8765/sources/<artifact>` URL and hash, so no raw-header or
+`file:` URI scheme is assumed. The job copies the prepared input and configuration into `$RUNNER_TEMP`,
+outside the Git checkout, so the SPDX importer cannot infer this repository's own VCS for a prepared
+package and cannot discover a source archive as a package project. It serves the prepared root (which
+contains `sources/`) over loopback with the Python standard-library server, so the generated
+`/sources/<artifact>` URLs resolve, and it runs `bin/ort` directly as a host tool under the runner
+image's own Java 25 (`JAVA_HOME_25_X64`). The tracked global configuration roots its owned paths at
+the fixed `/ort/home` prefix, and the staging step rewrites that literal prefix to the real, owned
+audit home; every command line argument is then a native absolute host path.
+
+Tool provisioning. On a cache miss the job downloads the two official release assets with
+`gh release download` (`ort-97.0.0.tgz` and the ScanCode 32.5.0 Linux archive) and verifies their
+hard-coded SHA-256 checksums before either archive is extracted under an owned
+`$RUNNER_TEMP/license-tools` directory. ScanCode's virtualenv is created by the upstream
+`./configure` with the pinned uv Python as `PYTHON_EXECUTABLE`; it resolves packages offline from the
+release's bundled thirdparty wheels and bundled `virtualenv.pyz`, so no index is consulted. The
+configured `scancode` wrapper is exposed on the job PATH. The tool setup and each stage record their
+elapsed seconds in the step summary and the retained logs, so the cold and warm costs are measured
+from real runs rather than estimated.
+
+Every dependency conclusion is `NOASSERTION` and the real port expression travels in the declared
+license. The upstream evaluator uses `LicenseView.CONCLUDED_OR_DECLARED_AND_DETECTED`, which prefers
+the concluded licenses whenever they are present; a conclusion on a dependency would therefore hide a
+scanned GPL or unknown finding. The scanner runs explicitly with `skipConcluded: false` and pins
+ScanCode, and the scan is limited to `PACKAGE` entries so the generated SBOM index (which has no VCS)
+is not scanned as a project while every dependency and adopted component still is. The first
+non-zero stage exit is retained and re-emitted after the reporter has run from the newest ORT result
+that exists, so a scan or evaluator violation still produces the CycloneDX, SPDX, WebApp and NOTICE
+(`PlainTextTemplate`) reports and the job fails with the original code. A non-empty artifact is never
+taken as proof of success, and a stage that exits zero without its expected result fails closed.
+
+Policy is repository data, never a first-party engine. The tracked `.ort.yml` is JSON (a valid YAML
+subset) so a generated choice file merges trivially; the tracked base carries no resolutions and no
+package choices of its own. `license-prepare` generates the prepared `.ort.yml` by merging that base
+with the exact per-package license choices and the scoped Observer LGPL API-header resolution, whose
+message matches the real violation form for the exact approved, content-bound component and the
+accepted license alone. `.ort/config/config.yml` is our data: it enables
+repository curations and configurations, keeps `skipConcluded: false`, and fails only on
+ERROR-severity violations. The evaluator rules and license classifications are Apache-2.0 upstream
+artifacts that CI fetches at the pinned `oss-review-toolkit/ort-config` commit and copies at run time
+rather than vendoring as a second licensed source component. The per-package source curations and the
+per-package license choices come from `license-prepare`, not from tracked markup.
+
+Reviewing a new component. When a dependency or a bundled adaptation is added, add its verified
+source to the adapter that `license-prepare` runs, record its exact id, version and source hash, and
+let its declared license come from that data with a `NOASSERTION` conclusion. If a component offers a
+reviewed OR, the adapter emits an exact per-package choice; if it must stay copyleft with a documented
+exception, add a scoped `resolutions.rule_violations` entry whose message matches only that component
+and that accepted license. Do not add Kotlin rules. The smoke fixtures under
+`build/tests/fixtures/ort-smoke` are project-style SPDX data (an index project plus a dependency) with
+a source payload: allowed MIT, a dependency whose metadata is unchanged but whose payload gained a
+GPL file, one that gained an unknown file, an OR Apache/GPL choice that passes, and an AND MIT/GPL
+case that fails.
+
+First-party build and test tooling. The thirteen reference-heavy first-party Python build and test files
+that embed license-identifier reference tables, example literals and retained-notice names are still
+read as real bytes and scanned in full; each is a content-addressed component whose version is the
+exact tar digest of the file it was reviewed at, so nothing is path-excluded and the diff still sees
+it. A native curation applies only to the reviewed path, the exact reviewed line set and the full
+detected expression, and only for that exact artifact id, version and source artifact URL. Editing any
+one of the thirteen changes the deterministic archive id, so every approval keyed to the old bytes stops
+matching: re-review the real native ScanCode findings and update the package-configuration id, the
+artifact URL and the line and full-expression data to the new content. A blanket exclusion is never
+the fix: an ordinary source change that carries no such finding needs no exemption, and a genuinely
+new copyleft or unknown detection anywhere still fails the evaluator. The reviewed table, its content
+addresses and the matching configurations live in
+`build/tests/fixtures/license_package_configurations/firstparty_artifacts.json`, the per-component
+`.ort/package-configurations/*.yml`, `build/license-inventory.json` and the native ScanCode findings,
+and `build/tests/test_firstparty_license_curations.py` checks them.
+
+Where the evidence lands. The job always uploads `license-audit-results` (the analyzer, scanner,
+evaluator and report output, the configuration and provenance, and the raw prepared output), even
+when the audit fails, so a violation is reviewed from real evidence. The HTML, SPDX and NOTICE
+reports are inside `results/reports`.
+
+Caches. There are two caches with fixed absolute paths. The pinned tool cache holds the two extracted
+tools, the configured ScanCode venv and its compiled license index; its key binds the versions,
+checksums, runner OS/arch and the full Python interpreter identity and has no prefix restore, so a changed pin or
+platform can never reuse a stale binary entry. The ORT native file cache is restored and saved under
+the audit home's `scanner/` subtree; its key binds a hash of the effective configuration, rules and
+scanner options and carries a unique per-run suffix with a prefix restore, so a re-scan can add a
+fresh entry when a dependency changes instead of pretending the immutable cache key was updated. The
+restore prefix carries the same configuration digest as the primary key, because ORT's scanner
+applies the detected-license mapping before it stores results, so restoring an entry populated under
+a different mapping would surface a stale `NOASSERTION` summary and skip the scan. Identical x86 and
+x64 sources are deduplicated by the driver, so a re-scan only re-fetches what actually changed.
+
 ## Open gaps
 
 Each is a missing gate or a false promise, none an accepted deviation. TDD applies: the failing test

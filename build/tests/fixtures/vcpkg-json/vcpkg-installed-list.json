@@ -1,0 +1,38 @@
+{
+  "bcdec:unpackrat-x64-windows-static": {
+    "package_name": "bcdec",
+    "triplet": "unpackrat-x64-windows-static",
+    "version": "0.985",
+    "port_version": 0,
+    "features": [],
+    "desc": [
+      "Pinned bcdec single-header block decoder used by the Godot module"
+    ]
+  },
+  "brotli:unpackrat-x64-windows-static": {
+    "package_name": "brotli",
+    "triplet": "unpackrat-x64-windows-static",
+    "version": "1.2.0",
+    "port_version": 0,
+    "features": [],
+    "desc": [
+      "a generic-purpose lossless compression algorithm that compresses data using a combination of a modern variant of the LZ77 algorithm, Huffman coding and 2nd order context modeling."
+    ]
+  },
+  "vcpkg-cmake-config:x64-windows": {
+    "package_name": "vcpkg-cmake-config",
+    "triplet": "x64-windows",
+    "version": "2026-07-21",
+    "port_version": 0,
+    "features": [],
+    "desc": []
+  },
+  "vcpkg-cmake:x64-windows": {
+    "package_name": "vcpkg-cmake",
+    "triplet": "x64-windows",
+    "version": "2025-08-07",
+    "port_version": 0,
+    "features": [],
+    "desc": []
+  }
+}

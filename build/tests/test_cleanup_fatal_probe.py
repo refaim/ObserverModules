@@ -17,6 +17,7 @@ with the expected missing-attribute error until the probe lands.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 from pathlib import Path
@@ -32,6 +33,19 @@ BUILD_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BUILD_ROOT))
 
 import main  # noqa: E402
+import licenses  # noqa: E402
+
+
+def _fake_git(repository, *arguments):
+    """Deterministic stand-in for the single ``git`` boundary the Release attestation reads."""
+
+    if arguments == ("ls-files", "-z"):
+        return "vcpkg.json\x00"
+    if arguments == ("rev-parse", "HEAD"):
+        return "a" * 40
+    if arguments == ("rev-parse", "HEAD^{tree}"):
+        return "b" * 40
+    raise AssertionError(f"unexpected git invocation: {arguments}")
 
 
 # The exact hidden Catch2 case the probe must select; it must match the TEST_CASE name in
@@ -225,6 +239,7 @@ class CleanupFatalProbeHookCase(unittest.TestCase):
         self.root = Path(temporary.name)
         self.repo = self.root / "repo"
         self.repo.mkdir()
+        (self.repo / "vcpkg.json").write_text('{"name": "unpackrat"}\n', encoding="utf-8")
         self.llvm = main.Llvm(
             directory=self.root / "llvm",
             runtime=self.root / "llvm" / "runtime",
@@ -233,13 +248,19 @@ class CleanupFatalProbeHookCase(unittest.TestCase):
         )
 
     def _build_tools(self, run: ToolRun):
-        return mock.patch.multiple(
-            main,
-            run=run,
-            _native_tools=mock.Mock(return_value=(self.root / "MSBuild.exe", self.root / "vcpkg.exe")),
-            _restore=mock.Mock(),
-            _msbuild_command=mock.Mock(return_value=("MSBuild.exe", "tests.vcxproj")),
+        stack = contextlib.ExitStack()
+        # A Release build records an attestation that reads the checkout through the git boundary.
+        stack.enter_context(mock.patch.object(licenses, "_git", _fake_git))
+        stack.enter_context(
+            mock.patch.multiple(
+                main,
+                run=run,
+                _native_tools=mock.Mock(return_value=(self.root / "MSBuild.exe", self.root / "vcpkg.exe")),
+                _restore=mock.Mock(),
+                _msbuild_command=mock.Mock(return_value=("MSBuild.exe", "tests.vcxproj")),
+            )
         )
+        return stack
 
     def test_debug_test_runs_the_probe_once(self) -> None:
         with mock.patch.object(main, "_cleanup_fatal_probe") as probe, self._build_tools(ToolRun()):

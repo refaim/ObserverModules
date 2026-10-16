@@ -1,0 +1,24 @@
+{
+  "id": "SpdxDocumentFile:vcpkg:drlibs:2026-08-31",
+  "source_artifact_url": "http://127.0.0.1:8765/sources/a57b4c054240bf7debd9fd58ecae8f47d55cae2addd0eee6c5a6569b3cec6f34.tar",
+  "license_finding_curations": [
+    {
+      "path": "dr_libs-dfe8377631000664666519fdb83da193fd8037f4-dr_mp3.h",
+      "start_lines": 2,
+      "line_count": 1,
+      "detected_license": "LicenseRef-scancode-unknown-license-reference",
+      "reason": "CODE",
+      "comment": "Line 2 says the file is public domain and refers the reader to the license section at the end of the file; the footer (lines 5380-5422) offers Unlicense or MIT-0. The reference is not a separate license, and the real grants remain detected in the footer. The embedded lieff/minimp3 CC0 dedication at lines 5427-5429 is genuine provenance and is preserved.",
+      "concluded_license": "NONE"
+    },
+    {
+      "path": "dr_libs-dfe8377631000664666519fdb83da193fd8037f4-dr_wav.h",
+      "start_lines": 2,
+      "line_count": 1,
+      "detected_license": "LicenseRef-scancode-unknown-license-reference",
+      "reason": "CODE",
+      "comment": "Line 2 refers to the license section at the end of the file, whose footer (lines 9166-9208) offers Unlicense or MIT-0. The reference is not a separate license; the real grants stay detected.",
+      "concluded_license": "NONE"
+    }
+  ]
+}

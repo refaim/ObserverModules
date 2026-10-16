@@ -1,0 +1,133 @@
+{
+  "_comment": [
+    "Authoritative artifact table for the ORT package configurations.",
+    "Tarball hashes are the SHA-256 of the exact vcpkg source archives recorded in the",
+    "2026-10-16 source audit (out/license-audit/source-evidence.json).",
+    "The three header-only ports have no upstream archive: their artifact is a",
+    "deterministic uncompressed tar bundle of the exact review headers (fixed PAX format,",
+    "sorted members, mtime 0, uid/gid 0, empty uname/gname, mode 0644); the member names come from",
+    "the real license-prepare producer, which preserves each raw vcpkg resource download",
+    "filename (git-commit-prefixed), so the review header is bundled under that exact",
+    "download name rather than the shortened name an earlier manual audit used. The",
+    "header bytes are identical between the shortened and the real bundles, so the",
+    "reviewed scan line matches are unchanged; only the member name and the resulting",
+    "deterministic tar hash differ."
+  ],
+  "components": [
+    {
+      "name": "bcdec",
+      "version": "0.985",
+      "sha256": "fb9426d3bd10f600d561c7ccd7bba92418f1a3151c029dde8e3e6f76809dec5a",
+      "artifact_filename": "fb9426d3bd10f600d561c7ccd7bba92418f1a3151c029dde8e3e6f76809dec5a.tar",
+      "extension": ".tar",
+      "bundle": true
+    },
+    {
+      "name": "brotli",
+      "version": "1.2.0",
+      "sha256": "816c96e8e8f193b40151dad7e8ff37b1221d019dbcb9c35cd3fadbfe6477dfec",
+      "artifact_filename": "816c96e8e8f193b40151dad7e8ff37b1221d019dbcb9c35cd3fadbfe6477dfec.tar.gz",
+      "extension": ".tar.gz"
+    },
+    {
+      "name": "catch2",
+      "version": "3.16.1",
+      "sha256": "d16bd1b8b2364918bd472cb216394acb93bde6784890df0d91bccfb3f28d777d",
+      "artifact_filename": "d16bd1b8b2364918bd472cb216394acb93bde6784890df0d91bccfb3f28d777d.tar.gz",
+      "extension": ".tar.gz"
+    },
+    {
+      "name": "drlibs",
+      "version": "2026-08-31",
+      "sha256": "a57b4c054240bf7debd9fd58ecae8f47d55cae2addd0eee6c5a6569b3cec6f34",
+      "artifact_filename": "a57b4c054240bf7debd9fd58ecae8f47d55cae2addd0eee6c5a6569b3cec6f34.tar",
+      "extension": ".tar",
+      "bundle": true
+    },
+    {
+      "name": "fastlz",
+      "version": "2024-08-02#1",
+      "sha256": "655f998deef53f4924ce8282a3b875ab43ee31189c3c04efdd7c9d73811d7324",
+      "artifact_filename": "655f998deef53f4924ce8282a3b875ab43ee31189c3c04efdd7c9d73811d7324.tar.gz",
+      "extension": ".tar.gz"
+    },
+    {
+      "name": "libogg",
+      "version": "1.3.6#1",
+      "sha256": "95b643da661155d79db9de2fca55daed3a8d491039829def246aacb3d9201c81",
+      "artifact_filename": "95b643da661155d79db9de2fca55daed3a8d491039829def246aacb3d9201c81.tar.gz",
+      "extension": ".tar.gz"
+    },
+    {
+      "name": "zlib",
+      "version": "2.3.3",
+      "sha256": "f9c65aa9c852eb8255b636fd9f07ce1c406f061ec19a2e7d508b318ca0c907d1",
+      "artifact_filename": "f9c65aa9c852eb8255b636fd9f07ce1c406f061ec19a2e7d508b318ca0c907d1.tar.gz",
+      "extension": ".tar.gz"
+    },
+    {
+      "name": "libspng",
+      "version": "0.7.4#1",
+      "sha256": "47ec02be6c0a6323044600a9221b049f63e1953faf816903e7383d4dc4234487",
+      "artifact_filename": "47ec02be6c0a6323044600a9221b049f63e1953faf816903e7383d4dc4234487.tar.gz",
+      "extension": ".tar.gz"
+    },
+    {
+      "name": "mbedtls",
+      "version": "4.1.1",
+      "sha256": "3359a349e23db3d5536fcee032ae7b2ecbfc08972fab643089b5cbf2a375c98c",
+      "artifact_filename": "3359a349e23db3d5536fcee032ae7b2ecbfc08972fab643089b5cbf2a375c98c.tar.bz2",
+      "extension": ".tar.bz2"
+    },
+    {
+      "name": "nlohmann-json",
+      "version": "3.12.0#2",
+      "sha256": "4b92eb0c06d10683f7447ce9406cb97cd4b453be18d7279320f7b2f025c10187",
+      "artifact_filename": "4b92eb0c06d10683f7447ce9406cb97cd4b453be18d7279320f7b2f025c10187.tar.gz",
+      "extension": ".tar.gz"
+    },
+    {
+      "name": "qoa",
+      "version": "4.7.2-stable",
+      "sha256": "9d199c93e9aaf088288584445113d09b71852e578cd3bde62134a5dafae6cbc8",
+      "artifact_filename": "9d199c93e9aaf088288584445113d09b71852e578cd3bde62134a5dafae6cbc8.tar",
+      "extension": ".tar",
+      "bundle": true
+    },
+    {
+      "name": "xxhash",
+      "version": "0.8.4",
+      "sha256": "5738270935e7c3d38a79b3adf7c9692566ce7895a25f67de43ad52ab504acd32",
+      "artifact_filename": "5738270935e7c3d38a79b3adf7c9692566ce7895a25f67de43ad52ab504acd32.tar.gz",
+      "extension": ".tar.gz"
+    },
+    {
+      "name": "zstd",
+      "version": "1.5.7",
+      "sha256": "37d7284556b20954e56e1ca85b80226768902e2edabd3b649e9e72c0c9012ee3",
+      "artifact_filename": "37d7284556b20954e56e1ca85b80226768902e2edabd3b649e9e72c0c9012ee3.tar.gz",
+      "extension": ".tar.gz"
+    },
+    {
+      "name": "zycore",
+      "version": "1.5.2",
+      "sha256": "943f91eb9ab2a8cc01ab9f8b785e769a273502071e0ee8011cdfcaad93947cec",
+      "artifact_filename": "943f91eb9ab2a8cc01ab9f8b785e769a273502071e0ee8011cdfcaad93947cec.tar.gz",
+      "extension": ".tar.gz"
+    },
+    {
+      "name": "zydis",
+      "version": "4.1.1#1",
+      "sha256": "45c6d4d499a1cc80780f7834747c637509777c01dca1e98c5e7c0bfaccdb1514",
+      "artifact_filename": "45c6d4d499a1cc80780f7834747c637509777c01dca1e98c5e7c0bfaccdb1514.tar.gz",
+      "extension": ".tar.gz"
+    },
+    {
+      "name": "yy-thunks",
+      "version": "1.2.3#1",
+      "sha256": "eea3fbf9852968c8ae40cdca41138d6020f6943951d667fd10168d66e59b6998",
+      "artifact_filename": "eea3fbf9852968c8ae40cdca41138d6020f6943951d667fd10168d66e59b6998.tar.gz",
+      "extension": ".tar.gz"
+    }
+  ]
+}
