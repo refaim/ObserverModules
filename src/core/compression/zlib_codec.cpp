@@ -56,7 +56,7 @@ namespace unpackrat::compression
         std::vector<std::byte> chunk(std::size_t{64} * 1024);
         std::size_t input_offset = 0;
 
-        while (true) {
+        for (;;) {
             if (stream.avail_in == 0 && input_offset < input.size()) {
                 const auto input_size =
                     std::min(input.size() - input_offset, static_cast<std::size_t>(std::numeric_limits<uInt>::max()));

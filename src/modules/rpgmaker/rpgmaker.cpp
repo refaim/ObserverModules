@@ -47,7 +47,7 @@ namespace extractor
             std::vector<std::unique_ptr<file>> files;
             uint32_t key = legacy_initial_key;
 
-            while (true) {
+            for (;;) {
                 if (input.remaining() == 0) {
                     return files;
                 }
@@ -99,7 +99,7 @@ namespace extractor
 
             std::vector<std::unique_ptr<file>> files;
             const uint32_t magic = input.read_trivial<std::uint32_t>() * 9 + 3;
-            while (true) {
+            for (;;) {
                 const uint32_t offset = input.read_trivial<std::uint32_t>() ^ magic;
                 if (offset == 0)
                     break;

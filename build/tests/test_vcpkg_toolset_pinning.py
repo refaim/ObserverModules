@@ -1,9 +1,9 @@
-"""vcpkg builds every dependency with the same v145 14.51 toolset and the static CRT.
+"""vcpkg builds every dependency with the same v145 14.51 toolset.
 
 All four triplets (x86/x64, standard and ASan) must pin ``VCPKG_PLATFORM_TOOLSET`` to
 ``v145`` and ``VCPKG_PLATFORM_TOOLSET_VERSION`` to ``14.51`` so a dependency compiled
-for the shipped binaries never mixes a second toolset, while the static CRT linkage
-keeps the ``/MT`` self-contained contract.
+for the shipped binaries never mixes a second toolset, while shipping Release retains the
+``/MT`` self-contained contract. ASan/Fuzz use the DLL CRT to permit module unload.
 
 ``_restore`` must additionally point vcpkg at the same selected VS installation the
 driver builds with - through the child environment only, never by mutating the host
@@ -32,7 +32,7 @@ TRIPLETS = (
 
 
 class VcpkgTripletPinTests(unittest.TestCase):
-    def test_every_triplet_pins_the_v145_toolset_and_the_static_crt(self) -> None:
+    def test_every_triplet_pins_the_v145_toolset_and_matching_crt(self) -> None:
         for name in TRIPLETS:
             with self.subTest(triplet=name):
                 text = (main.REPOSITORY / "build" / "vcpkg" / "triplets" / f"{name}.cmake").read_text(
@@ -40,7 +40,8 @@ class VcpkgTripletPinTests(unittest.TestCase):
                 )
                 self.assertIn("set(VCPKG_PLATFORM_TOOLSET v145)", text)
                 self.assertIn("set(VCPKG_PLATFORM_TOOLSET_VERSION 14.51)", text)
-                self.assertIn("set(VCPKG_CRT_LINKAGE static)", text)
+                crt = "dynamic" if name.endswith("-asan") else "static"
+                self.assertIn(f"set(VCPKG_CRT_LINKAGE {crt})", text)
                 self.assertIn("set(VCPKG_LIBRARY_LINKAGE static)", text)
 
     def test_every_triplet_targets_the_retained_windows_sdk_family(self) -> None:

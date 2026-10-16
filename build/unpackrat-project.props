@@ -5,8 +5,9 @@
     <ArtifactsRoot>$(RepositoryRoot)out\work\manual-msbuild\</ArtifactsRoot>
     <PlatformMoniker Condition="'$(Platform)' == 'Win32'">x86</PlatformMoniker>
     <PlatformMoniker Condition="'$(Platform)' == 'x64'">x64</PlatformMoniker>
-    <VcpkgTriplet Condition="'$(Configuration)' != 'ASan' And '$(Configuration)' != 'Fuzz'">unpackrat-$(PlatformMoniker)-windows-static</VcpkgTriplet>
+    <VcpkgTriplet Condition="'$(Configuration)' != 'ASan' And '$(Configuration)' != 'Fuzz' And '$(Configuration)' != 'UBSan'">unpackrat-$(PlatformMoniker)-windows-static</VcpkgTriplet>
     <VcpkgTriplet Condition="'$(Configuration)' == 'ASan' Or '$(Configuration)' == 'Fuzz'">unpackrat-$(PlatformMoniker)-windows-static-asan</VcpkgTriplet>
+    <VcpkgTriplet Condition="'$(Configuration)' == 'UBSan'">unpackrat-$(PlatformMoniker)-windows-static-ubsan</VcpkgTriplet>
     <VcpkgEnableManifest>true</VcpkgEnableManifest>
     <!-- build.ps1 restore owns dependency installation; ordinary builds only consume the restored tree. -->
     <VcpkgManifestInstall>false</VcpkgManifestInstall>
@@ -14,8 +15,9 @@
     <VcpkgAutoBootstrap>false</VcpkgAutoBootstrap>
     <VcpkgManifestRoot>$(RepositoryRoot)</VcpkgManifestRoot>
     <!-- Separate manifest install roots prevent one architecture from pruning another. -->
-    <VcpkgInstalledDir Condition="'$(Configuration)' != 'ASan' And '$(Configuration)' != 'Fuzz'">$(ArtifactsRoot)vcpkg_installed\$(PlatformMoniker)\</VcpkgInstalledDir>
+    <VcpkgInstalledDir Condition="'$(Configuration)' != 'ASan' And '$(Configuration)' != 'Fuzz' And '$(Configuration)' != 'UBSan'">$(ArtifactsRoot)vcpkg_installed\$(PlatformMoniker)\</VcpkgInstalledDir>
     <VcpkgInstalledDir Condition="'$(Configuration)' == 'ASan' Or '$(Configuration)' == 'Fuzz'">$(ArtifactsRoot)vcpkg_installed\$(PlatformMoniker)-asan\</VcpkgInstalledDir>
+    <VcpkgInstalledDir Condition="'$(Configuration)' == 'UBSan'">$(ArtifactsRoot)vcpkg_installed\$(PlatformMoniker)-ubsan\</VcpkgInstalledDir>
     <VcpkgApplocalDeps>false</VcpkgApplocalDeps>
     <VcpkgAdditionalInstallOptions>--overlay-triplets=$(RepositoryRoot)build\vcpkg\triplets</VcpkgAdditionalInstallOptions>
     <OutDir>$(ArtifactsRoot)bin\$(PlatformMoniker)\$(Configuration)\</OutDir>
@@ -62,7 +64,11 @@
       <PREfastLog Condition="'$(unpackratRunCodeAnalysis)' == 'true' And '$(unpackratAnalysisReportDirectory)' != ''">$(unpackratAnalysisReportDirectory)\$(PlatformMoniker)\$(unpackratAnalysisReportName).sarif</PREfastLog>
       <PREfastLog Condition="'$(unpackratRunCodeAnalysis)' == 'true' And '$(unpackratAnalysisReportPath)' != ''">$(unpackratAnalysisReportPath)</PREfastLog>
       <ExceptionHandling>Sync</ExceptionHandling>
-      <RuntimeLibrary Condition="'$(Configuration)' == 'Release' Or '$(Configuration)' == 'ASan' Or '$(Configuration)' == 'Fuzz' Or '$(Configuration)' == 'UBSan'">MultiThreaded</RuntimeLibrary>
+      <RuntimeLibrary Condition="'$(Configuration)' == 'Release'">MultiThreaded</RuntimeLibrary>
+      <!-- Shared CRT imports keep ASan interceptors valid after instrumented DLL unload. -->
+      <RuntimeLibrary Condition="'$(Configuration)' == 'ASan' Or '$(Configuration)' == 'Fuzz'">MultiThreadedDLL</RuntimeLibrary>
+      <!-- Match the official LLVM standalone UBSan runtime's DLL CRT. -->
+      <RuntimeLibrary Condition="'$(Configuration)' == 'UBSan'">MultiThreadedDLL</RuntimeLibrary>
       <RuntimeLibrary Condition="'$(Configuration)' != 'Release' And '$(Configuration)' != 'ASan' And '$(Configuration)' != 'Fuzz' And '$(Configuration)' != 'UBSan'">MultiThreadedDebug</RuntimeLibrary>
       <DebugInformationFormat>OldStyle</DebugInformationFormat>
       <BasicRuntimeChecks Condition="'$(Configuration)' == 'Debug'">EnableFastChecks</BasicRuntimeChecks>

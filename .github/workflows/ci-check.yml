@@ -88,7 +88,7 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
-          key: vcpkg-${{ steps.runner-image.outputs.identity }}-${{ inputs.arch == 'none' && 'x64' || inputs.arch }}-${{ (inputs.stage == 'asan' || inputs.stage == 'fuzz') && 'asan' || 'standard' }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'build/vcpkg/ports/**', 'build/vcpkg/triplets/*.cmake') }}
+          key: vcpkg-${{ steps.runner-image.outputs.identity }}-${{ inputs.arch == 'none' && 'x64' || inputs.arch }}-${{ inputs.stage == 'ubsan' && 'ubsan' || (inputs.stage == 'asan' || inputs.stage == 'fuzz') && 'asan' || 'standard' }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'build/vcpkg/ports/**', 'build/vcpkg/triplets/*.cmake') }}
 
       - name: Provision the pinned vcpkg tool
         if: inputs.stage != 'leaks'
@@ -177,7 +177,7 @@ jobs:
         run: |
           $root = Join-Path $env:RUNNER_TEMP 'unpackrat/tools/llvm/21.1.8'
           $llvmCompilerHome = Join-Path $root 'x64'
-          foreach ($tool in @('clang-cl', 'llvm-cov', 'llvm-profdata')) {
+          foreach ($tool in @('clang-cl', 'lld-link', 'llvm-cov', 'llvm-profdata')) {
             $exe = Join-Path $llvmCompilerHome "bin/$tool.exe"
             if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) {
               throw "Missing LLVM instrumentation tool: $exe"
@@ -881,7 +881,7 @@ jobs:
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
-          key: vcpkg-${{ steps.runner-image.outputs.identity }}-${{ inputs.arch == 'none' && 'x64' || inputs.arch }}-${{ (inputs.stage == 'asan' || inputs.stage == 'fuzz') && 'asan' || 'standard' }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'build/vcpkg/ports/**', 'build/vcpkg/triplets/*.cmake') }}
+          key: vcpkg-${{ steps.runner-image.outputs.identity }}-${{ inputs.arch == 'none' && 'x64' || inputs.arch }}-${{ inputs.stage == 'ubsan' && 'ubsan' || (inputs.stage == 'asan' || inputs.stage == 'fuzz') && 'asan' || 'standard' }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'build/vcpkg/ports/**', 'build/vcpkg/triplets/*.cmake') }}
 
       - name: Upload the Release binaries
         if: inputs.stage == 'native-release'

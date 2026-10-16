@@ -264,7 +264,7 @@ namespace unpackrat::godot
                 throw pck_error("pack entry name is unsafe");
             }
             std::size_t cursor = 0;
-            while (true) {
+            for (;;) {
                 const std::size_t slash = raw.find('/', cursor);
                 const std::size_t stop = slash == std::string_view::npos ? raw.size() : slash;
                 if (raw.substr(cursor, stop - cursor) == "..") {

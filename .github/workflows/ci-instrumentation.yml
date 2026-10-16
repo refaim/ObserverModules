@@ -21,7 +21,7 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/unpackrat/tools/llvm/21.1.8
-          key: llvm-instrumentation-21.1.8-0492c5c292e515ebbbc2533671e54c5895fe209e534812313f64257407233181-7a5386c26497db1691f320121e5b113364dd0274b98e55f15f4dbc00c0450113
+          key: llvm-instrumentation-21.1.8-lld-link-v1-0492c5c292e515ebbbc2533671e54c5895fe209e534812313f64257407233181-7a5386c26497db1691f320121e5b113364dd0274b98e55f15f4dbc00c0450113
 
       - name: Provision the pinned LLVM 21.1.8 toolchain
         if: steps.llvm-instrumentation.outputs.cache-hit != 'true'
@@ -46,7 +46,7 @@ jobs:
             }
             $destination = Join-Path $root $payload.Arch
             # The installed archiver reads the official NSIS container without running its installer.
-            & 7z x $file "-o$destination" '-r' '-y' 'bin/clang-cl.exe' 'bin/llvm-cov.exe' `
+            & 7z x $file "-o$destination" '-r' '-y' 'bin/clang-cl.exe' 'bin/lld-link.exe' 'bin/llvm-cov.exe' `
               'bin/llvm-profdata.exe' 'bin/*.dll' 'lib/clang/21/*'
             if ($LASTEXITCODE -ne 0) { throw 'Pinned LLVM extraction failed.' }
           }
@@ -59,7 +59,7 @@ jobs:
           $root = $env:LLVM_ROOT
           $llvmCompilerHome = Join-Path $root 'x64'
           foreach ($architecture in @('x86', 'x64')) {
-            foreach ($tool in @('clang-cl', 'llvm-cov', 'llvm-profdata')) {
+            foreach ($tool in @('clang-cl', 'lld-link', 'llvm-cov', 'llvm-profdata')) {
               $exe = Join-Path $root "$architecture/bin/$tool.exe"
               if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { throw "Missing LLVM tool: $exe" }
               $version = & $exe --version | Out-String
@@ -96,7 +96,7 @@ jobs:
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/unpackrat/tools/llvm/21.1.8
-          key: llvm-instrumentation-21.1.8-0492c5c292e515ebbbc2533671e54c5895fe209e534812313f64257407233181-7a5386c26497db1691f320121e5b113364dd0274b98e55f15f4dbc00c0450113
+          key: llvm-instrumentation-21.1.8-lld-link-v1-0492c5c292e515ebbbc2533671e54c5895fe209e534812313f64257407233181-7a5386c26497db1691f320121e5b113364dd0274b98e55f15f4dbc00c0450113
 
       - name: Upload the LLVM 21.1.8 instrumentation toolchain
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

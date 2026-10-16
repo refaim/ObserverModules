@@ -165,6 +165,19 @@ class InstrumentationWorkflowTests(unittest.TestCase):
         self.assertIn("actions/cache/save@", self.prep)
         self.assertIn(f"{X86_SHA}-{X64_SHA}", self.prep)
 
+    def test_the_linker_is_extracted_and_version_checked_by_prep_and_consumers(self) -> None:
+        self.assertIn("'bin/lld-link.exe'", self.prep)
+        for step in (self._step(self.prep, VERIFY_STEP), self._step(self.check, "Select the instrumentation toolchain")):
+            inventory = re.search(r"foreach \(\$tool in @\(([^)]*)\)\)", step)
+            self.assertIsNotNone(inventory)
+            self.assertEqual(re.findall(r"'([^']+)'", inventory.group(1)),
+                             ["clang-cl", "lld-link", "llvm-cov", "llvm-profdata"])
+            self.assertIn("--version | Out-String", step)
+
+    def test_the_linker_inventory_invalidates_the_old_immutable_cache(self) -> None:
+        keys = re.findall(r"^          key: (llvm-instrumentation-.*)$", self.prep, re.MULTILINE)
+        self.assertEqual(keys, [f"{ARTIFACT}-lld-link-v1-{X86_SHA}-{X64_SHA}"] * 2)
+
     def test_the_prep_job_extracts_both_official_layouts_with_the_installed_archiver(self) -> None:
         for token in ("& 7z x", "'-r'", "'bin/clang-cl.exe'", "'bin/llvm-cov.exe'",
                       "'bin/llvm-profdata.exe'", "'bin/*.dll'", "'lib/clang/21/*'",

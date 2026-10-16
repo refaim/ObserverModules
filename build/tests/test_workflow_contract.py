@@ -123,7 +123,7 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn("${{ steps.runner-image.outputs.identity }}", key)
         self.assertIn("${{ inputs.arch == 'none' && 'x64' || inputs.arch }}", key)
         self.assertIn(
-            "${{ (inputs.stage == 'asan' || inputs.stage == 'fuzz') && 'asan' || 'standard' }}",
+            "${{ inputs.stage == 'ubsan' && 'ubsan' || (inputs.stage == 'asan' || inputs.stage == 'fuzz') && 'asan' || 'standard' }}",
             key,
         )
         # A changed overlay recipe must get a new Actions cache so its new ABI binaries can be saved.

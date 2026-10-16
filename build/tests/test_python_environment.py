@@ -17,14 +17,13 @@ REPOSITORY = Path(__file__).resolve().parents[2]
 BUILD = REPOSITORY / "build"
 
 REQUIRES_PYTHON = "==3.14.7"
-PROJECT_VERSION = "0.7.0"
+PROJECT_VERSION = "0.7.1"
 DEPENDENCIES = {
     "coverage": "7.16.2",
     "filelock": "4.1.1",
     "psutil": "7.2.2",
     "pywin32": "312",
 }
-
 
 def _requirement_versions(requirements: list[str]) -> dict[str, str]:
     """Map each ``name==version`` requirement to its pinned version, dropping env markers."""

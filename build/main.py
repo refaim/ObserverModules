@@ -100,7 +100,7 @@ _CLANG_TIDY_RUNNER_BOOTSTRAP = (
 LLVM_INSTRUMENTATION_ENV = "UNPACKRAT_LLVM_INSTRUMENTATION"
 LLVM_INSTRUMENTATION_VERSION = "21.1.8"
 LLVM_MAJOR_VERSION = "21"
-_LLVM_INSTRUMENTATION_TOOLS = ("clang-cl", "llvm-cov", "llvm-profdata")
+_LLVM_INSTRUMENTATION_TOOLS = ("clang-cl", "lld-link", "llvm-cov", "llvm-profdata")
 _LLVM_VERSION_PATTERN = re.compile(
     rf"(?<![\d.]){re.escape(LLVM_INSTRUMENTATION_VERSION)}(?![\d.])"
 )
@@ -134,7 +134,7 @@ COVERAGE_IGNORED = (
     r"([\\/]src[\\/](tests|fuzz)[\\/])|([\\/]vcpkg_installed[\\/])|"
     r"([\\/]Microsoft Visual Studio[\\/])|([\\/]Windows Kits[\\/])|([\\/]third_party[\\/])"
 )
-_ASAN_CONFIGURATIONS = frozenset({"ASan", "Fuzz"})
+_DEPENDENCY_SUFFIXES = {"ASan": "-asan", "Fuzz": "-asan", "UBSan": "-ubsan"}
 _ASAN_OPTIONS = "halt_on_error=1:alloc_dealloc_mismatch=1"
 _UBSAN_OPTIONS = "halt_on_error=1:print_stacktrace=1"
 _ASAN_RUNTIMES = {"x86": "clang_rt.asan_dynamic-i386.dll", "x64": "clang_rt.asan_dynamic-x86_64.dll"}
@@ -491,12 +491,12 @@ def bin_directory(repository: Path | str, architecture: str, configuration: str)
 
 
 def restore_root(repository: Path | str, architecture: str, configuration: str) -> Path:
-    suffix = "-asan" if configuration in _ASAN_CONFIGURATIONS else ""
+    suffix = _DEPENDENCY_SUFFIXES.get(configuration, "")
     return artifacts_root(repository) / "vcpkg_installed" / f"{architecture}{suffix}"
 
 
 def triplet(architecture: str, configuration: str) -> str:
-    suffix = "-asan" if configuration in _ASAN_CONFIGURATIONS else ""
+    suffix = _DEPENDENCY_SUFFIXES.get(configuration, "")
     return f"unpackrat-{architecture}-windows-static{suffix}"
 
 
@@ -505,7 +505,7 @@ def _report_path(repository: Path, architecture: str, configuration: str, scope:
 
 
 def _restore(repository: Path, architecture: str, configuration: str, vcpkg: Path) -> None:
-    suffix = "-asan" if configuration in _ASAN_CONFIGURATIONS else ""
+    suffix = _DEPENDENCY_SUFFIXES.get(configuration, "")
     scratch = artifacts_root(repository) / "vcpkg_scratch" / f"{architecture}{suffix}"
     # Point vcpkg at the same Visual Studio the driver builds with, through the child
     # environment only: two installed Visual Studios must never make vcpkg pick the older one.

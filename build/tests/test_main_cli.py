@@ -325,7 +325,7 @@ class MainCliCase(unittest.TestCase):
         """Seed a complete LLVM 19 x64 home: the tools, the headers and the x64 runtimes."""
 
         (llvm / "bin").mkdir(parents=True, exist_ok=True)
-        for tool in ("clang-cl", "llvm-cov", "llvm-profdata"):
+        for tool in ("clang-cl", "lld-link", "llvm-cov", "llvm-profdata"):
             (llvm / "bin" / f"{tool}.exe").write_bytes(b"x")
         include = llvm / "lib" / "clang" / "21" / "include"
         include.mkdir(parents=True, exist_ok=True)

@@ -50,10 +50,10 @@ def _tool_runner(version: str = "21.1.8"):
 
 
 def seed_home(home: Path, runtimes: tuple[str, ...]) -> None:
-    """Create one LLVM ``x64`` home: the three tools, the headers and the runtime libraries."""
+    """Create one LLVM ``x64`` home: the compiler, linker, coverage tools, headers and the runtime libraries."""
 
     (home / "bin").mkdir(parents=True, exist_ok=True)
-    for tool in ("clang-cl", "llvm-cov", "llvm-profdata"):
+    for tool in ("clang-cl", "lld-link", "llvm-cov", "llvm-profdata"):
         (home / "bin" / f"{tool}.exe").write_bytes(b"x")
     include = home / "lib" / "clang" / VERSION / "include"
     include.mkdir(parents=True, exist_ok=True)
@@ -112,6 +112,29 @@ class LlvmArchitectureResolutionTests(unittest.TestCase):
 
         # The forwarded tool-set version stays consistent: it is the bundled version for both.
         self.assertEqual(x86_llvm.runtime.parent.parent.name, x64_llvm.runtime.parent.parent.name)
+
+    def test_a_missing_paired_linker_is_rejected_for_both_architectures(self) -> None:
+        seed_home(self.install / "x64", X64_RUNTIMES)
+        seed_sibling(self.install)
+        (self.install / "x64" / "bin" / "lld-link.exe").unlink()
+        with mock.patch.dict(os.environ, {main.LLVM_INSTRUMENTATION_ENV: str(self.install)}, clear=True), mock.patch.object(
+            main, "run", side_effect=_tool_runner()
+        ):
+            for architecture in ("x86", "x64"):
+                with self.subTest(architecture=architecture), self.assertRaisesRegex(FileNotFoundError, "lld-link"):
+                    main._llvm(architecture)
+
+    def test_a_linker_from_another_version_is_rejected(self) -> None:
+        seed_home(self.install / "x64", X64_RUNTIMES)
+
+        def runner(argv, **options: object) -> subprocess.CompletedProcess[str]:
+            version = "23.1.0" if Path(argv[0]).stem == "lld-link" else "21.1.8"
+            return subprocess.CompletedProcess(list(argv), 0, f"LLVM version {version}\n")
+
+        with mock.patch.dict(os.environ, {main.LLVM_INSTRUMENTATION_ENV: str(self.install)}, clear=True), mock.patch.object(
+            main, "run", side_effect=runner
+        ), self.assertRaises(main.BuildError):
+            main._llvm("x64")
 
     def test_x86_runtime_requires_the_sibling_root(self) -> None:
         x64 = self.install / "x64"
