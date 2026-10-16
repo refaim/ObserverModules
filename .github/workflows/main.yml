@@ -208,9 +208,20 @@ jobs:
       arch: x64
       stage: leaks
 
+  # The license audit is one real Linux job that consumes the same-run license inputs from both
+  # Release slices and runs the pinned OSS Review Toolkit binary distribution (no container) over
+  # the prepared SPDX project.  It rebuilds nothing; the two Release slices already produced the
+  # exact packages and verified sources, and the audit applies repository data policy to them.
+  license-audit:
+    name: license-audit
+    needs: [native-release-x86, native-release-x64]
+    uses: ./.github/workflows/license-audit.yml
+    permissions:
+      contents: read
+
   packaging:
     name: packaging
-    needs: [source-checks, native-debug-x86, native-debug-x64, native-release-x86, native-release-x64, msvc-analysis-x86, msvc-analysis-x64, clang-tidy-x86, clang-tidy-x64, coverage-x86, coverage-x64, asan-x86, asan-x64, ubsan-x64, fuzz-x86, fuzz-x64, leaks-x64]
+    needs: [source-checks, native-debug-x86, native-debug-x64, native-release-x86, native-release-x64, msvc-analysis-x86, msvc-analysis-x64, clang-tidy-x86, clang-tidy-x64, coverage-x86, coverage-x64, asan-x86, asan-x64, ubsan-x64, fuzz-x86, fuzz-x64, leaks-x64, license-audit]
     runs-on: windows-2025-vs2026
     timeout-minutes: 30
     steps:

@@ -846,6 +846,38 @@ jobs:
         shell: pwsh
         run: ./build.ps1 ci-arch -Arch '${{ inputs.arch }}' -Stage '${{ inputs.stage }}' -Jobs 4
 
+      # The native Release slice is the only stage that links the shipped modules, so it is the
+      # only stage that can emit the exact packages and verified sources the license audit needs.
+      # The driver derives these inputs from the tree ci-arch just built and writes one directory
+      # per architecture; the job restores nothing new and reuses the Python environment prepared
+      # above.  The license-audit job downloads the same-run artifacts and never rebuilds.
+      - name: Produce the license inputs
+        if: inputs.stage == 'native-release'
+        shell: pwsh
+        run: ./build.ps1 license-inputs -Arch '${{ inputs.arch }}' -Output out/license-inputs/${{ inputs.arch }}
+
+      # A successful slice must publish a complete input directory, so a missing file fails the
+      # job rather than silently starving the audit of a package or a source archive.
+      - name: Upload the license inputs
+        if: success() && inputs.stage == 'native-release'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: license-inputs-${{ inputs.arch }}
+          path: out/license-inputs/${{ inputs.arch }}
+          if-no-files-found: error
+          retention-days: 30
+
+      # Any input the driver managed to write before a failure is retained as diagnostic evidence,
+      # so a broken slice still shows exactly how far it got.
+      - name: Retain the partial license inputs
+        if: failure() && inputs.stage == 'native-release'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: license-inputs-${{ inputs.arch }}-partial
+          path: out/license-inputs/${{ inputs.arch }}
+          if-no-files-found: ignore
+          retention-days: 14
+
       - name: Verify clang-tidy and capture its report
         if: inputs.stage == 'clang-tidy'
         id: tidy-gate

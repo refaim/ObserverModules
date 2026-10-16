@@ -1,0 +1,14 @@
+{
+  "fixture": "or-apache-gpl",
+  "outcome": "pass",
+  "declared": "Apache-2.0 OR GPL-2.0-or-later",
+  "concluded": "NOASSERTION",
+  "linkage": "STATIC",
+  "note": "The dependency is dual licensed. The reviewed, per-package license choice selects the distributed Apache-2.0 option, so the OR obligation is discharged and the audit passes. A choice may only reduce a genuine OR alternative.",
+  "package_license_choice": {
+    "id": "SpdxDocumentFile:godot-fixture:godot:1.0.1",
+    "given": "Apache-2.0 OR GPL-2.0-or-later",
+    "choice": "Apache-2.0"
+  },
+  "payload": "sources/godot-1.0.1.tar.gz built from payload/"
+}

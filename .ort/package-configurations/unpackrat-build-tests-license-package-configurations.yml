@@ -1,0 +1,51 @@
+{
+  "id": "SpdxDocumentFile:vcpkg:unpackrat-build-tests-license-package-configurations:1a1dfada2ec36f01a70c36be9f1fa96de26d032dd8c195d685a4a2f0654016c6",
+  "source_artifact_url": "http://127.0.0.1:8765/sources/1a1dfada2ec36f01a70c36be9f1fa96de26d032dd8c195d685a4a2f0654016c6.tar",
+  "license_finding_curations": [
+    {
+      "path": "build/tests/test_license_package_configurations.py",
+      "start_lines": "310,398,532,534,538,540,559,563",
+      "line_count": 1,
+      "detected_license": "GPL-1.0-or-later",
+      "reason": "INCORRECT",
+      "concluded_license": "NONE",
+      "comment": "Lines 310,398,532,534,538,540,559,563 share the identifier GPL-1.0-or-later; line 310 is, for example, `\"detected_license\": \"GPL-1.0-or-later\",`. These are example literals in first-party MIT build/test tooling, not grants, so the false-positive finding is removed."
+    },
+    {
+      "path": "build/tests/test_license_package_configurations.py",
+      "start_lines": "278,319,335,349,535,537,541,543,586,595,603,661",
+      "line_count": 1,
+      "detected_license": "GPL-2.0-only",
+      "reason": "INCORRECT",
+      "concluded_license": "NONE",
+      "comment": "Lines 278,319,335,349,535,537,541,543,586,595,603,661 share the identifier GPL-2.0-only; line 278 is, for example, `\"detected_license\": \"GPL-2.0-only OR Apache-2.0\",`. These are example literals in first-party MIT build/test tooling, not grants, so the false-positive finding is removed."
+    },
+    {
+      "path": "build/tests/test_license_package_configurations.py",
+      "start_lines": "328,342,356,403",
+      "line_count": 1,
+      "detected_license": "GPL-2.0-or-later",
+      "reason": "INCORRECT",
+      "concluded_license": "NONE",
+      "comment": "Lines 328,342,356,403 share the identifier GPL-2.0-or-later; line 328 is, for example, `\"detected_license\": \"GPL-2.0-or-later\",`. These are example literals in first-party MIT build/test tooling, not grants, so the false-positive finding is removed."
+    },
+    {
+      "path": "build/tests/test_license_package_configurations.py",
+      "start_lines": "539",
+      "line_count": 1,
+      "detected_license": "GPL-3.0-only",
+      "reason": "INCORRECT",
+      "concluded_license": "NONE",
+      "comment": "Line 539 carries `\"line_count\": 1, \"detected_license\": \"GPL-3.0-only\"},`. This first-party MIT build/test file holds the identifier only as the exact string it exercises or documents, not a grant; ScanCode reported GPL-3.0-only as a false positive, so the finding is removed."
+    },
+    {
+      "path": "build/tests/test_license_package_configurations.py",
+      "start_lines": "286,304,311,357,387",
+      "line_count": 1,
+      "detected_license": "LicenseRef-scancode-unknown",
+      "reason": "INCORRECT",
+      "concluded_license": "NONE",
+      "comment": "Lines 286,304,311,357,387 share the identifier LicenseRef-scancode-unknown; line 286 is, for example, `\"concluded_license\": \"NONE\",`. These are example literals in first-party MIT build/test tooling, not grants, so the false-positive finding is removed."
+    }
+  ]
+}

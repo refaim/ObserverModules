@@ -1,0 +1,40 @@
+{
+  "id": "SpdxDocumentFile:vcpkg:zlib:2.3.3",
+  "source_artifact_url": "http://127.0.0.1:8765/sources/f9c65aa9c852eb8255b636fd9f07ce1c406f061ec19a2e7d508b318ca0c907d1.tar.gz",
+  "path_excludes": [
+    {
+      "pattern": "zlib-ng-2.3.3/test/**",
+      "reason": "TEST_OF",
+      "comment": "Upstream zlib-ng test sources and test data. The adopted port sets ZLIB_ENABLE_TESTS=OFF, so none of this is compiled or shipped. test/data/lcet10.txt carries unrelated prose that triggers broad classifiers. Anchored on the archive top directory zlib-ng-2.3.3/ that the real ORT ScanCode run keeps in the extracted tree."
+    }
+  ],
+  "license_finding_curations": [
+    {
+      "path": "zlib-ng-2.3.3/cmake/detect-install-dirs.cmake",
+      "start_lines": 3,
+      "line_count": 1,
+      "detected_license": "LicenseRef-scancode-proprietary-license AND Apache-2.0",
+      "reason": "CODE",
+      "comment": "Line 3 is 'Licensed under the Zlib license, see LICENSE.md for details'. ScanCode rule proprietary-license_and_apache-2.0_3.RULE reported the compound expression 'LicenseRef-scancode-proprietary-license AND Apache-2.0' (score 11.11) on this line, a false positive. ORT matches the complete SpdxExpression, so the full expression is quoted. The file is Zlib; the root Zlib grant is preserved unchanged. Path anchored on the zlib-ng-2.3.3/ archive top directory.",
+      "concluded_license": "Zlib"
+    },
+    {
+      "path": "zlib-ng-2.3.3/cmake/detect-install-dirs.cmake",
+      "start_lines": 3,
+      "line_count": 1,
+      "detected_license": "LicenseRef-scancode-unknown-license-reference",
+      "reason": "REFERENCE",
+      "comment": "The same line 3 'see LICENSE.md for details' is an unknown-license reference (ScanCode rule unknown-license-reference_see-license_1.RULE, score 100) to the repository's root LICENSE.md, which carries the Zlib grant. The reference is not a separate license, so remove the reference finding while the root Zlib grant stays detected. Path anchored on the zlib-ng-2.3.3/ archive top directory.",
+      "concluded_license": "NONE"
+    },
+    {
+      "path": "zlib-ng-2.3.3/FAQ.zlib",
+      "start_lines": 172,
+      "line_count": 1,
+      "detected_license": "GPL-1.0-or-later",
+      "reason": "DOCUMENTATION_OF",
+      "comment": "Line 172 is the question '23. Is zlib under the GNU license?' and line 174 answers 'No. Please read the license in zlib.h.'. The GPL keyword hit on the question is not a grant; the file grants nothing beyond the Zlib license. Path anchored on the zlib-ng-2.3.3/ archive top directory.",
+      "concluded_license": "NONE"
+    }
+  ]
+}

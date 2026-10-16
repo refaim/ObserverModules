@@ -23,3 +23,12 @@ CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
+
+------------------------------------------------------------------------------
+Referenced upstream
+
+birkenfeld/serde-pickle is offered under MIT OR Apache-2.0. Its file src/de.rs
+carries a per-file copyright line, "Copyright (c) 2015-2024 Georg Brandl", which
+is reproduced here as a conservative reference to the upstream work. The
+relationship between unpackrat's Ren'Py Pickle reader and that project remains
+unresolved.

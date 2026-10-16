@@ -1,0 +1,78 @@
+{
+  "id": "SpdxDocumentFile:vcpkg:unpackrat-build-tests-license-policy-data:a0584357f25dd4b3cf196c63eff6ea64f9c4cf120af4efe10ca4b203cb8585f7",
+  "source_artifact_url": "http://127.0.0.1:8765/sources/a0584357f25dd4b3cf196c63eff6ea64f9c4cf120af4efe10ca4b203cb8585f7.tar",
+  "license_finding_curations": [
+    {
+      "path": "build/tests/test_license_policy_data.py",
+      "start_lines": "13,39,41,42,45,48,49,63,355,364,368,370,374",
+      "line_count": 1,
+      "detected_license": "GPL-1.0-or-later",
+      "reason": "INCORRECT",
+      "concluded_license": "NONE",
+      "comment": "Lines 13,39,41,42,45,48,49,63,355,364,368,370,374 share the identifier GPL-1.0-or-later; line 13 is, for example, ```licenseConcluded == \"NOASSERTION\"`` so a scanned GPL/unknown finding is never hidden; the real`. These are example literals in first-party MIT build/test tooling, not grants, so the false-positive finding is removed."
+    },
+    {
+      "path": "build/tests/test_license_policy_data.py",
+      "start_lines": "48,49",
+      "line_count": 1,
+      "detected_license": "GPL-2.0-or-later",
+      "reason": "INCORRECT",
+      "concluded_license": "NONE",
+      "comment": "Lines 48,49 share the identifier GPL-2.0-or-later; line 48 is, for example, `\"or-apache-gpl\": (\"Apache-2.0 OR GPL-2.0-or-later\", \"pass\"),`. These are example literals in first-party MIT build/test tooling, not grants, so the false-positive finding is removed."
+    },
+    {
+      "path": "build/tests/test_license_policy_data.py",
+      "start_lines": "50,63,74",
+      "line_count": 1,
+      "detected_license": "GPL-3.0-only",
+      "reason": "INCORRECT",
+      "concluded_license": "NONE",
+      "comment": "Lines 50,63,74 share the identifier GPL-3.0-only; line 50 is, for example, `\"and-mit-gpl\": (\"MIT AND GPL-3.0-only\", \"fail\"),`. These are example literals in first-party MIT build/test tooling, not grants, so the false-positive finding is removed."
+    },
+    {
+      "path": "build/tests/test_license_policy_data.py",
+      "start_lines": "39,46,64",
+      "line_count": 1,
+      "detected_license": "LGPL-2.0-or-later",
+      "reason": "INCORRECT",
+      "concluded_license": "NONE",
+      "comment": "Lines 39,46,64 share the identifier LGPL-2.0-or-later; line 39 is, for example, `# The forbidden-gpl, forbidden-lgpl and unknown dependencies keep the same MIT baseline declared as`. These are example literals in first-party MIT build/test tooling, not grants, so the false-positive finding is removed."
+    },
+    {
+      "path": "build/tests/test_license_policy_data.py",
+      "start_lines": "64,78",
+      "line_count": 1,
+      "detected_license": "LGPL-3.0-only",
+      "reason": "INCORRECT",
+      "concluded_license": "NONE",
+      "comment": "Lines 64,78 share the identifier LGPL-3.0-only; line 64 is, for example, `\"forbidden-lgpl\": \"spdx-license-identifier: lgpl-3.0-only\",`. These are example literals in first-party MIT build/test tooling, not grants, so the false-positive finding is removed."
+    },
+    {
+      "path": "build/tests/test_license_policy_data.py",
+      "start_lines": "69,73,77",
+      "line_count": 1,
+      "detected_license": "LicenseRef-scancode-unknown-license-reference",
+      "reason": "REFERENCE",
+      "concluded_license": "NONE",
+      "comment": "Line 69 carries `# rule formats: \"The dependency '<coordinates>' is licensed under the ScanCode 'copyleft' categor...`, a notice reference by name and not a grant. This first-party MIT build/test file only names the retained notice, so the reference finding is removed and the file's MIT grant is unchanged."
+    },
+    {
+      "path": "build/tests/test_license_policy_data.py",
+      "start_lines": "65",
+      "line_count": 1,
+      "detected_license": "LicenseRef-scancode-unknown-spdx",
+      "reason": "INCORRECT",
+      "concluded_license": "NONE",
+      "comment": "Line 65 carries `\"unknown\": \"spdx-license-identifier: licenseref-unreviewed\",`. This first-party MIT build/test file holds the identifier only as the exact string it exercises or documents, not a grant; ScanCode reported LicenseRef-scancode-unknown-spdx as a false positive, so the finding is removed."
+    },
+    {
+      "path": "build/tests/test_license_policy_data.py",
+      "start_lines": "50,379",
+      "line_count": 1,
+      "detected_license": "MIT OR GPL-1.0-or-later",
+      "reason": "INCORRECT",
+      "concluded_license": "NONE",
+      "comment": "Lines 50,379 share the identifier MIT OR GPL-1.0-or-later; line 50 is, for example, `\"and-mit-gpl\": (\"MIT AND GPL-3.0-only\", \"fail\"),`. These are example literals in first-party MIT build/test tooling, not grants, so the false-positive finding is removed."
+    }
+  ]
+}

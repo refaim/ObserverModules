@@ -1,0 +1,53 @@
+{
+  "spdxVersion": "SPDX-2.3",
+  "dataLicense": "CC0-1.0",
+  "SPDXID": "SPDXRef-DOCUMENT",
+  "name": "unpackrat",
+  "documentNamespace": "https://spdx.org/spdxdocs/ort-smoke-forbidden-gpl-2b4d6a81",
+  "creationInfo": {
+    "created": "2026-10-16T00:00:00Z",
+    "creators": ["Tool: unpackrat-license-fixture"]
+  },
+  "packages": [
+    {
+      "SPDXID": "SPDXRef-Project-unpackrat",
+      "name": "unpackrat",
+      "versionInfo": "0.7.0",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "packageFileName": "",
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "MIT",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-renpy",
+      "name": "renpy",
+      "supplier": "Organization: renpy-fixture",
+      "versionInfo": "3.1.3",
+      "downloadLocation": "http://127.0.0.1:8765/sources/renpy-3.1.3.tar.gz",
+      "filesAnalyzed": false,
+      "packageFileName": "renpy-3.1.3.tar.gz",
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "MIT",
+      "copyrightText": "NOASSERTION"
+    }
+  ],
+  "relationships": [
+    {
+      "spdxElementId": "SPDXRef-DOCUMENT",
+      "relationshipType": "DESCRIBES",
+      "relatedSpdxElement": "SPDXRef-Project-unpackrat"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-renpy",
+      "relationshipType": "DEPENDENCY_OF",
+      "relatedSpdxElement": "SPDXRef-Project-unpackrat"
+    },
+    {
+      "spdxElementId": "SPDXRef-Project-unpackrat",
+      "relationshipType": "STATIC_LINK",
+      "relatedSpdxElement": "SPDXRef-Package-renpy"
+    }
+  ]
+}

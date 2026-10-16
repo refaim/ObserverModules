@@ -1,0 +1,11 @@
+{
+  "id": "SpdxDocumentFile:vcpkg:brotli:1.2.0",
+  "source_artifact_url": "http://127.0.0.1:8765/sources/816c96e8e8f193b40151dad7e8ff37b1221d019dbcb9c35cd3fadbfe6477dfec.tar.gz",
+  "path_excludes": [
+    {
+      "pattern": "brotli-1.2.0/CONTRIBUTING.md",
+      "reason": "DOCUMENTATION_OF",
+      "comment": "Upstream contribution guide. Line 31 is the Google corporate CLA reference ([Software Grant and Corporate Contributor License Agreement]) that ScanCode reports as NOASSERTION; it is a non-code contribution document, not a grant of the library. The MIT source grants (the root LICENSE and every c/** header) stay detected unchanged. Anchored on the archive top directory brotli-1.2.0/ that the real ORT ScanCode run keeps in the extracted tree."
+    }
+  ]
+}

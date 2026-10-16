@@ -1,0 +1,31 @@
+{
+  "id": "SpdxDocumentFile:vcpkg:xxhash:0.8.4",
+  "source_artifact_url": "http://127.0.0.1:8765/sources/5738270935e7c3d38a79b3adf7c9692566ce7895a25f67de43ad52ab504acd32.tar.gz",
+  "path_excludes": [
+    {
+      "pattern": "xxHash-0.8.4/cli/**",
+      "reason": "OPTIONAL_COMPONENT_OF",
+      "comment": "The xxhsum command line tool and its GPL-2.0 sources. The adopted port does not select the xxhsum feature, so cli/** is not built or shipped. Anchored on the archive top directory xxHash-0.8.4/ that the real ORT ScanCode run keeps in the extracted tree."
+    },
+    {
+      "pattern": "xxHash-0.8.4/tests/**",
+      "reason": "TEST_OF",
+      "comment": "Upstream xxHash tests, benchmarks and collision suites, which are GPL-2.0 licensed and not selected. Anchored on the xxHash-0.8.4/ archive top directory."
+    },
+    {
+      "pattern": "xxHash-0.8.4/Makefile",
+      "reason": "BUILD_TOOL_OF",
+      "comment": "Legacy top-level makefile carrying a GPL-2.0 header; the vcpkg port uses CMake. Anchored on the xxHash-0.8.4/ archive top directory."
+    },
+    {
+      "pattern": "xxHash-0.8.4/build/make/**",
+      "reason": "BUILD_TOOL_OF",
+      "comment": "Legacy make build helpers (for example build/make/multiconf.make) with GPL-2.0 headers; unused by the vcpkg CMake port. Anchored on the xxHash-0.8.4/ archive top directory."
+    },
+    {
+      "pattern": "xxHash-0.8.4/README.md",
+      "reason": "DOCUMENTATION_OF",
+      "comment": "README describes the BSD-2-Clause library versus the GPL-2.0 CLI; the documentation wording is not a code grant. Anchored on the xxHash-0.8.4/ archive top directory."
+    }
+  ]
+}

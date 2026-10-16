@@ -9,6 +9,7 @@ the per-module symbol bundle must describe one PDB per supported architecture.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import re
 import unittest
@@ -26,6 +27,11 @@ DOCUMENTS = (README, AGENTS, BUILD_SYSTEM, METHODOLOGY)
 
 MODULES = ("renpy", "rpgmaker", "zanzarah", "godot")
 LANGUAGES = ("en", "ru")
+
+# The v145 master announced Windows XP..11 support.  Godot and Ren'Py carry that announcement in
+# a historical section because a later licence-notices patch re-released them; the other modules
+# still publish it as their current section.
+PLATFORM_VERSION = {"godot": "1.1.0", "renpy": "3.2.0"}
 
 # A word-start match for "arm" catches "ARM", "ARM64" and "arm64" without tripping on
 # unrelated words such as the "farmanager" host domain.
@@ -75,8 +81,13 @@ class SupportedArchitectureDocumentTests(unittest.TestCase):
         self.assertIn("(x86 or x64)", download)
         self.assertIn("for x86 and x64", building)
 
-    def test_readme_keeps_every_upstream_row_and_changelog_link(self) -> None:
-        readme = read(README)
+    def test_central_inventory_scopes_and_changelog_links(self) -> None:
+        # The reviewed component inventory carries every upstream identity with a reviewed scope;
+        # the README keeps the bilingual changelog links for every shipped module.
+        inventory = json.loads(
+            (REPOSITORY / "build" / "license-inventory.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(inventory["schema"], "unpackrat-license-inventory/3")
         upstream = (
             "https://github.com/nlohmann/json",
             "https://github.com/catchorg/Catch2",
@@ -88,10 +99,20 @@ class SupportedArchitectureDocumentTests(unittest.TestCase):
             "https://github.com/Shizmob/rpatool",
             "https://github.com/pg83/ix",
         )
+        urls = [
+            str(component["source"].get("url"))
+            for component in inventory["components"]
+            if isinstance(component, dict) and isinstance(component.get("source"), dict)
+        ]
         for project in upstream:
             with self.subTest(project=project):
-                self.assertIn(project, readme)
-        # Bilingual changelog links for every shipped module.
+                self.assertTrue(any(url.startswith(project) for url in urls), project)
+        allowed_scopes = {"runtime", "test", "build", "reference"}
+        for component in inventory["components"]:
+            with self.subTest(component=component.get("name") if isinstance(component, dict) else component):
+                self.assertIsInstance(component, dict)
+                self.assertIn(component["scope"], allowed_scopes)
+        readme = read(README)
         for module in MODULES:
             for language in LANGUAGES:
                 with self.subTest(module=module, language=language):
@@ -172,15 +193,32 @@ class SupportedArchitectureDocumentTests(unittest.TestCase):
                 with self.subTest(module=module, language=language):
                     lines = read(REPOSITORY / "src" / "modules" / module / name).splitlines()
                     self.assertIsNone(_ARM.search("\n".join(lines)), f"{module}/{name} claims ARM")
-                    # The unreleased top version keeps its heading and its meaningful entries.
+                    # The newest heading is derived from the current VERSION file, and the top
+                    # section keeps at least one meaningful entry. Earlier releases stay in the
+                    # history, so the original 1.0.0 lineage must survive.
                     self.assertEqual(lines[0], f"{headers[language]} {version}")
-                    top = read(REPOSITORY / "src" / "modules" / module / name).split("\n\n", 1)[0]
-                    public_entries = {
+                    self.assertTrue(lines[1].startswith("-"), lines[1])
+                    headings = tuple(headers.values())
+                    body = lines[2:]
+                    end = next(
+                        (index for index, line in enumerate(body) if line.startswith(headings)),
+                        len(body),
+                    )
+                    entries = [
+                        line for line in body[:end] if line.lstrip().startswith(("*", "+"))
+                    ]
+                    self.assertGreaterEqual(len(entries), 1)
+                    # The v145 Windows XP..11 announcement is preserved: in the current section
+                    # of an untouched module, or in the historical section of a re-released one.
+                    announcement = {
                         "en": "* Added support for all Windows versions from XP through Windows 11.",
                         "ru": "* Поддерживаются все версии Windows от XP до Windows 11.",
-                    }
-                    self.assertEqual([line.strip() for line in top.splitlines()[2:]],
-                                     [public_entries[language]])
+                    }[language]
+                    platform_section = f"{headers[language]} {PLATFORM_VERSION.get(module, version)}"
+                    text = "\n".join(lines)
+                    self.assertIn(platform_section, text)
+                    section = text.split(platform_section, 1)[1].split("\n\n", 1)[0]
+                    self.assertIn(announcement, [line.strip() for line in section.splitlines()])
                     # The historical 1.0.0 lineage survives.
                     self.assertIn(f"{headers[language]} 1.0.0", "\n".join(lines))
 

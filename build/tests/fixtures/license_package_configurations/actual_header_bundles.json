@@ -1,0 +1,115 @@
+{
+  "_comment": [
+    "Snapshot of the two real vcpkg header-bundle source artifacts, kept honest about gzip.",
+    "The historical_gzip_* fields preserve what an earlier local replay of the real",
+    "build/main.py license-prepare produced over the immutable exports captured from CI run",
+    "38889306396 at commit e9199ab4132c4218ab76d9fcdb57a95255c7cb99; that CI run's own",
+    "license-prepare stopped at the libspng declared-expression mismatch, so those gzip",
+    "archives were not emitted by the CI job itself but by running the unchanged producer",
+    "locally over those exact exports. gzip output is not byte-stable across runtimes, so the",
+    "shipped artifact is now the portable UNCOMPRESSED tar counterpart: the main sha256,",
+    "artifact_filename and source_artifact_url address the uncompressed payload of those",
+    "captured gzip bundles, which independently equals the decompressed payload of the actual",
+    "Linux CI run 38940077654. This is not a claim that the old CI run emitted the new tar.",
+    "The real producer preserves the raw vcpkg RESOURCE DOWNLOAD FILENAMES, which carry a",
+    "git-commit prefix, so the deterministic bundle members keep those full names. An earlier",
+    "manual audit bundled the same headers under shortened names, so the old artifact address",
+    "and member paths no longer matched production.",
+    "The header bytes are unchanged between the shortened and the real bundles: each old_members",
+    "sha256 equals the corresponding members sha256; only the member name and therefore the",
+    "deterministic tar hash differ. These are two external third-party header bundles, captured",
+    "so the regression is not self-referential to any first-party own-source hash."
+  ],
+  "provenance": {
+    "ci_run": 38889306396,
+    "ci_commit": "e9199ab4132c4218ab76d9fcdb57a95255c7cb99",
+    "producer": "local replay of the real build/main.py license-prepare over the unchanged CI run 38889306396 exports; raw vcpkg resource download filenames preserved",
+    "portable_tar": "the main sha256, artifact_filename and source_artifact_url address the uncompressed tar payload of the captured gzip bundles, independently equal to the decompressed payload of the actual Linux CI run 38940077654; the gzip bundles were produced by a local replay of the unchanged producer over CI run 38889306396's immutable exports, not by that CI job, whose license-prepare stopped at the libspng mismatch"
+  },
+  "components": [
+    {
+      "name": "bcdec",
+      "version": "0.985",
+      "id": "SpdxDocumentFile:vcpkg:bcdec:0.985",
+      "sha256": "fb9426d3bd10f600d561c7ccd7bba92418f1a3151c029dde8e3e6f76809dec5a",
+      "artifact_filename": "fb9426d3bd10f600d561c7ccd7bba92418f1a3151c029dde8e3e6f76809dec5a.tar",
+      "source_artifact_url": "http://127.0.0.1:8765/sources/fb9426d3bd10f600d561c7ccd7bba92418f1a3151c029dde8e3e6f76809dec5a.tar",
+      "historical_gzip_sha256": "2587044cd2516227ff4bc97d3652a1af627dd388a8a34b385e4f2e059e108010",
+      "historical_gzip_artifact_filename": "2587044cd2516227ff4bc97d3652a1af627dd388a8a34b385e4f2e059e108010.tar.gz",
+      "historical_gzip_source_artifact_url": "http://127.0.0.1:8765/sources/2587044cd2516227ff4bc97d3652a1af627dd388a8a34b385e4f2e059e108010.tar.gz",
+      "members": [
+        {
+          "path": "bcdec-80859ed3b7afb1c527a2a99d70c61457bea72d0c.h",
+          "size": 79434,
+          "sha256": "134520764d96f70a27db814173616c89ad85db95fbd3328417c7a8c77e7ca189",
+          "sha512": "17913d49e64755ba3b0a845352e0f36bcda6e80e653ab70c3c27ae7a3510d6a6f621a68ce374075fe67d1487d211f5f9e322e8f81817b4480f3f2eef5b4e5390"
+        }
+      ],
+      "resources": [
+        {
+          "name": "bcdec-80859ed3b7afb1c527a2a99d70c61457bea72d0c.h",
+          "url": "https://raw.githubusercontent.com/iOrange/bcdec/80859ed3b7afb1c527a2a99d70c61457bea72d0c/bcdec.h",
+          "sha512": "17913d49e64755ba3b0a845352e0f36bcda6e80e653ab70c3c27ae7a3510d6a6f621a68ce374075fe67d1487d211f5f9e322e8f81817b4480f3f2eef5b4e5390"
+        }
+      ],
+      "old_artifact": "b24dc2ce43d164fd77a5bde4c3742c027d026dd395e0d0efc798b01208833851.tar.gz",
+      "old_members": [
+        {
+          "path": "bcdec.h",
+          "size": 79434,
+          "sha256": "134520764d96f70a27db814173616c89ad85db95fbd3328417c7a8c77e7ca189"
+        }
+      ]
+    },
+    {
+      "name": "drlibs",
+      "version": "2026-08-31",
+      "id": "SpdxDocumentFile:vcpkg:drlibs:2026-08-31",
+      "sha256": "a57b4c054240bf7debd9fd58ecae8f47d55cae2addd0eee6c5a6569b3cec6f34",
+      "artifact_filename": "a57b4c054240bf7debd9fd58ecae8f47d55cae2addd0eee6c5a6569b3cec6f34.tar",
+      "source_artifact_url": "http://127.0.0.1:8765/sources/a57b4c054240bf7debd9fd58ecae8f47d55cae2addd0eee6c5a6569b3cec6f34.tar",
+      "historical_gzip_sha256": "aee518546fe04a3d8f8a3393139bcdcd02c160c9bed0e15baab257db902303d1",
+      "historical_gzip_artifact_filename": "aee518546fe04a3d8f8a3393139bcdcd02c160c9bed0e15baab257db902303d1.tar.gz",
+      "historical_gzip_source_artifact_url": "http://127.0.0.1:8765/sources/aee518546fe04a3d8f8a3393139bcdcd02c160c9bed0e15baab257db902303d1.tar.gz",
+      "members": [
+        {
+          "path": "dr_libs-dfe8377631000664666519fdb83da193fd8037f4-dr_mp3.h",
+          "size": 209166,
+          "sha256": "997b7ee18de6e6b81e2a83f1ea9fc62aef25c62b28d48db95635f49e65de0a2f",
+          "sha512": "c21d523bdd890bf8b2e84ff7ac63f72299b235834b424d95d281b57c4e22d260e23e423ed8d829e710cbd11d8814c69afef24cb9e576bbb9cb0b704be94bf8ed"
+        },
+        {
+          "path": "dr_libs-dfe8377631000664666519fdb83da193fd8037f4-dr_wav.h",
+          "size": 369705,
+          "sha256": "03e70c1a2d9787cd7ed3e966c075bea7bac6373f759db9cd7ca9ccdfc4ec4493",
+          "sha512": "277ada6b7cf940f557d38dea7985db129c8aaf034c23425da3f1681e901439bbd4152a766de5a26cc7ddb3f0a00f2ce8f6496f61c359bc65889eeac25e356bd3"
+        }
+      ],
+      "resources": [
+        {
+          "name": "dr_libs-dfe8377631000664666519fdb83da193fd8037f4-dr_mp3.h",
+          "url": "https://raw.githubusercontent.com/mackron/dr_libs/dfe8377631000664666519fdb83da193fd8037f4/dr_mp3.h",
+          "sha512": "c21d523bdd890bf8b2e84ff7ac63f72299b235834b424d95d281b57c4e22d260e23e423ed8d829e710cbd11d8814c69afef24cb9e576bbb9cb0b704be94bf8ed"
+        },
+        {
+          "name": "dr_libs-dfe8377631000664666519fdb83da193fd8037f4-dr_wav.h",
+          "url": "https://raw.githubusercontent.com/mackron/dr_libs/dfe8377631000664666519fdb83da193fd8037f4/dr_wav.h",
+          "sha512": "277ada6b7cf940f557d38dea7985db129c8aaf034c23425da3f1681e901439bbd4152a766de5a26cc7ddb3f0a00f2ce8f6496f61c359bc65889eeac25e356bd3"
+        }
+      ],
+      "old_artifact": "4a447e221b396e33a1b81c4ed040e2d3b05a6e715938f0d62e0f9e6728aa6bda.tar.gz",
+      "old_members": [
+        {
+          "path": "dr_mp3.h",
+          "size": 209166,
+          "sha256": "997b7ee18de6e6b81e2a83f1ea9fc62aef25c62b28d48db95635f49e65de0a2f"
+        },
+        {
+          "path": "dr_wav.h",
+          "size": 369705,
+          "sha256": "03e70c1a2d9787cd7ed3e966c075bea7bac6373f759db9cd7ca9ccdfc4ec4493"
+        }
+      ]
+    }
+  ]
+}

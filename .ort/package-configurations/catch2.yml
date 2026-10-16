@@ -1,0 +1,31 @@
+{
+  "id": "SpdxDocumentFile:vcpkg:catch2:3.16.1",
+  "source_artifact_url": "http://127.0.0.1:8765/sources/d16bd1b8b2364918bd472cb216394acb93bde6784890df0d91bccfb3f28d777d.tar.gz",
+  "path_excludes": [
+    {
+      "pattern": "Catch2-3.16.1/tools/**",
+      "reason": "BUILD_TOOL_OF",
+      "comment": "Upstream maintainer tooling. tools/scripts/updateDocumentToC.py is GPL-3.0-only documentation tooling and is not part of the compiled Catch2 library. The pattern is anchored on the archive top directory Catch2-3.16.1/ that the real ORT ScanCode run keeps in the extracted tree."
+    },
+    {
+      "pattern": "Catch2-3.16.1/.conan/**",
+      "reason": "BUILD_TOOL_OF",
+      "comment": "Conan packaging test package; .conan/test_package/conanfile.py only scans to an unknown-license reference plus BSL-1.0. Anchored on the Catch2-3.16.1/ archive top directory."
+    },
+    {
+      "pattern": "Catch2-3.16.1/tests/**",
+      "reason": "TEST_OF",
+      "comment": "Upstream Catch2 self-tests. Anchored on the Catch2-3.16.1/ archive top directory."
+    },
+    {
+      "pattern": "Catch2-3.16.1/docs/**",
+      "reason": "DOCUMENTATION_OF",
+      "comment": "Upstream documentation. Anchored on the Catch2-3.16.1/ archive top directory."
+    },
+    {
+      "pattern": "Catch2-3.16.1/examples/**",
+      "reason": "EXAMPLE_OF",
+      "comment": "Upstream examples. Anchored on the Catch2-3.16.1/ archive top directory."
+    }
+  ]
+}

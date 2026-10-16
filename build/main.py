@@ -25,6 +25,8 @@ import tempfile
 from typing import Any
 import zipfile
 
+import licenses
+
 
 REPOSITORY = Path(__file__).resolve().parents[1]
 ARCHITECTURES = ("x86", "x64")
@@ -39,6 +41,9 @@ MODULE_BINARIES = {
 }
 OUT_NATIVE = "out/native"
 OUT_PACKAGES = "out/packages"
+OUT_LICENSE_INPUTS = "out/license-inputs"
+OUT_LICENSE_PREPARED = "out/license-audit/input"
+LICENSE_INVENTORY = "build/license-inventory.json"
 TEST_PROJECT = "build/projects/tests.vcxproj"
 LEAK_PROBE_PROJECT = "build/projects/leak-probe.vcxproj"
 VCPKG_TRIPLETS = "build/vcpkg/triplets"
@@ -505,6 +510,16 @@ def _report_path(repository: Path, architecture: str, configuration: str, scope:
 
 
 def _restore(repository: Path, architecture: str, configuration: str, vcpkg: Path) -> None:
+    # Any operation that can mutate the shared restore invalidates its prior attestation *first*, so
+    # a failed Release restore, a Debug build or an analysis variant sharing the same installed tree
+    # can never leave a stale success stamp the license export would trust.  The isolated ASan
+    # restore owns a different tree and deliberately leaves the shared attestation untouched.  The
+    # guard lives in ``_restore`` itself because ``ci_source``, ``_coverage``, ``_sanitizer``,
+    # ``_prepare_leak_probe`` and ``_analyze`` reach the restore without going through ``build``.
+    if restore_root(repository, architecture, configuration) == licenses.vcpkg_root(
+        repository, architecture
+    ):
+        licenses.invalidate_attestation(repository, architecture)
     suffix = _DEPENDENCY_SUFFIXES.get(configuration, "")
     scratch = artifacts_root(repository) / "vcpkg_scratch" / f"{architecture}{suffix}"
     # Point vcpkg at the same Visual Studio the driver builds with, through the child
@@ -591,7 +606,18 @@ def build(
             vcpkg, analysis=analysis),
         cwd=repository,
     )
+    if configuration == "Release":
+        # Only a finished Release build proves the restore belongs to this checkout and build
+        # inputs, so the license export can verify it instead of stamping the current HEAD on a
+        # restore that may be stale.  Debug and the analysis variants keep their current contract.
+        _attest_release(repository, architecture)
     return bin_directory(repository, architecture, configuration)
+
+
+def _attest_release(repository: Path, architecture: str) -> None:
+    """Record the successful Release restore/build for the license-input verification."""
+
+    licenses.write_attestation(repository, architecture)
 
 
 def test_command(
@@ -1058,6 +1084,9 @@ def _prepare_leak_probe(
             analysis=analysis),
         cwd=repository,
     )
+    # The probe restore mutated the shared x64 Release tree and dropped its stamp, so this finished
+    # probe build is the last successful Release work and must republish a fresh stamp.
+    _attest_release(repository, "x64")
     return bin_directory(repository, "x64", "Release") / LEAK_PROBE
 
 
@@ -1445,11 +1474,21 @@ def _parser() -> argparse.ArgumentParser:
     source_parser = commands.add_parser("ci-source")
     arch_parser = commands.add_parser("ci-arch")
     package_parser = commands.add_parser("package")
-    for command in (build_parser, test_parser, source_parser, arch_parser, package_parser):
+    license_inputs_parser = commands.add_parser("license-inputs")
+    license_prepare_parser = commands.add_parser("license-prepare")
+    for command in (
+        build_parser, test_parser, source_parser, arch_parser, package_parser,
+        license_inputs_parser, license_prepare_parser,
+    ):
         command.add_argument("-Repository", "--repository", type=Path, default=REPOSITORY)
         command.add_argument("-Jobs", "--jobs", type=int, default=None)
     for command in (build_parser, test_parser, arch_parser):
         command.add_argument("-Arch", "--arch", dest="architecture", type=_selection(ARCHITECTURES), default=("x64",))
+    license_inputs_parser.add_argument("-Arch", "--arch", dest="architecture", type=_selection(ARCHITECTURES), default=("x64",))
+    license_inputs_parser.add_argument("-Output", "--output", type=Path, default=None)
+    license_prepare_parser.add_argument("-Inputs", "--inputs", type=Path, default=None)
+    license_prepare_parser.add_argument("-Output", "--output", type=Path, default=None)
+    license_prepare_parser.add_argument("-Inventory", "--inventory", type=Path, default=None)
     arch_parser.add_argument("-Stage", "--stage", dest="stage", choices=CI_STAGES, default="all")
     for command in (build_parser, test_parser):
         command.add_argument("-Config", "--config", dest="configuration", type=_selection(CONFIGURATIONS), default=("Debug",))
@@ -1462,6 +1501,14 @@ def _parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(list(sys.argv[1:] if argv is None else argv))
+    try:
+        return _run(args)
+    except licenses.LicenseError as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+
+
+def _run(args: argparse.Namespace) -> int:
     if args.command == "build":
         for architecture in args.architecture:
             for configuration in args.configuration:
@@ -1480,6 +1527,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.architecture, stage=args.stage,
             repository=args.repository, corpus=args.corpus, jobs=args.jobs,
         )
+    elif args.command == "license-inputs":
+        collect = licenses.vcpkg_collector(_find_vcpkg())
+        for architecture in args.architecture:
+            output = args.output or Path(OUT_LICENSE_INPUTS) / architecture
+            licenses.export_inputs(args.repository, architecture, output, collect=collect)
+    elif args.command == "license-prepare":
+        inputs = args.inputs or Path(OUT_LICENSE_INPUTS)
+        output = args.output or Path(OUT_LICENSE_PREPARED)
+        inventory = args.inventory or args.repository / LICENSE_INVENTORY
+        licenses.prepare(inputs, output, inventory_path=inventory, repository=args.repository)
     else:
         package(repository=args.repository, output=args.output, modules=args.module)
     return 0

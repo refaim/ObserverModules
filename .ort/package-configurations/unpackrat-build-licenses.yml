@@ -1,0 +1,15 @@
+{
+  "id": "SpdxDocumentFile:vcpkg:unpackrat-build-licenses:4383d88970382eb906fbe26ceef9dee3c7a97dde81941a08b6032f63a0fe08b4",
+  "source_artifact_url": "http://127.0.0.1:8765/sources/4383d88970382eb906fbe26ceef9dee3c7a97dde81941a08b6032f63a0fe08b4.tar",
+  "license_finding_curations": [
+    {
+      "path": "build/licenses.py",
+      "start_lines": "787",
+      "line_count": 1,
+      "detected_license": "JSON",
+      "reason": "INCORRECT",
+      "concluded_license": "NONE",
+      "comment": "Line 787 carries `document = _load_json(directory / \"installed.json\", \"license-inputs export\")`. This first-party MIT build/test file holds the identifier only as the exact string it exercises or documents, not a grant; ScanCode reported JSON as a false positive, so the finding is removed."
+    }
+  ]
+}

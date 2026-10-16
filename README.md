@@ -61,42 +61,6 @@ because LGPLv3 incorporates the GNU GPLv3, the corresponding full GPLv3 text tra
 [`licenses/GPL-3.0.txt`](licenses/GPL-3.0.txt). Those two texts are always retained in every packaged
 module.
 
-### Third-party components
-
-| Project | License | Modules |
-|---------|---------|---------|
-| [nlohmann/json](https://github.com/nlohmann/json) | [MIT](licenses/json.txt) | Tests only |
-| [catchorg/Catch2](https://github.com/catchorg/Catch2) | [BSL-1.0](licenses/Catch2.txt) | Tests only |
-| [lazyhamster/Observer](https://github.com/lazyhamster/Observer) | [LGPL-3.0](licenses/Observer.txt) plus [GPL-3.0](licenses/GPL-3.0.txt) | Ren'Py, RPG Maker, Zanzarah, Godot |
-| [YY-Thunks](https://github.com/Chuyu-Team/YY-Thunks) | [MIT](licenses/YY-Thunks.txt) | Ren'Py, RPG Maker, Zanzarah, Godot |
-| [Cyan4973/xxHash](https://github.com/Cyan4973/xxHash) | [BSD-2-Clause](licenses/xxHash.txt) | Tests only |
-| [zlib-ng](https://github.com/zlib-ng/zlib-ng) | [Zlib](licenses/zlib-ng.txt) | Ren'Py, Godot |
-| [godotengine/godot](https://github.com/godotengine/godot) | [MIT](licenses/godot.txt) | Godot |
-| [iOrange/bcdec](https://github.com/iOrange/bcdec) | [MIT](licenses/bcdec.txt) | Godot |
-| [mackron/dr_libs](https://github.com/mackron/dr_libs) | [Unlicense OR MIT-0](licenses/dr_libs.txt) | Godot |
-| [phoboslab/qoa](https://github.com/phoboslab/qoa) | [MIT](licenses/qoa.txt) | Godot |
-| [randy408/libspng](https://github.com/randy408/libspng) | [BSD-2-Clause](licenses/libspng.txt) | Godot |
-| [xiph/ogg](https://github.com/xiph/ogg) | [BSD-3-Clause](licenses/libogg.txt) | Godot |
-| [ariya/FastLZ](https://github.com/ariya/FastLZ) | [MIT](licenses/fastlz.txt) | Godot |
-| [facebook/zstd](https://github.com/facebook/zstd) | [BSD-3-Clause](licenses/zstd.txt) | Godot |
-| [google/brotli](https://github.com/google/brotli) | [MIT](licenses/brotli.txt) | Godot |
-| [Zydis](https://github.com/zyantific/zydis) | [MIT](licenses/zydis.txt) | Godot |
-| [Zycore](https://github.com/zyantific/zycore-c) | [MIT](licenses/zycore.txt) | Godot |
-| [Mbed TLS](https://github.com/Mbed-TLS/mbedtls) (mbedcrypto only) | [Apache-2.0](licenses/mbedcrypto.txt) | Godot |
-
-The bcdec, dr_libs and QOA decoders are restored through [local vcpkg overlay ports](build/vcpkg/ports/README.md)
-as static libraries. Their source revisions and downloaded header hashes are pinned there. QOA uses the header
-from Godot 4.5-stable, which is the version tested with this module.
-
-### Sources of inspiration
-
-| Project | License | Modules |
-|---------|---------|---------|
-| [luxrck/rgssad](https://github.com/luxrck/rgssad) | [MIT](licenses/rgssad.txt) | RPG Maker |
-| [birkenfeld/serde-pickle](https://github.com/birkenfeld/serde-pickle) | [MIT](licenses/serde-pickle.txt) | Ren'Py |
-| [Shizmob/rpatool](https://github.com/Shizmob/rpatool) | [WTFPL](licenses/rpatool.txt) | Ren'Py |
-| [pg83/ix](https://github.com/pg83/ix/tree/66726a904152246fbef8b27e26e878840f6d7fb7) | [MIT](licenses/IX.txt) | Historical build tooling |
-
 ## Building
 
 The build produces self-contained `/MT` MSVC modules for x86 and x64 with no external runtime

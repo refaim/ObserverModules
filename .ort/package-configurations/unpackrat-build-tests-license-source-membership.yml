@@ -1,0 +1,15 @@
+{
+  "id": "SpdxDocumentFile:vcpkg:unpackrat-build-tests-license-source-membership:98c3267699dd1ed0a0394f7846ded01fe710b8103a421d4cc6638bcb3b61c683",
+  "source_artifact_url": "http://127.0.0.1:8765/sources/98c3267699dd1ed0a0394f7846ded01fe710b8103a421d4cc6638bcb3b61c683.tar",
+  "license_finding_curations": [
+    {
+      "path": "build/tests/test_license_source_membership.py",
+      "start_lines": "78,139",
+      "line_count": 1,
+      "detected_license": "JSON",
+      "reason": "INCORRECT",
+      "concluded_license": "NONE",
+      "comment": "Lines 78,139 share the identifier JSON; line 78 is, for example, `\"src/new_vendor/LICENSE.json\",`. These are example literals in first-party MIT build/test tooling, not grants, so the false-positive finding is removed."
+    }
+  ]
+}

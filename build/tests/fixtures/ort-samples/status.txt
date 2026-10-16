@@ -1,0 +1,89 @@
+Package: vcpkg-cmake-config
+Version: 2026-07-21
+Architecture: x64-windows
+Multi-Arch: same
+Abi: 1d98c4103b87de4fe114bc27e791960ab392189afa4867f2bb4e6b5f74c299f4
+Status: install ok installed
+
+Package: vcpkg-cmake
+Version: 2024-04-23
+Architecture: x64-windows
+Multi-Arch: same
+Abi: 0b065411380cf73f9383c0f726c6baa2d32c6244760ee4e75b86a2d9a5f3b896
+Status: install ok installed
+
+Package: catch2
+Version: 3.15.3
+Depends: vcpkg-cmake:x64-windows, vcpkg-cmake-config:x64-windows
+Architecture: observer-x64-windows-static
+Multi-Arch: same
+Abi: bbc61b1191ce2c9ad21ddf7750f8676fd36ef80cb3ddb487e32fd739b6dd3544
+Description: A modern, C++-native, test framework for unit-tests, TDD and BDD.
+Status: purge ok not-installed
+
+Package: nlohmann-json
+Version: 3.12.0
+Port-Version: 2
+Depends: vcpkg-cmake:x64-windows, vcpkg-cmake-config:x64-windows
+Architecture: observer-x64-windows-static
+Multi-Arch: same
+Abi: a799684d623134d11ac29445af0124b637680e43667012bace42ebd1535f7f73
+Description: JSON for Modern C++
+Status: purge ok not-installed
+
+Package: xxhash
+Version: 0.8.3
+Depends: vcpkg-cmake:x64-windows, vcpkg-cmake-config:x64-windows
+Architecture: observer-x64-windows-static
+Multi-Arch: same
+Abi: 89e935c58d3246c265d5d9cffb199a25f3d9b188995ce3858708bc4aa675cbe3
+Description: Extremely fast hash algorithm
+Status: purge ok not-installed
+
+Package: zlib
+Version: 1.3.2
+Port-Version: 1
+Depends: vcpkg-cmake:x64-windows, vcpkg-cmake-config:x64-windows
+Architecture: observer-x64-windows-static
+Multi-Arch: same
+Abi: 4b0ef6a914113320609049378b1cfcacd371b29a5f170f68193b9c033e478ce5
+Description: A compression library
+Status: purge ok not-installed
+
+Package: catch2
+Version: 3.15.3
+Depends: vcpkg-cmake:x64-windows, vcpkg-cmake-config:x64-windows
+Architecture: unpackrat-x64-windows-static
+Multi-Arch: same
+Abi: 37bff997aff37f0422172790444d7acc9722ccb82831bdb2b2bec536601dc2cf
+Description: A modern, C++-native, test framework for unit-tests, TDD and BDD.
+Status: install ok installed
+
+Package: nlohmann-json
+Version: 3.12.0
+Port-Version: 2
+Depends: vcpkg-cmake:x64-windows, vcpkg-cmake-config:x64-windows
+Architecture: unpackrat-x64-windows-static
+Multi-Arch: same
+Abi: 87808840003f102b84bb60d4e923a1451edf50ce203aeea64568701e3584a31a
+Description: JSON for Modern C++
+Status: install ok installed
+
+Package: xxhash
+Version: 0.8.3
+Depends: vcpkg-cmake:x64-windows, vcpkg-cmake-config:x64-windows
+Architecture: unpackrat-x64-windows-static
+Multi-Arch: same
+Abi: 47c7b285c5f75c514dc18f5bdb9607c58085a009c70aa649bd4b344d09c15282
+Description: Extremely fast hash algorithm
+Status: install ok installed
+
+Package: zlib
+Version: 1.3.2
+Port-Version: 1
+Depends: vcpkg-cmake:x64-windows, vcpkg-cmake-config:x64-windows
+Architecture: unpackrat-x64-windows-static
+Multi-Arch: same
+Abi: 34c52ff8eda1474fe14376a4858105c04fd527b25f1e7ba9d78730f27a42357c
+Description: A compression library
+Status: install ok installed

@@ -97,7 +97,7 @@ class WorkflowContractTests(unittest.TestCase):
             "native-debug-x86", "native-debug-x64", "native-release-x86", "native-release-x64",
             "msvc-analysis-x86", "msvc-analysis-x64", "clang-tidy-x86", "clang-tidy-x64",
             "coverage-x86", "coverage-x64", "asan-x86", "asan-x64", "ubsan-x64",
-            "fuzz-x86", "fuzz-x64", "leaks-x64",
+            "fuzz-x86", "fuzz-x64", "leaks-x64", "license-audit",
         )
         for job in callers:
             expected = {"contents": "read", "id-token": "write"} if job in oidc else {"contents": "read"}
@@ -179,7 +179,7 @@ class WorkflowContractTests(unittest.TestCase):
         # aggregate gate survives.
         self.assertEqual(
             sorted(blocks),
-            sorted([*jobs, "instrumentation-tools", "packaging", "release"]),
+            sorted([*jobs, "instrumentation-tools", "license-audit", "packaging", "release"]),
         )
         for job in jobs:
             with self.subTest(job=job):
@@ -191,6 +191,11 @@ class WorkflowContractTests(unittest.TestCase):
         # The leak measurement depends only on the x64 Release slice that built the tree it
         # measures, never on a whole matrix of both architectures.
         self.assertEqual(self.job_needs(blocks["leaks-x64"]), ["native-release-x64"])
+        # The Linux license audit consumes both Release slices and waits on nothing else.
+        self.assertEqual(
+            sorted(self.job_needs(blocks["license-audit"])),
+            ["native-release-x64", "native-release-x86"],
+        )
         self.assertNotIn("matrix:", workflow)
         # No verification slice waits on another except the instrumentation stages, which wait on
         # the shared toolchain provisioning, and the leak measurement. Only packaging fans the
@@ -223,7 +228,7 @@ class WorkflowContractTests(unittest.TestCase):
                     "native-debug-x86", "native-debug-x64", "native-release-x86", "native-release-x64",
                     "msvc-analysis-x86", "msvc-analysis-x64", "clang-tidy-x86", "clang-tidy-x64",
                     "coverage-x86", "coverage-x64", "asan-x86", "asan-x64", "ubsan-x64",
-                    "fuzz-x86", "fuzz-x64", "leaks-x64",
+                    "fuzz-x86", "fuzz-x64", "leaks-x64", "license-audit",
                 ]
             ),
         )
@@ -381,7 +386,7 @@ class WorkflowContractTests(unittest.TestCase):
             with self.subTest(action=action):
                 self.assertRegex(revision, r"^[0-9a-f]{40}$")
         self.assertIn("persist-credentials: false", workflow)
-        self.assertEqual(workflow.count('version: "0.13.0"'), 2)
+        self.assertEqual(workflow.count('version: "0.13.0"'), 3)
         pyproject = tomllib.loads((REPOSITORY / "build/pyproject.toml").read_text(encoding="utf-8"))
         self.assertEqual(pyproject["project"]["requires-python"], "==3.14.7")
 
@@ -557,14 +562,36 @@ class RepositoryMetadataTests(unittest.TestCase):
             with self.subTest(architecture=architecture):
                 self.assertIn(architecture, readme)
 
-    def test_readme_keeps_every_upstream_notice_under_its_classification(self) -> None:
-        readme = self.readme
+    def test_central_inventory_carries_every_upstream_identity_and_notice(self) -> None:
+        # The reviewed component inventory, not a hand-written README table, is the single source
+        # of upstream provenance and retained notices.
+        inventory = json.loads(
+            (REPOSITORY / "build" / "license-inventory.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(inventory["schema"], "unpackrat-license-inventory/3")
+        self.assertIsInstance(inventory["components"], list)
+        self.assertTrue(inventory["components"])
+        urls = [
+            str(component["source"].get("url"))
+            for component in inventory["components"]
+            if isinstance(component, dict) and isinstance(component.get("source"), dict)
+        ]
         for project in self.UPSTREAM_PROJECT_URLS:
             with self.subTest(project=project):
-                self.assertIn(project, readme)
-        for heading in ("Third-party components", "Sources of inspiration"):
-            with self.subTest(heading=heading):
-                self.assertIn(heading, readme)
+                self.assertTrue(
+                    any(url.startswith(project) for url in urls),
+                    f"{project} is absent from the reviewed component inventory",
+                )
+        # Every retained notice named by the inventory must resolve to a real file.
+        notices = {
+            str(notice)
+            for component in inventory["components"]
+            if isinstance(component, dict)
+            for notice in component.get("notices", [])
+        } | {str(notice) for notice in inventory["rootPackage"].get("notices", [])}
+        for notice in sorted(notices):
+            with self.subTest(notice=notice):
+                self.assertTrue((REPOSITORY / notice).is_file(), notice)
 
     def test_readme_states_the_install_prerequisites_and_needs_no_external_runtime_dlls(self) -> None:
         readme = self.readme

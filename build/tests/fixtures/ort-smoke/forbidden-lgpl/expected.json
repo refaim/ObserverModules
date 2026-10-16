@@ -1,0 +1,9 @@
+{
+  "fixture": "forbidden-lgpl",
+  "outcome": "fail",
+  "declared": "MIT",
+  "concluded": "NOASSERTION",
+  "linkage": "STATIC",
+  "note": "The dependency metadata is unchanged (still declares the MIT baseline), but its verified source gained a new LGPL-3.0-only file. The dependency is statically linked, so the scanner's detected limited-copyleft finding is not hidden and COPYLEFT_LIMITED_IN_DEPENDENCY must fail the audit.",
+  "payload": "sources/renpy-3.1.3.tar.gz built from payload/"
+}

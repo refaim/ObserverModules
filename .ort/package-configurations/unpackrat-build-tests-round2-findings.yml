@@ -1,0 +1,15 @@
+{
+  "id": "SpdxDocumentFile:vcpkg:unpackrat-build-tests-round2-findings:f042ef50b70e0f30e670a833a007a3460ee69596642a9e1e53dd410044a44c87",
+  "source_artifact_url": "http://127.0.0.1:8765/sources/f042ef50b70e0f30e670a833a007a3460ee69596642a9e1e53dd410044a44c87.tar",
+  "license_finding_curations": [
+    {
+      "path": "build/tests/test_round2_findings.py",
+      "start_lines": "212",
+      "line_count": 1,
+      "detected_license": "GPL-3.0-only",
+      "reason": "INCORRECT",
+      "concluded_license": "NONE",
+      "comment": "Line 212 carries `for name in (\"Observer.txt\", \"GPL-3.0.txt\", \"rpatool.txt\", \"serde-pickle.txt\", \"zlib-ng.txt\", \"VC...`. This first-party MIT build/test file holds the identifier only as the exact string it exercises or documents, not a grant; ScanCode reported GPL-3.0-only as a false positive, so the finding is removed."
+    }
+  ]
+}

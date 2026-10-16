@@ -1,0 +1,105 @@
+# The ORT global configuration used by the license audit.  This is our data; the pinned upstream
+# evaluator rules and license classifications are fetched by CI at run time rather than vendored.
+#
+# Every owned path below is rooted at the fixed /ort/home prefix.  That prefix is not a runtime
+# location on the native CI runner: the license-audit workflow rewrites that literal prefix to the
+# real, owned audit home (${RUNNER_TEMP}/license-audit/home) when it stages this file, so the tracked
+# configuration stays portable and no absolute developer path is committed.
+#
+# Repository package curations and configurations are enabled so the prepared, checksum-verified
+# data (exact source URLs, per-package scoped corrections) is applied during analysis.  The generated
+# per-package source curations are read from one explicit File provider at a fixed path, so a missing
+# prepared file fails instead of silently curating nothing, and no implicit provider is consulted.
+# Scans must never be skipped for a package that carries a concluded license, so a curated conclusion
+# cannot hide a GPL/unknown finding.  Only ERROR-severity rule violations and issues fail the run,
+# which is how an unknown, missing or unhandled license becomes a failure while advisory warnings
+# stay visible.
+---
+ort:
+  enableRepositoryPackageCurations: true
+  enableRepositoryPackageConfigurations: true
+
+  severeIssueThreshold: ERROR
+  severeRuleViolationThreshold: ERROR
+
+  # A single explicit File provider replaces the implicit DefaultDir/DefaultFile/Spring providers.
+  # The path is our staged curation location under the audit home prefix, and mustExist makes a
+  # missing prepared curations file a hard error instead of a silently uncurated analysis.
+  packageCurationProviders:
+  - type: File
+    id: PreparedInputs
+    options:
+      path: /ort/home/config/curations.yml
+      mustExist: true
+
+  analyzer:
+    # The project is a single prepared SPDX 2.3 document, so only the SPDX importer runs; no other
+    # package manager ecosystem is probed.
+    enabledPackageManagers: [SpdxDocumentFile]
+
+  downloader:
+    # The prepared packages are curated with an exact source artifact and a source_code_origins of
+    # ARTIFACT, so the audit downloads and scans the checksummed artifact and never a VCS checkout.
+    sourceCodeOrigins: [ARTIFACT]
+
+  scanner:
+    # A curated or declared conclusion must never stop a package from being scanned, so a scanned
+    # GPL or unknown finding can never be hidden behind metadata.
+    skipConcluded: false
+
+    # The ScanCode license keys that would otherwise be mapped to NOASSERTION are pinned to their own
+    # identity, so a newly detected unknown or category-"other" license stays visible and fails the
+    # unknown / copyleft-open rules.  The remaining default mappings (whose keys are only triggers,
+    # not licenses) are kept unchanged.
+    detectedLicenseMapping:
+      LicenseRef-scancode-agpl-generic-additional-terms: "NOASSERTION"
+      LicenseRef-scancode-free-unknown: "LicenseRef-scancode-free-unknown"
+      LicenseRef-scancode-generic-cla: "NOASSERTION"
+      LicenseRef-scancode-generic-exception: "NOASSERTION"
+      LicenseRef-scancode-generic-export-compliance: "NOASSERTION"
+      LicenseRef-scancode-generic-tos: "NOASSERTION"
+      LicenseRef-scancode-generic-trademark: "NOASSERTION"
+      LicenseRef-scancode-gpl-generic-additional-terms: "NOASSERTION"
+      LicenseRef-scancode-other-copyleft: "LicenseRef-scancode-other-copyleft"
+      LicenseRef-scancode-other-permissive: "LicenseRef-scancode-other-permissive"
+      LicenseRef-scancode-patent-disclaimer: "NOASSERTION"
+      LicenseRef-scancode-unknown: "LicenseRef-scancode-unknown"
+      LicenseRef-scancode-unknown-license-reference: "LicenseRef-scancode-unknown-license-reference"
+      LicenseRef-scancode-unknown-spdx: "LicenseRef-scancode-unknown-spdx"
+      LicenseRef-scancode-warranty-disclaimer: "NOASSERTION"
+
+    # Provenance, file lists and downloaded archives are kept in the local file storages under the
+    # ORT data directory, in the subtree the CI cache preserves.
+    archive:
+      fileStorage:
+        localFileStorage:
+          directory: /ort/home/scanner/archive
+          compression: false
+    fileListStorage:
+      fileStorage:
+        localFileStorage:
+          directory: /ort/home/scanner/file-lists
+          compression: false
+    provenanceStorage:
+      fileStorage:
+        localFileStorage:
+          directory: /ort/home/scanner/provenance
+          compression: false
+    # storageReaders and storageWriters name the storage 'local', so that name must resolve to a real
+    # backend: without it the scan exits with "Could not resolve storage 'local'".  The one backend is
+    # the native local file storage under the same cached ORT data subtree as the other storages.
+    storages:
+      local:
+        backend:
+          localFileStorage:
+            directory: /ort/home/scanner/results
+            compression: false
+    storageReaders: [local]
+    storageWriters: [local]
+
+    config:
+      ScanCode:
+        options:
+          # The resource limit for the one CI scan.  These options do not affect the ScanCode output
+          # and so are given as non-config options.
+          commandLineNonConfig: '--processes,2'

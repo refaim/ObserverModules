@@ -1,0 +1,11 @@
+{
+  "id": "SpdxDocumentFile:vcpkg:libspng:0.7.4#1",
+  "source_artifact_url": "http://127.0.0.1:8765/sources/47ec02be6c0a6323044600a9221b049f63e1953faf816903e7383d4dc4234487.tar.gz",
+  "path_excludes": [
+    {
+      "pattern": "libspng-0.7.4/tests/**",
+      "reason": "TEST_OF",
+      "comment": "Upstream libspng tests and the PngSuite test-image corpus; tests/images/PngSuite.LICENSE is a test-data grant, not a codec license. Anchored on the archive top directory libspng-0.7.4/ that the real ORT ScanCode run keeps in the extracted tree."
+    }
+  ]
+}

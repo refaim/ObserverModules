@@ -1,0 +1,51 @@
+{
+  "id": "SpdxDocumentFile:vcpkg:unpackrat-build-tests-license-pipeline:c816c8e925043e0a7110af78a49a35695ee05a1405a165f744bf9c1160922322",
+  "source_artifact_url": "http://127.0.0.1:8765/sources/c816c8e925043e0a7110af78a49a35695ee05a1405a165f744bf9c1160922322.tar",
+  "license_finding_curations": [
+    {
+      "path": "build/tests/test_license_pipeline.py",
+      "start_lines": "1100,1615,2661,2669",
+      "line_count": 1,
+      "detected_license": "GPL-1.0-or-later",
+      "reason": "INCORRECT",
+      "concluded_license": "NONE",
+      "comment": "Lines 1100,1615,2661,2669 share the identifier GPL-1.0-or-later; line 1100 is, for example, `self._rewrite(\"x64\", \"bcdec\", features=[\"gpl\"])`. These are example literals in first-party MIT build/test tooling, not grants, so the false-positive finding is removed."
+    },
+    {
+      "path": "build/tests/test_license_pipeline.py",
+      "start_lines": "1577,1615,1986,2672",
+      "line_count": 1,
+      "detected_license": "GPL-3.0-only",
+      "reason": "INCORRECT",
+      "concluded_license": "NONE",
+      "comment": "Lines 1577,1615,1986,2672 share the identifier GPL-3.0-only; line 1577 is, for example, `\"notices\": [\"licenses/Observer.txt\", \"licenses/GPL-3.0.txt\"],`. These are example literals in first-party MIT build/test tooling, not grants, so the false-positive finding is removed."
+    },
+    {
+      "path": "build/tests/test_license_pipeline.py",
+      "start_lines": "2661",
+      "line_count": 1,
+      "detected_license": "GPL-3.0-or-later",
+      "reason": "INCORRECT",
+      "concluded_license": "NONE",
+      "comment": "Line 2661 carries `target.write_bytes(b\"# released under GPL-3.0-or-later\\n\")`. This first-party MIT build/test file holds the identifier only as the exact string it exercises or documents, not a grant; ScanCode reported GPL-3.0-or-later as a false positive, so the finding is removed."
+    },
+    {
+      "path": "build/tests/test_license_pipeline.py",
+      "start_lines": "364,1575,1603,1623,1685",
+      "line_count": 1,
+      "detected_license": "LGPL-3.0-only",
+      "reason": "INCORRECT",
+      "concluded_license": "NONE",
+      "comment": "Lines 364,1575,1603,1623,1685 share the identifier LGPL-3.0-only; line 364 is, for example, `\"declaredExpression\": \"LGPL-3.0-only\",`. These are example literals in first-party MIT build/test tooling, not grants, so the false-positive finding is removed."
+    },
+    {
+      "path": "build/tests/test_license_pipeline.py",
+      "start_lines": "1684",
+      "line_count": 1,
+      "detected_license": "LicenseRef-scancode-unknown-license-reference",
+      "reason": "REFERENCE",
+      "concluded_license": "NONE",
+      "comment": "Line 1684 carries `f\"The dependency '{identifier}' is statically linked and licensed under the \"`, a notice reference by name and not a grant. This first-party MIT build/test file only names the retained notice, so the reference finding is removed and the file's MIT grant is unchanged."
+    }
+  ]
+}

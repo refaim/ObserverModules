@@ -1,0 +1,153 @@
+{
+  "id": "SpdxDocumentFile:vcpkg:mbedtls:4.1.1",
+  "source_artifact_url": "http://127.0.0.1:8765/sources/3359a349e23db3d5536fcee032ae7b2ecbfc08972fab643089b5cbf2a375c98c.tar.bz2",
+  "path_excludes": [
+    {
+      "pattern": "mbedtls-4.1.1/framework/**",
+      "reason": "TEST_OF",
+      "comment": "Shared upstream Mbed TLS test/build framework, not part of the shipped tfpsacrypto library. Anchored on the archive top directory mbedtls-4.1.1/ that the real ORT ScanCode run keeps in the extracted tree."
+    },
+    {
+      "pattern": "mbedtls-4.1.1/tf-psa-crypto/framework/**",
+      "reason": "TEST_OF",
+      "comment": "TF-PSA-Crypto's copy of the upstream test/build framework. Anchored on the mbedtls-4.1.1/ archive top directory."
+    },
+    {
+      "pattern": "mbedtls-4.1.1/scripts/**",
+      "reason": "BUILD_TOOL_OF",
+      "comment": "Release/CI helper scripts (for example scripts/sbom.cdx.json), not compiled. Anchored on the mbedtls-4.1.1/ archive top directory."
+    },
+    {
+      "pattern": "mbedtls-4.1.1/tf-psa-crypto/scripts/**",
+      "reason": "BUILD_TOOL_OF",
+      "comment": "TF-PSA-Crypto release/CI helper scripts, not compiled. Anchored on the mbedtls-4.1.1/ archive top directory."
+    },
+    {
+      "pattern": "mbedtls-4.1.1/pkgconfig/**",
+      "reason": "BUILD_TOOL_OF",
+      "comment": "pkg-config integration helpers (for example pkgconfig/JoinPaths.cmake). Anchored on the mbedtls-4.1.1/ archive top directory."
+    },
+    {
+      "pattern": "mbedtls-4.1.1/tf-psa-crypto/pkgconfig/**",
+      "reason": "BUILD_TOOL_OF",
+      "comment": "TF-PSA-Crypto pkg-config integration helpers. Anchored on the mbedtls-4.1.1/ archive top directory."
+    },
+    {
+      "pattern": "mbedtls-4.1.1/configs/**",
+      "reason": "BUILD_TOOL_OF",
+      "comment": "Alternative build configurations shipped for users; not part of the default library build selected by the vcpkg port. Anchored on the mbedtls-4.1.1/ archive top directory."
+    },
+    {
+      "pattern": "mbedtls-4.1.1/tf-psa-crypto/configs/**",
+      "reason": "BUILD_TOOL_OF",
+      "comment": "TF-PSA-Crypto alternative build configurations. Anchored on the mbedtls-4.1.1/ archive top directory."
+    },
+    {
+      "pattern": "mbedtls-4.1.1/docs/**",
+      "reason": "DOCUMENTATION_OF",
+      "comment": "Upstream documentation. Anchored on the mbedtls-4.1.1/ archive top directory."
+    },
+    {
+      "pattern": "mbedtls-4.1.1/programs/**",
+      "reason": "EXAMPLE_OF",
+      "comment": "Upstream command line example programs; not part of the library. Anchored on the mbedtls-4.1.1/ archive top directory."
+    },
+    {
+      "pattern": "mbedtls-4.1.1/tests/**",
+      "reason": "TEST_OF",
+      "comment": "Upstream Mbed TLS tests. Anchored on the mbedtls-4.1.1/ archive top directory."
+    },
+    {
+      "pattern": "mbedtls-4.1.1/tf-psa-crypto/tests/**",
+      "reason": "TEST_OF",
+      "comment": "TF-PSA-Crypto tests. Anchored on the mbedtls-4.1.1/ archive top directory."
+    },
+    {
+      "pattern": "mbedtls-4.1.1/README.md",
+      "reason": "DOCUMENTATION_OF",
+      "comment": "Root README reproduces the dual Apache-2.0 OR GPL-2.0-or-later explanation; no code. Anchored on the mbedtls-4.1.1/ archive top directory."
+    },
+    {
+      "pattern": "mbedtls-4.1.1/CONTRIBUTING.md",
+      "reason": "DOCUMENTATION_OF",
+      "comment": "Contribution guide quoting the dual-license wording; no code. Anchored on the mbedtls-4.1.1/ archive top directory."
+    },
+    {
+      "pattern": "mbedtls-4.1.1/ChangeLog",
+      "reason": "DOCUMENTATION_OF",
+      "comment": "Release notes quoting the dual-license wording; no code. Anchored on the mbedtls-4.1.1/ archive top directory."
+    },
+    {
+      "pattern": "mbedtls-4.1.1/tf-psa-crypto/README.md",
+      "reason": "DOCUMENTATION_OF",
+      "comment": "TF-PSA-Crypto README quoting the dual-license wording; no code. Anchored on the mbedtls-4.1.1/ archive top directory."
+    },
+    {
+      "pattern": "mbedtls-4.1.1/tf-psa-crypto/CONTRIBUTING.md",
+      "reason": "DOCUMENTATION_OF",
+      "comment": "TF-PSA-Crypto contribution guide; no code. Anchored on the mbedtls-4.1.1/ archive top directory."
+    },
+    {
+      "pattern": "mbedtls-4.1.1/tf-psa-crypto/drivers/everest/**",
+      "reason": "OPTIONAL_COMPONENT_OF",
+      "comment": "Everest (Curve25519) driver tree. The verified crypto_config build options leave it disabled and the symbol evidence records zero defined functions for it in the chosen build. Anchored on the mbedtls-4.1.1/ archive top directory."
+    },
+    {
+      "pattern": "mbedtls-4.1.1/tf-psa-crypto/drivers/p256-m/**",
+      "reason": "OPTIONAL_COMPONENT_OF",
+      "comment": "p256-m driver tree, disabled by the verified crypto_config build options with zero defined functions in the chosen build. Anchored on the mbedtls-4.1.1/ archive top directory."
+    },
+    {
+      "pattern": "mbedtls-4.1.1/tf-psa-crypto/drivers/pqcp/**",
+      "reason": "OPTIONAL_COMPONENT_OF",
+      "comment": "PQCP / mldsa-native driver tree, disabled by the verified crypto_config build options with zero defined functions in the chosen build. Anchored on the mbedtls-4.1.1/ archive top directory."
+    }
+  ],
+  "license_finding_curations": [
+    {
+      "path": "mbedtls-4.1.1/LICENSE",
+      "start_lines": 2,
+      "line_count": 1,
+      "detected_license": "GPL-2.0-or-later",
+      "reason": "DOCUMENTATION_OF",
+      "comment": "Line 2 is the dual-license grant statement 'Mbed TLS files are provided under a dual Apache-2.0 OR GPL-2.0-or-later license', and line 3 continues 'This means that users may choose which of these licenses they take the code under'. ScanCode reports a standalone GPL-2.0-or-later on the statement. It is the same upstream OR option already recorded by the line 215 curation below; the accepted option for this distribution is Apache-2.0.",
+      "concluded_license": "Apache-2.0"
+    },
+    {
+      "path": "mbedtls-4.1.1/LICENSE",
+      "start_lines": 215,
+      "line_count": 339,
+      "detected_license": "GPL-2.0-only",
+      "reason": "DOCUMENTATION_OF",
+      "comment": "The root LICENSE concatenates the Apache-2.0 text (lines 9-209) and the full GPLv2 text (lines 215-553) for the upstream choice 'Apache-2.0 OR GPL-2.0-or-later'. The concatenation is not an AND obligation, and the accepted option for this distribution is Apache-2.0. The finding records the selected option.",
+      "concluded_license": "Apache-2.0"
+    },
+    {
+      "path": "mbedtls-4.1.1/tf-psa-crypto/LICENSE",
+      "start_lines": 2,
+      "line_count": 1,
+      "detected_license": "GPL-2.0-or-later",
+      "reason": "DOCUMENTATION_OF",
+      "comment": "Line 2 is the TF-PSA-Crypto dual-license grant statement 'TF-PSA-Crypto files are provided under a dual Apache-2.0 OR GPL-2.0-or-later license'. ScanCode reports a standalone GPL-2.0-or-later on the statement, which is the same OR option recorded by the tf-psa-crypto/LICENSE line 214 curation below; the accepted option is Apache-2.0.",
+      "concluded_license": "Apache-2.0"
+    },
+    {
+      "path": "mbedtls-4.1.1/tf-psa-crypto/LICENSE",
+      "start_lines": 214,
+      "line_count": 339,
+      "detected_license": "GPL-2.0-only",
+      "reason": "DOCUMENTATION_OF",
+      "comment": "The TF-PSA-Crypto LICENSE concatenates the Apache-2.0 text (lines 8-208) and the GPLv2 text (lines 214-552) for the upstream choice 'Apache-2.0 OR GPL-2.0-or-later'. The accepted option is Apache-2.0.",
+      "concluded_license": "Apache-2.0"
+    },
+    {
+      "path": "mbedtls-4.1.1/tf-psa-crypto/include/psa/crypto_config.h",
+      "start_lines": 1625,
+      "line_count": 1,
+      "detected_license": "GPL-2.0-or-later",
+      "reason": "CODE",
+      "comment": "Lines 1624-1625 are a comment explaining that the Everest driver is Apache-2.0 only and that enabling it is incompatible with taking the library under GPLv2-or-later; the option is commented out at line 1627. The mention is a build-condition note, not a GPL grant in the selected header.",
+      "concluded_license": "NONE"
+    }
+  ]
+}

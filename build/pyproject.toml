@@ -1,6 +1,6 @@
 [project]
 name = "unpackrat-build"
-version = "0.7.5"
+version = "0.8.0"
 description = "Minimal MSBuild build driver and packaging for unpackrat"
 requires-python = "==3.14.7"
 dependencies = [
@@ -21,6 +21,6 @@ source = ["."]
 [tool.coverage.report]
 exclude_lines = []
 fail_under = 100
-include = ["main.py", "leaks.py"]
+include = ["main.py", "leaks.py", "licenses.py"]
 show_missing = true
 skip_covered = false
