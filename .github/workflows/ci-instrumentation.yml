@@ -209,8 +209,8 @@ jobs:
           Set-UbsanRuntimeSourcePatch -Path (Join-Path $source 'compiler-rt/CMakeLists.txt')
           & cmake -S (Join-Path $source 'runtimes') -B $ownedBuild -G Ninja `
             -DCMAKE_BUILD_TYPE=Release `
-            -DCMAKE_C_COMPILER=$clangCl -DCMAKE_CXX_COMPILER=$clangCl `
-            -DCMAKE_LINKER=$lldLink -DCMAKE_AR=$libExe `
+            "-DCMAKE_C_COMPILER=$clangCl" "-DCMAKE_CXX_COMPILER=$clangCl" `
+            "-DCMAKE_LINKER=$lldLink" "-DCMAKE_AR=$libExe" `
             -DCMAKE_C_COMPILER_TARGET=x86_64-pc-windows-msvc `
             -DCMAKE_CXX_COMPILER_TARGET=x86_64-pc-windows-msvc `
             -DLLVM_DEFAULT_TARGET_TRIPLE=x86_64-pc-windows-msvc `
