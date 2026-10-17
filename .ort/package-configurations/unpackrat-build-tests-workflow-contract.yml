@@ -1,60 +1,51 @@
 {
-  "id": "SpdxDocumentFile:vcpkg:unpackrat-build-tests-workflow-contract:29cce7b84941886e0ccc1677469907a7fdafdc00f3cc6c3c4b7963da40cd68b4",
-  "source_artifact_url": "http://127.0.0.1:8765/sources/29cce7b84941886e0ccc1677469907a7fdafdc00f3cc6c3c4b7963da40cd68b4.tar",
+  "id": "SpdxDocumentFile:vcpkg:unpackrat-build-tests-workflow-contract:422c5adb40822fc06ca234dc6be4895441d6c2079e87121a39557e31b42f9da5",
+  "source_artifact_url": "http://127.0.0.1:8765/sources/422c5adb40822fc06ca234dc6be4895441d6c2079e87121a39557e31b42f9da5.tar",
   "license_finding_curations": [
     {
       "path": "build/tests/test_workflow_contract.py",
-      "start_lines": "507,512,513,514,515",
+      "start_lines": "504,509,510,511,512",
       "line_count": 1,
       "detected_license": "GPL-1.0-or-later",
       "reason": "INCORRECT",
       "concluded_license": "NONE",
-      "comment": "Lines 507,512,513,514,515 share the identifier GPL-1.0-or-later; line 507 is, for example, `def test_root_license_is_mit_and_the_gpl_is_the_companion_of_the_lgpl_header(self) -> None:`. These are example literals in first-party MIT build/test tooling, not grants, so the false-positive finding is removed."
+      "comment": "Lines 504,509,510,511,512: def test_root_license_is_mit_and_the_gpl_is_the_companion_of_the_lgpl_header(self) -> None: This is first-party MIT test/documentation text referring to license notices, not a license grant; remove only this exact ScanCode reference finding."
     },
     {
       "path": "build/tests/test_workflow_contract.py",
-      "start_lines": "501,512",
+      "start_lines": "509",
       "line_count": 1,
       "detected_license": "GPL-3.0-only",
       "reason": "INCORRECT",
       "concluded_license": "NONE",
-      "comment": "Lines 501,512 share the identifier GPL-3.0-only; line 501 is, for example, `self.assertIn(\"licenses/GPL-3.0.txt\", readme)`. These are example literals in first-party MIT build/test tooling, not grants, so the false-positive finding is removed."
+      "comment": "Lines 509: gpl = (REPOSITORY / \"licenses\" / \"GPL-3.0.txt\").read_text(encoding=\"utf-8\") This is first-party MIT test/documentation text referring to license notices, not a license grant; remove only this exact ScanCode reference finding."
     },
     {
       "path": "build/tests/test_workflow_contract.py",
-      "start_lines": "493,507",
+      "start_lines": "504",
       "line_count": 1,
       "detected_license": "LGPL-2.0-or-later",
       "reason": "INCORRECT",
       "concluded_license": "NONE",
-      "comment": "Lines 493,507 share the identifier LGPL-2.0-or-later; line 493 is, for example, `def test_readme_declares_mit_and_the_observer_lgpl_api_header_exception(self) -> None:`. These are example literals in first-party MIT build/test tooling, not grants, so the false-positive finding is removed."
+      "comment": "Lines 504: def test_root_license_is_mit_and_the_gpl_is_the_companion_of_the_lgpl_header(self) -> None: This is first-party MIT test/documentation text referring to license notices, not a license grant; remove only this exact ScanCode reference finding."
     },
     {
       "path": "build/tests/test_workflow_contract.py",
-      "start_lines": "517",
+      "start_lines": "514",
       "line_count": 1,
       "detected_license": "LGPL-2.1-or-later",
       "reason": "INCORRECT",
       "concluded_license": "NONE",
-      "comment": "Line 517 carries `self.assertIn(\"GNU LESSER GENERAL PUBLIC LICENSE\", observer)`. This first-party MIT build/test file holds the identifier only as the exact string it exercises or documents, not a grant; ScanCode reported LGPL-2.1-or-later as a false positive, so the finding is removed."
+      "comment": "Lines 514: self.assertIn(\"GNU LESSER GENERAL PUBLIC LICENSE\", observer) This is first-party MIT test/documentation text referring to license notices, not a license grant; remove only this exact ScanCode reference finding."
     },
     {
       "path": "build/tests/test_workflow_contract.py",
-      "start_lines": "499",
-      "line_count": 1,
-      "detected_license": "LGPL-3.0-only",
-      "reason": "INCORRECT",
-      "concluded_license": "NONE",
-      "comment": "Line 499 carries `self.assertIn(\"LGPL-3.0\", readme)`. This first-party MIT build/test file holds the identifier only as the exact string it exercises or documents, not a grant; ScanCode reported LGPL-3.0-only as a false positive, so the finding is removed."
-    },
-    {
-      "path": "build/tests/test_workflow_contract.py",
-      "start_lines": "511",
+      "start_lines": "508",
       "line_count": 1,
       "detected_license": "LicenseRef-scancode-unknown-license-reference",
       "reason": "REFERENCE",
       "concluded_license": "NONE",
-      "comment": "Line 511 carries `self.assertIn(\"Permission is hereby granted, free of charge\", license_text)`, a notice reference by name and not a grant. This first-party MIT build/test file only names the retained notice, so the reference finding is removed and the file's MIT grant is unchanged."
+      "comment": "Lines 508: self.assertIn(\"Permission is hereby granted, free of charge\", license_text) This is first-party MIT test/documentation text referring to license notices, not a license grant; remove only this exact ScanCode reference finding."
     }
   ]
 }

@@ -479,7 +479,6 @@ class RepositoryMetadataTests(unittest.TestCase):
         "https://github.com/luxrck/rgssad",
         "https://github.com/birkenfeld/serde-pickle",
         "https://github.com/Shizmob/rpatool",
-        "https://github.com/pg83/ix",
     )
 
     def setUp(self) -> None:
@@ -490,15 +489,13 @@ class RepositoryMetadataTests(unittest.TestCase):
         self.assertEqual(self.manifest["name"], "unpackrat")
         self.assertEqual(self.manifest["license"], "MIT")
 
-    def test_readme_declares_mit_and_the_observer_lgpl_api_header_exception(self) -> None:
+    def test_readme_declares_mit_for_own_source(self) -> None:
         readme = self.readme
         self.assertTrue(readme.startswith("# unpackrat"), readme.splitlines()[0])
         self.assertIn("[![License: MIT](", readme)
         self.assertIn("(https://opensource.org/licenses/MIT)", readme)
-        self.assertIn("src/api.h", readme)
-        self.assertIn("LGPL-3.0", readme)
-        self.assertIn("licenses/Observer.txt", readme)
-        self.assertIn("licenses/GPL-3.0.txt", readme)
+        self.assertIn("unpackrat's own source", readme)
+        self.assertIn("[MIT License](LICENSE.txt)", readme)
 
     def test_readme_omits_the_removed_format_references_section(self) -> None:
         self.assertNotIn("### Format references", self.readme)

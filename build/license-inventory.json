@@ -857,29 +857,6 @@
       "notes": "RGSSAD format reference for the RPG Maker reader, including ck Lux's attribution. Recorded as a reference, not asserted as a linked runtime dependency."
     },
     {
-      "name": "ix-historical",
-      "kind": "adopted-source",
-      "scope": "build",
-      "appliesTo": [],
-      "packaged": false,
-      "incorporated": true,
-      "declaredExpression": "MIT",
-      "version": "66726a904152246fbef8b27e26e878840f6d7fb7",
-      "vcpkgName": null,
-      "source": {
-        "origin": "reference",
-        "recipe": null,
-        "patches": [],
-        "url": "https://github.com/pg83/ix",
-        "sha512": [],
-        "sha256": []
-      },
-      "notices": [
-        "licenses/IX.txt"
-      ],
-      "notes": "Historical IX build-tooling attribution retained in licenses/IX.txt. Historical Zanzarah GPL-2.0-or-later references were resolved as format inspiration with human owner confirmation; this entry is not a copied GPL component."
-    },
-    {
       "name": "unpackrat-build-main",
       "kind": "adopted-source",
       "scope": "build",
