@@ -97,7 +97,6 @@ class SupportedArchitectureDocumentTests(unittest.TestCase):
             "https://github.com/luxrck/rgssad",
             "https://github.com/birkenfeld/serde-pickle",
             "https://github.com/Shizmob/rpatool",
-            "https://github.com/pg83/ix",
         )
         urls = [
             str(component["source"].get("url"))

@@ -17,11 +17,9 @@ mirror an internal constant:
 * ``licenses/serde-pickle.txt`` keeps the selected MIT grant and records only the
   conservative Georg Brandl ``src/de.rs`` upstream reference, leaving the relation
   between our parser and that project unresolved instead of asserting a history;
-* ``README.md`` keeps the root grant, the Observer LGPL exception and the notice
-  directory while dropping the hand-maintained component/inspiration tables and the
-  audit implementation paragraph, so the released modules stay identical to the
-  current master document (the reviewed ``build/license-inventory.json`` source data
-  and the ORT audit remain described in ``docs/build-system.md``).
+* ``README.md`` keeps the grant for our own source and the release ZIP
+  ``LICENSES.txt`` statement while omitting implementation detail and component
+  tables; the actual retained notices and inventory are checked separately.
 """
 
 from __future__ import annotations
@@ -34,11 +32,13 @@ ROOT = Path(__file__).resolve().parents[2]
 LICENSES = ROOT / "licenses"
 README = ROOT / "README.md"
 
-# Every notice retained before the audit plus the new vcpkg source/build notice.
+# The current required notice set covers shipped dependencies, adopted source,
+# and release/build tooling. Historical IX build-tooling attribution was removed
+# with its obsolete source and build references.
 # A regression guard for "remove no retained grants"; new notices may be added.
 RETAINED_NOTICES = {
     "bcdec.txt", "brotli.txt", "Catch2.txt", "dr_libs.txt", "fastlz.txt", "godot.txt",
-    "GPL-3.0.txt", "IX.txt", "json.txt", "libogg.txt", "libspng.txt", "mbedcrypto.txt",
+    "GPL-3.0.txt", "json.txt", "libogg.txt", "libspng.txt", "mbedcrypto.txt",
     "Observer.txt", "qoa.txt", "rgssad.txt", "rpatool.txt", "serde-pickle.txt",
     "xxHash.txt", "zlib-ng.txt", "zstd.txt", "zycore.txt", "zydis.txt",
     "vcpkg.txt",
@@ -50,7 +50,7 @@ def notice(name: str) -> str:
 
 
 class RetainedNoticeTests(unittest.TestCase):
-    def test_no_previously_retained_notice_was_removed(self) -> None:
+    def test_required_current_notices_are_retained(self) -> None:
         present = {path.name for path in LICENSES.glob("*.txt")}
         self.assertEqual(RETAINED_NOTICES - present, set())
 
@@ -199,7 +199,7 @@ class SerdePickleNoticeTests(unittest.TestCase):
 
 
 class ReadmeLicenseSectionTests(unittest.TestCase):
-    """The README states the grants and defers the component list to the notices."""
+    """The README states the minimal own-source grant and defers notice inventory."""
 
     def test_readme_drops_the_hand_maintained_component_tables(self) -> None:
         readme = README.read_text(encoding="utf-8")
@@ -207,21 +207,15 @@ class ReadmeLicenseSectionTests(unittest.TestCase):
         self.assertNotIn("### Third-party components", readme)
         self.assertNotIn("### Sources of inspiration", readme)
 
-    def test_readme_keeps_the_root_grant_and_observer_exception_with_links(self) -> None:
+    def test_readme_keeps_the_root_grant_for_own_source(self) -> None:
         readme = README.read_text(encoding="utf-8")
         self.assertIn("[MIT License](LICENSE.txt)", readme)
-        self.assertIn("src/api.h", readme)
-        self.assertIn("LGPL-3.0", readme)
-        self.assertIn("licenses/Observer.txt", readme)
-        self.assertIn("licenses/GPL-3.0.txt", readme)
+        self.assertIn("unpackrat's own source", readme)
+        self.assertNotIn("One upstream file is an explicit exception", readme)
 
     def test_readme_omits_the_audit_implementation_paragraph(self) -> None:
-        # Scope correction: the released modules keep the current master versions and
-        # change logs, so the README keeps only the grants and the notice-directory
-        # promise. The audit implementation paragraph (the reviewed inventory source
-        # data, the OSS Review Toolkit workflow and its consolidated report) is gone
-        # from the README, while ``docs/build-system.md`` still documents the reviewed
-        # inventory and the shipped audit.
+        # The README omits audit implementation details, documented instead in
+        # ``docs/build-system.md``.
         readme = README.read_text(encoding="utf-8")
         self.assertNotIn("Every retained upstream notice lives in", readme)
         self.assertNotIn("build/license-inventory.json", readme)

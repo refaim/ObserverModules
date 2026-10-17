@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![CI](https://github.com/refaim/unpackrat/actions/workflows/main.yml/badge.svg)](https://github.com/refaim/unpackrat/actions/workflows/main.yml)
 
-unpackrat brings support for exotic game archives to FAR Manager. It ships as a set of Observer plugin
+unpackrat brings support for exotic archives to FAR Manager. It ships as a set of Observer plugin
 modules, one per archive format, that present an archive as an ordinary folder you can browse and
 extract from. Each module is a single self-contained DLL with its dependencies built in and no
 external runtime DLLs to install.
@@ -23,22 +23,6 @@ from the module's release listing below.
 | Zanzarah | `.pak` (original, Steam) | [zanzarah releases](https://github.com/refaim/unpackrat/releases?q=zanzarah) | [RU](src/modules/zanzarah/ChangeLog.ru.txt) [EN](src/modules/zanzarah/ChangeLog.en.txt) |
 | Godot | `.pck`, embedded PCK and same-stem EXE sidecars | [godot releases](https://github.com/refaim/unpackrat/releases?q=godot) | [RU](src/modules/godot/ChangeLog.ru.txt) [EN](src/modules/godot/ChangeLog.en.txt) |
 
-Godot restores imported assets to their original folders. In `[Godot]`, `DecodeResources=1`
-shows a converted file in place of its compiled original, such as `art/hero.png` in place of
-`art/hero.ctex`; unsupported resources keep their originals. The shipped INI enables this mode.
-`DecodeResources=0`, or a missing setting, shows originals and skips resource conversion. Import
-metadata remains visible in both modes; renamed paths are recorded in `name-map.tsv`.
-
-Media decoding and encoding run during extraction. Converted entries display the packed source
-size; converted extraction progress uses that same packed size. Texture containers are recognised by
-content and can hold PNG, WebP or raw/GPU image data. FontFile payloads retain their original font
-format. Conversion has no aggregate work quota or default image pixel/byte ceiling.
-
-Encrypted packs use keys recovered by static inspection of neighbouring EXEs, with complete
-plaintext MD5 verification. Games are never launched. If recovery cannot find a valid key, enter
-its 64 hexadecimal digits in Observer's password dialog. An EXE without an embedded pack can open
-its same-stem sibling `.pck`. Encrypted resources are decrypted in either presentation mode.
-
 Each module ZIP carries the module DLL for one architecture, its `observer_user.ini`, both
 human-written change logs and a generated `LICENSES.txt` at the archive root.
 
@@ -54,12 +38,6 @@ extract from with the usual FAR commands.
 ## License
 
 unpackrat's own source is released under the [MIT License](LICENSE.txt).
-
-One upstream file is an explicit exception: the Observer API header [`src/api.h`](src/api.h) stays
-under LGPL-3.0-only. Its notice is reproduced as [`licenses/Observer.txt`](licenses/Observer.txt), and
-because LGPLv3 incorporates the GNU GPLv3, the corresponding full GPLv3 text travels beside it as
-[`licenses/GPL-3.0.txt`](licenses/GPL-3.0.txt). Those two texts are always retained in every packaged
-module.
 
 ## Building
 
